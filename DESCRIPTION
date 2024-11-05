@@ -17,7 +17,8 @@ Depends:
     R (>= 3.0.2),
 Imports:
     Rcpp (>= 0.12.3),
-    generics (>= 0.1.2)
+    generics (>= 0.1.2),
+    smooth
 LinkingTo: Rcpp, RcppArmadillo (>= 0.8.100.0.0)
 Suggests:
 VignetteBuilder: knitr

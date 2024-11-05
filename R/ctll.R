@@ -40,6 +40,8 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
 
     obsEq <- match.arg(type);
 
+    obsInSample <- length(y);
+
     if(!is.ts(y)){
         y = as.ts(y)
     }
@@ -57,7 +59,8 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
                 compV = NULL,
                 table = "",
                 p = NULL)
-    m = structure(out, class = "ctll")
+    # smooth is here to get support for default plots etc.
+    m = structure(out, class=c("ctll","smooth"))
     # Re-doing u
     if (!is.null(m$u)){
         if (is.vector(m$u)){
@@ -92,11 +95,26 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
             m$compV = output$compV
         }
         colnames(m$comp) = strsplit(output$compNames, split = "/")[[1]]
-        m$table = output$table;
+        m$table = output$table
         if (!silent){
             cat(m$table)
         }
-        m$timeElapsed <- Sys.time()-startTime;
+        m$timeElapsed <- Sys.time()-startTime
+        # Create proper ts objects of fitted, forecast, residuals etc
+        m$fitted <- y
+        m$fitted[] <- m$comp[1:obsInSample,2]
+        m$forecast <- m$comp[-c(1:obsInSample),2]
+        m$fitted[is.nan(m$fitted)] <- NA
+        m$residuals <- m$comp[,1]
+        m$states <- m$comp[,3,drop=FALSE]
+        # Variance of the residuals
+        m$s2 <- sum(m$residuals^2, na.rm=TRUE)/(nobs(m))
+        # Estimated parameters
+        m$B <- m$p
+        m$model <- "Continuous Time Local Level"
+
+        m$comp <- NULL
+        m$p <- NULL
 
         return(m)
     }
