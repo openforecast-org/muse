@@ -2,8 +2,8 @@
  State Space systems class
  Needs Armadillo
 ***************************************/
-#include <armadillo>
-using namespace arma;
+// #include <armadillo>
+// using namespace arma;
 /***************************************************
   * Data structures
 ****************************************************/
@@ -68,7 +68,7 @@ struct SSinputs{
        Kinf,              // Kalman gain before colapsing
        PEnd,              // final P estimated
        rOut;              // Needed for outlier detection
-   cube NOut;             // Needed for outlier detection  
+   cube NOut;             // Needed for outlier detection
    int d_t = 0,           // colapsing observation
        nonStationaryTerms, // number of non stationary terms in state vector
        flag,              // output of optimization algorithm
@@ -392,7 +392,7 @@ void SSmodel::validate(bool estimateHess, double nPar){
     vec tBetas = betas / stdBetas;
     vec pValueBetas = 2 * (1- tCdf(tBetas, nn.n_elem - k));
     for (int i = 0; i < nu; i++){
-      snprintf(str, 70, "       %10.4f %10.4f %10.4f %10.4f %10.6f\n", betas(i), 
+      snprintf(str, 70, "       %10.4f %10.4f %10.4f %10.4f %10.6f\n", betas(i),
               stdBetas(i), tBetas(i), pValueBetas(i), datum::nan);
       inputs.table.push_back(str);
     }
@@ -478,9 +478,9 @@ void aP(vec& at, mat& Pt, vec& Kt, vec& vt, vec& Mt){
   Pt = Pt - Kt * Mt.t();
 }
 // Correction step in Kalman Filtering for every t
-void KFcorrection(bool miss, bool colapsed, bool steadyState, bool smooth, 
+void KFcorrection(bool miss, bool colapsed, bool steadyState, bool smooth,
                   SSinputs* data, mat CHCt,
-                  mat& Finft, vec& vt, double Dt, mat& Ft, mat& iFt, vec& at, mat& Pt, 
+                  mat& Finft, vec& vt, double Dt, mat& Ft, mat& iFt, vec& at, mat& Pt,
                   mat& Pinft, vec& Kt, uword t, vec& auxFinf, mat& auxKinf, mat Z){
   vec Mt, Minft, Kinft;
   mat KK;
@@ -556,21 +556,21 @@ double llik(vec& p, void* opt_data){
   setT(0, data->system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
   ///////////
   mat Pt,
-      Pinft, 
-      Ft(1, 1), 
-      Finft(1, 1), 
-      iFt(1, 1), 
+      Pinft,
+      Ft(1, 1),
+      Finft(1, 1),
+      iFt(1, 1),
       oldPt,
-      llikValue(1, 1), 
-      logF(1, 1), 
-      v2F(1, 1), 
+      llikValue(1, 1),
+      logF(1, 1),
+      v2F(1, 1),
       auxKinf;
-  vec at, 
-      Kt(ns), 
-      vt(1), 
+  vec at,
+      Kt(ns),
+      vt(1),
       auxFinf;
-  bool colapsed = false, 
-       steadyState = false, 
+  bool colapsed = false,
+       steadyState = false,
        miss = false;
   data->innVariance = 1;
   // Initializing variables
@@ -687,9 +687,9 @@ double llikAug(vec& p, void* opt_data){
   SSinputs* data = (SSinputs*)opt_data;
   // Running user function model (setting system matrices)
   data->userModel(p, &data->system, data->userInputs);
-  uword ns = data->system.T.n_rows, 
-        nMiss = 0, 
-        n = data->y.n_rows, 
+  uword ns = data->system.T.n_rows,
+        nMiss = 0,
+        n = data->y.n_rows,
         nu = data->u.n_rows,
         k = nu + ns;
   double tolsta = 1e-19;
@@ -699,27 +699,27 @@ double llikAug(vec& p, void* opt_data){
   ///////////
   mat Pt(ns, ns),
       oldPt(ns, ns),
-      Ft(1, 1), 
+      Ft(1, 1),
       FEnd(1, 1),
       llikValue(1, 1),
-      At(ns, k), 
+      At(ns, k),
       Sn(k, k),
       iSn(k, k),
       AtiSn(ns, k),
       VtiSn(1, k),
       PEndZ(ns ,1); //, W(ns, nu);
-  vec at(ns), 
+  vec at(ns),
       vt(1),
       vEnd(1),
-      sn(k), 
-      beta(k), 
-      Kt(ns), 
-      iFt(1), 
-      viFt(1), 
-      logF(1), 
-      v2F(1), 
+      sn(k),
+      beta(k),
+      Kt(ns),
+      iFt(1),
+      viFt(1),
+      logF(1),
+      v2F(1),
       snBeta(1);
-  rowvec Vt(k), 
+  rowvec Vt(k),
          Xt(k);
   bool miss = false,
        steadyState = false;
@@ -818,8 +818,8 @@ vec differential(vec p){
 // Analytic and numeric gradient of log-likelihood
 vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
   int nPar = p.n_elem;
-  vec grad(nPar), 
-      p0 = p, 
+  vec grad(nPar),
+      p0 = p,
       inc;
   SSinputs* data = (SSinputs*)opt_data;
   nFuns = 0;
@@ -829,30 +829,30 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     return grad;
   }
   if (data->exact){  // Analytical derivative
-    int ns = data->system.T.n_rows, 
-        n = data->y.n_elem, 
-        cQ, 
+    int ns = data->system.T.n_rows,
+        n = data->y.n_elem,
+        cQ,
         nMiss = 0;
-    mat GammaQ(ns, ns), 
-        Nt(ns, ns), 
-        RR(ns, ns), 
-        sysmatQ, 
-        sysmatR, 
+    mat GammaQ(ns, ns),
+        Nt(ns, ns),
+        RR(ns, ns),
+        sysmatQ,
+        sysmatR,
         Z = data->system.Z,
-        Gamma(ns + 1, ns + 1), 
-        Qt, 
-        dQt, 
-        dRQRt(ns, ns), 
-        Inew(ns, ns), 
+        Gamma(ns + 1, ns + 1),
+        Qt,
+        dQt,
+        dRQRt(ns, ns),
+        Inew(ns, ns),
         Lt(ns, ns);
-    vec rt(ns), 
-        vt(1), 
-        Kt(ns), 
-        GammaD(1), 
+    vec rt(ns),
+        vt(1),
+        Kt(ns),
+        GammaD(1),
         iFt(1),
-        e(1), 
-        D(1), 
-        Kinft(ns), 
+        e(1),
+        D(1),
+        Kinft(ns),
         Z_Ft(ns);
     double Finft = 0.0;
     bool colapsed = true;
@@ -987,7 +987,7 @@ mat hessLlik(void* optData){
 void auxFilter(unsigned int smooth, SSinputs& data){
   // smooth (0: filter, 1: smooth, 2: disturb)
   // double tolsta = 0; //1e-7;
-  uword n, 
+  uword n,
         ns,
         nMiss = 0;
   ///////////
@@ -995,19 +995,19 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   setT(0, data.system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
   ///////////
   mat Pt,
-      Pinft, 
-      Ft(1, 1), 
-      Finft(1, 1), 
+      Pinft,
+      Ft(1, 1),
+      Finft(1, 1),
       v2F(1, 1),
       iFt(1, 1); //, oldPt;  //, auxKinf;
-  vec at, 
-      Kt, 
+  vec at,
+      Kt,
       vt(1),
       data_F;  //, auxFinf;
-  bool colapsed = false, 
-       steadyState = false, 
+  bool colapsed = false,
+       steadyState = false,
        miss = false;
-  cube cP, 
+  cube cP,
        Pinf;
   // Initialising variables
   uword ny = data.y.n_elem;
@@ -1115,21 +1115,21 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   // Smoothing loop
   data.F = data_F;   // For final normalization of innovations
   if (smooth > 0){
-    mat Nt(ns, ns), 
-        Ninfti(ns, ns), 
-        N2t(ns, ns), 
+    mat Nt(ns, ns),
+        Ninfti(ns, ns),
+        N2t(ns, ns),
         PPinf(ns, ns); //, RR(ns, ns), sysmatQ, sysmatR, Z = data->system.Z;
-    mat Inew(ns, ns), 
-        Lt(ns, ns), 
-        Linft(ns, ns), 
-        LinftNt(ns, ns), 
+    mat Inew(ns, ns),
+        Lt(ns, ns),
+        Linft(ns, ns),
+        LinftNt(ns, ns),
         Ninft(ns, ns);
-    vec rt(ns), 
-        rinft(ns), 
-        Kinft(ns), 
-        Z_Ft(ns), 
+    vec rt(ns),
+        rinft(ns),
+        Kinft(ns),
+        Z_Ft(ns),
         Z_Finft(ns); //, eta; //, vt(1), Kt(ns), Ft(1), GammaD(1);
-      mat QRt, 
+      mat QRt,
           Veta,
           pinvVeta;
     bool colapsed = true;
