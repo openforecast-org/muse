@@ -1,5 +1,6 @@
-muse v0.0.1 (Release data: 2024-10-18)
+muse v0.0.1 (Release data: 2024-11-04)
 =======
 
 Changes:
 * Created the package
+* Diego uploaded the code for the ctll() and pts() functions. Ivan started preparing the documentation.
