@@ -41,6 +41,7 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
     obsEq <- match.arg(type);
 
     obsInSample <- length(y);
+    otLogical <- y!=0;
 
     if(!is.ts(y)){
         y = as.ts(y)
@@ -96,32 +97,74 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
         }
         colnames(m$comp) = strsplit(output$compNames, split = "/")[[1]]
         m$table = output$table
-        if (!silent){
-            cat(m$table)
-        }
         m$timeElapsed <- Sys.time()-startTime
         # Create proper ts objects of fitted, forecast, residuals etc
         m$fitted <- y
         m$fitted[] <- m$comp[1:obsInSample,2]
-        m$forecast <- m$comp[-c(1:obsInSample),2]
+        m$forecast <- m$yFor
+        m$variance <- m$yForV
         m$fitted[is.nan(m$fitted)] <- NA
+        #### Temporary solution with interpolated values ####
+        m$fitted[] <- approx(m$fitted, xout=c(1:obsInSample), rule=2)$y
         m$residuals <- m$comp[,1]
+        m$residuals[is.nan(m$residuals)] <- NA
         m$states <- m$comp[,3,drop=FALSE]
         # Variance of the residuals
         m$s2 <- sum(m$residuals^2, na.rm=TRUE)/(nobs(m))
         # Estimated parameters
-        m$B <- m$p
-        m$model <- "Continuous Time Local Level"
+        m$B <- setNames(as.vector(m$p), c("Var(eta)", "Var(epsilon)"))
+        m$model <- "Continuous Time Local Level Model"
+
+        if(log){
+            m$logLik <- sum(dlnorm(y[otLogical], m$fitted[otLogical], sqrt(m$s2), log=TRUE))
+            m$fitted[] <- exp(m$fitted)
+            m$forecast[] <- exp(m$forecast)
+        }
+        else{
+            m$logLik <- sum(dnorm(y[otLogical], m$fitted[otLogical], sqrt(m$s2), log=TRUE))
+        }
 
         m$comp <- NULL
         m$p <- NULL
+        m$yFor <- NULL
+        m$yForV <- NULL
+
+        if (!silent){
+            cat("Done!\n")
+            # print(m)
+            plot(m, 7)
+        }
 
         return(m)
     }
 }
 
 #' @export
-print.ctll <- function(x, ...){
+print.ctll <- function(x, digits=4, ...){
     cat("Time elapsed:",round(as.numeric(x$timeElapsed,units="secs"),2),"seconds\n");
-    cat(x$table)
+    cat(x$table);
+
+    cat("\nSample size:", nobs(x));
+    cat("\nNumber of estimated parameters:", nparam(x));
+    cat("\nNumber of degrees of freedom:", nobs(x)-nparam(x));
+
+    ICs <- c(AIC(x),AICc(x),BIC(x),BICc(x));
+    names(ICs) <- c("AIC","AICc","BIC","BICc");
+    cat("\nInformation criteria:\n");
+    print(round(ICs,digits));
+}
+
+#' @export
+coef.ctll <- function(object, ...){
+    return(object$B);
+}
+
+#' @export
+nparam.ctll <- function(object, ...){
+    return(length(coef(object)));
+}
+
+#' @export
+residuals.ctll <- function(object, ...){
+    return(object$residuals);
 }
