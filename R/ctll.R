@@ -23,10 +23,12 @@
 #'
 #' @return
 #'
-#' @seealso
+#' @seealso \code{\link[UComp]{UC}}, \code{\link[smooth]{adam}}
 #'
 #' @examples
-#' \dontrun{}
+#' y <- rpois(100,1)
+#' ctll(y)
+#'
 #' @rdname ctll
 #' @export
 ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
