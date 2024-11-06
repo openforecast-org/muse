@@ -1,16 +1,13 @@
-#include <iostream>
-#include <math.h>
-#include <string.h>
-#include <armadillo>
-using namespace arma;
-using namespace std;
-#include "DJPTtools.h"
-#include "optim.h"
-#include "stats.h"
-// #include "boxcox.h"
-#include "SSpaceTV.h"
-// #include "ARMAmodel.h"
-// #include "ETSmodel.h"
+// #include <iostream>
+// #include <math.h>
+// #include <string.h>
+// #include <armadillo>
+// using namespace arma;
+// using namespace std;
+// #include "DJPTtools.h"
+// #include "optim.h"
+// #include "stats.h"
+// #include "SSpaceTV.h"
 
 /**************************
  * Model CLASS Continuous Time level model
