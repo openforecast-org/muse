@@ -11,23 +11,6 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
-// INTLEVELc
-SEXP INTLEVELc(SEXP ys, SEXP us, SEXP hs, SEXP obsEqs, SEXP verboses, SEXP p0s, SEXP logTransforms);
-RcppExport SEXP _muse_INTLEVELc(SEXP ysSEXP, SEXP usSEXP, SEXP hsSEXP, SEXP obsEqsSEXP, SEXP verbosesSEXP, SEXP p0sSEXP, SEXP logTransformsSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type ys(ysSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type us(usSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type hs(hsSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type obsEqs(obsEqsSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type verboses(verbosesSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type p0s(p0sSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type logTransforms(logTransformsSEXP);
-    rcpp_result_gen = Rcpp::wrap(INTLEVELc(ys, us, hs, obsEqs, verboses, p0s, logTransforms));
-    return rcpp_result_gen;
-END_RCPP
-}
 // MSOEc
 SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rhoss, SEXP hs, SEXP tTests, SEXP criterions, SEXP ps, SEXP rubbish2s, SEXP rubbishs, SEXP verboses, SEXP stepwises, SEXP estimOks, SEXP p0s, SEXP vs, SEXP yFitVs, SEXP nonStationaryTermss, SEXP rubbish3s, SEXP harmonicss, SEXP criterias, SEXP cycleLimitss, SEXP betass, SEXP typeOutlierss, SEXP TVPs, SEXP trendOptionss, SEXP seasonalOptionss, SEXP irregularOptionss);
 RcppExport SEXP _muse_MSOEc(SEXP commandsSEXP, SEXP ysSEXP, SEXP usSEXP, SEXP modelsSEXP, SEXP periodssSEXP, SEXP rhossSEXP, SEXP hsSEXP, SEXP tTestsSEXP, SEXP criterionsSEXP, SEXP psSEXP, SEXP rubbish2sSEXP, SEXP rubbishsSEXP, SEXP verbosesSEXP, SEXP stepwisesSEXP, SEXP estimOksSEXP, SEXP p0sSEXP, SEXP vsSEXP, SEXP yFitVsSEXP, SEXP nonStationaryTermssSEXP, SEXP rubbish3sSEXP, SEXP harmonicssSEXP, SEXP criteriasSEXP, SEXP cycleLimitssSEXP, SEXP betassSEXP, SEXP typeOutlierssSEXP, SEXP TVPsSEXP, SEXP trendOptionssSEXP, SEXP seasonalOptionssSEXP, SEXP irregularOptionssSEXP) {
@@ -67,10 +50,27 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// INTLEVELc
+SEXP INTLEVELc(SEXP ys, SEXP us, SEXP hs, SEXP obsEqs, SEXP verboses, SEXP p0s, SEXP logTransforms);
+RcppExport SEXP _muse_INTLEVELc(SEXP ysSEXP, SEXP usSEXP, SEXP hsSEXP, SEXP obsEqsSEXP, SEXP verbosesSEXP, SEXP p0sSEXP, SEXP logTransformsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type ys(ysSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type us(usSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type hs(hsSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type obsEqs(obsEqsSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type verboses(verbosesSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type p0s(p0sSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type logTransforms(logTransformsSEXP);
+    rcpp_result_gen = Rcpp::wrap(INTLEVELc(ys, us, hs, obsEqs, verboses, p0s, logTransforms));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_muse_INTLEVELc", (DL_FUNC) &_muse_INTLEVELc, 7},
     {"_muse_MSOEc", (DL_FUNC) &_muse_MSOEc, 29},
+    {"_muse_INTLEVELc", (DL_FUNC) &_muse_INTLEVELc, 7},
     {NULL, NULL, 0}
 };
 
