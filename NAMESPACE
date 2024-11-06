@@ -2,6 +2,7 @@
 
 S3method(coef,ctll)
 S3method(fitted,PTS)
+S3method(forecast,ctll)
 S3method(plot,PTS)
 S3method(print,PTS)
 S3method(print,ctll)
@@ -35,4 +36,5 @@ export(modelUC2PTS)
 export(modelUC2arma)
 export(nparam.ctll)
 export(size)
+importFrom(generics,forecast)
 useDynLib(muse)

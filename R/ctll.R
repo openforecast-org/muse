@@ -12,6 +12,8 @@
 #' variable is a price of a product. Example of the flow variable is the income over
 #' time.
 #' @param h Length of forecasting horizon.
+#' @param holdout If TRUE, then the holdout of the size h is taken from the data
+#' (can be used for the model testing purposes).
 #' @param silent Specifies, whether to provide the progress of the function
 #' or not. If TRUE, then the function will print what it does and how much it
 #' has already done.
@@ -21,7 +23,7 @@
 #' @template authors
 #' @template keywords
 #'
-#' @return
+#' @return The object of the class ctll.
 #'
 #' @seealso \code{\link[UComp]{UC}}, \code{\link[smooth]{adam}}
 #'
@@ -32,7 +34,7 @@
 #' @rdname ctll
 #' @export
 ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
-                h=12, silent=TRUE, B=c(0.1, 0.1)){
+                h=12, holdout=FALSE, silent=TRUE, B=c(0.1, 0.1)){
     # Copyright (C) 2024 - Inf  Diego Pedregal & Ivan Svetunkov
 
     # Start measuring the time of calculations
@@ -40,13 +42,77 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
 
     obsEq <- match.arg(type);
 
-    obsInSample <- length(y);
-    otLogical <- y!=0;
-
-    if(!is.ts(y)){
-        y = as.ts(y)
+    #### This part allows us working with any class for y, not just ts
+    #### Extract the class and indices to use the further in the code
+    ### tsibble has its own index function, so shit happens because of it...
+    if(inherits(y,"tbl_ts")){
+        yIndex <- y[[1]];
+        if(any(duplicated(yIndex))){
+            warning(paste0("You have duplicated time stamps in the variable ",yName,
+                           ". I will refactor this."),call.=FALSE);
+            yIndex <- yIndex[1] + c(1:length(y[[1]])) * diff(tail(yIndex,2));
+        }
     }
-    out =  list(y = y,
+    else{
+        yIndex <- try(time(y),silent=TRUE);
+        # If we cannot extract time, do something
+        if(inherits(yIndex,"try-error")){
+            if(!is.data.frame(y) && !is.null(dim(y))){
+                yIndex <- as.POSIXct(rownames(y));
+            }
+            else if(is.data.frame(y)){
+                yIndex <- c(1:nrow(y));
+            }
+            else{
+                yIndex <- c(1:length(y));
+            }
+        }
+    }
+    yClasses <- class(y);
+    # If this is just a numeric variable, use ts class
+    if(all(yClasses=="integer") || all(yClasses=="numeric")){
+        if(any(class(yIndex) %in% c("POSIXct","Date"))){
+            yClasses <- "zoo";
+        }
+        else{
+            yClasses <- "ts";
+        }
+    }
+    yFrequency <- frequency(y);
+    yStart <- yIndex[1];
+
+    # Define obs, the number of observations of in-sample
+    obsAll <- length(y) + (1 - holdout)*h;
+    obsInSample <- length(y) - holdout*h;
+
+    yInSample <- matrix(y[1:obsInSample],ncol=1);
+    if(holdout){
+        yForecastStart <- yIndex[obsInSample+1];
+        yHoldout <- matrix(y[-c(1:obsInSample)],ncol=1);
+        yForecastIndex <- yIndex[-c(1:obsInSample)];
+        yInSampleIndex <- yIndex[c(1:obsInSample)];
+        yIndexAll <- yIndex;
+    }
+    else{
+        yInSampleIndex <- yIndex;
+        yIndexDiff <- diff(tail(yIndex,2));
+        yForecastStart <- yIndex[obsInSample]+yIndexDiff;
+        if(any(yClasses=="ts")){
+            yForecastIndex <- yIndex[obsInSample]+as.numeric(yIndexDiff)*c(1:max(h,1));
+        }
+        else{
+            yForecastIndex <- yIndex[obsInSample]+yIndexDiff*c(1:max(h,1));
+        }
+        yHoldout <- NULL;
+        yIndexAll <- c(yIndex,yForecastIndex);
+    }
+
+    otLogical <- yInSample!=0;
+
+    # if(!is.ts(y)){
+    #     y = as.ts(y)
+    # }
+    out =  list(y = yInSample,
                 u = u,
                 h = h,
                 obsEq = obsEq,
@@ -73,47 +139,71 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
         }
     }
     # Running C++ code
-    output = INTLEVELc(as.numeric(m$y), u, h, obsEq, !silent, B, log)
+    output = INTLEVELc(yInSample, u, h, obsEq, !silent, B, log)
     # Preparing outputs
     if (length(output) == 1){   # ERROR!!
         stop()
     } else {
-        m$p = output$p
+        # m$p = output$p
         lu = size(m$u)[1]
         if (lu > 0)
-            m$h = lu - length(m$y)
-        if (is.ts(m$y) && m$h > 0){
-            fake = ts(c(m$y, NA), start = start(m$y), frequency = frequency(m$y))
-            m$yFor = ts(output$yFor, start = end(fake), frequency = frequency(m$y))
-            m$yForV = ts(output$yForV, start = end(fake), frequency = frequency(m$y))
-            m$comp = ts(output$comp, start = start(m$y), frequency = frequency(m$y))
-            m$compV = ts(output$compV, start = start(m$y), frequency = frequency(m$y))
-        } else if (m$h > 0) {
-            m$yFor = output$yFor
-            m$yForV = output$yForV
-            m$ySimul = output$ySimul
-            m$comp = output$comp
-            m$compV = output$compV
-        }
-        colnames(m$comp) = strsplit(output$compNames, split = "/")[[1]]
-        m$table = output$table
-        m$timeElapsed <- Sys.time()-startTime
+            m$h = lu - obsInSample
+
         # Create proper ts objects of fitted, forecast, residuals etc
-        m$fitted <- y
-        m$fitted[] <- m$comp[1:obsInSample,2]
-        m$forecast <- m$yFor
-        m$variance <- m$yForV
+        if(any(yClasses=="ts")){
+            m$fitted <- ts(rep(NA,obsInSample), start=yStart, frequency=yFrequency)
+            m$residuals <- ts(output$comp[1:obsInSample,1], start=yStart, frequency=yFrequency)
+            if(h>0){
+                m$forecast <- ts(output$yFor, start=yForecastStart, frequency=yFrequency)
+                m$variance <- ts(output$yForV, start=yForecastStart, frequency=yFrequency)
+                if(holdout){
+                    m$holdout <- ts(yHoldout, start=yForecastStart, frequency=yFrequency)
+                }
+            }
+        }
+        else{
+            m$fitted <- zoo(rep(NA,obsInSample), order.by=yInSampleIndex)
+            m$residuals <- zoo(output$comp[,1], order.by=yInSampleIndex)
+            if(h>0){
+                m$forecast <- zoo(output$yFor, order.by=yForecastIndex)
+                m$variance <- zoo(output$yForV, order.by=yForecastIndex)
+                if(holdout){
+                    m$holdout <- zoo(yHoldout, order.by=yForecastIndex)
+                }
+            }
+        }
+        m$fitted[] <- output$comp[1:obsInSample,2]
         m$fitted[is.nan(m$fitted)] <- NA
         #### Temporary solution with interpolated values ####
         m$fitted[] <- approx(m$fitted, xout=c(1:obsInSample), rule=2)$y
-        m$residuals <- m$comp[,1]
         m$residuals[is.nan(m$residuals)] <- NA
+
+#         # Create
+#         if(is.ts(m$yInSample) && m$h > 0){
+#             fake = ts(c(m$y, NA), start = start(m$y), frequency = frequency(m$y))
+#             m$yFor = ts(output$yFor, start = end(fake), frequency = frequency(m$y))
+#             m$yForV = ts(output$yForV, start = end(fake), frequency = frequency(m$y))
+#             m$comp = ts(output$comp, start = start(m$y), frequency = frequency(m$y))
+#             m$compV = ts(output$compV, start = start(m$y), frequency = frequency(m$y))
+#         } else if (m$h > 0) {
+#             m$yFor = output$yFor
+#             m$yForV = output$yForV
+#             m$ySimul = output$ySimul
+#             m$comp = output$comp
+#             m$compV = output$compV
+#         }
+
+        # colnames(m$comp) = strsplit(output$compNames, split = "/")[[1]]
+        m$table = output$table
+        m$timeElapsed <- Sys.time()-startTime
+
         m$states <- m$comp[,3,drop=FALSE]
         # Variance of the residuals
         m$s2 <- sum(m$residuals^2, na.rm=TRUE)/(nobs(m))
         # Estimated parameters
-        m$B <- setNames(as.vector(m$p), c("Var(eta)", "Var(epsilon)"))
+        m$B <- setNames(as.vector(output$p), c("Var(eta)", "Var(epsilon)"))
         m$model <- "Continuous Time Local Level Model"
+        m$log <- log
 
         if(log){
             m$logLik <- sum(dlnorm(y[otLogical], m$fitted[otLogical], sqrt(m$s2), log=TRUE))
@@ -167,4 +257,24 @@ nparam.ctll <- function(object, ...){
 #' @export
 residuals.ctll <- function(object, ...){
     return(object$residuals);
+}
+
+#' @rdname ctll
+#' @param object The estimated ctll object.
+#' @param interval The type of the interval to construct. Currently, only
+#' the prediction interval is supported.
+#' @param level The confidence level, the value lying between 0 and 1.
+#' @param side Whether to produce a prediction interval (\code{"both"})
+#' or produce an upper/lower quantile only.
+#' @param cumulative Logical, specifying whether to return the cumulative
+#' point forecasts and quantiles.
+#' @param ... Other parameters (not yet used).
+#' @importFrom generics forecast
+#' @export
+forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
+                          level=0.95, side=c("both", "upper", "lower"),
+                          cumulative=FALSE, ...){
+    yInSample <- actuals(object)
+
+    output = INTLEVELc(yInSample, object$u, h, object$obsEq, FALSE, object$B, object$log)
 }

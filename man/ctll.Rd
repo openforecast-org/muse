@@ -2,10 +2,15 @@
 % Please edit documentation in R/ctll.R
 \name{ctll}
 \alias{ctll}
+\alias{forecast.ctll}
 \title{Continuous time Local Level model}
 \usage{
 ctll(y, u = NULL, type = c("stock", "flow"), log = TRUE, h = 12,
-  silent = TRUE, B = c(0.1, 0.1))
+  holdout = FALSE, silent = TRUE, B = c(0.1, 0.1))
+
+\method{forecast}{ctll}(object, h = 10, interval = c("prediction", "none"),
+  level = 0.95, side = c("both", "upper", "lower"), cumulative = FALSE,
+  ...)
 }
 \arguments{
 \item{y}{Vector or ts object, containing data needed to be forecasted.}
@@ -18,11 +23,32 @@ time.}
 
 \item{h}{Length of forecasting horizon.}
 
+\item{holdout}{If TRUE, then the holdout of the size h is taken from the data
+(can be used for the model testing purposes).}
+
 \item{silent}{Specifies, whether to provide the progress of the function
 or not. If TRUE, then the function will print what it does and how much it
 has already done.}
 
 \item{B}{The vector of initial parameters (variances).}
+
+\item{object}{The estimated ctll object.}
+
+\item{interval}{The type of the interval to construct. Currently, only
+the prediction interval is supported.}
+
+\item{level}{The confidence level, the value lying between 0 and 1.}
+
+\item{side}{Whether to produce a prediction interval (\code{"both"})
+or produce an upper/lower quantile only.}
+
+\item{cumulative}{Logical, specifying whether to return the cumulative
+point forecasts and quantiles.}
+
+\item{...}{Other parameters (not yet used).}
+}
+\value{
+The object of the class ctll.
 }
 \description{
 Function applies and estimates the continuous time local level model.
