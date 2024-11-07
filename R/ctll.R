@@ -162,6 +162,7 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
             }
         }
         else{
+            m$y <- zoo(yInSample, order.by=yInSampleIndex)
             m$fitted <- zoo(rep(NA,obsInSample), order.by=yInSampleIndex)
             m$residuals <- zoo(output$comp[,1], order.by=yInSampleIndex)
             if(h>0){
