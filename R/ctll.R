@@ -109,9 +109,6 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
 
     otLogical <- yInSample!=0;
 
-    # if(!is.ts(y)){
-    #     y = as.ts(y)
-    # }
     out =  list(y = yInSample,
                 u = u,
                 h = h,
@@ -151,6 +148,7 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
 
         # Create proper ts objects of fitted, forecast, residuals etc
         if(any(yClasses=="ts")){
+            m$y <- ts(yInSample, start=yStart, frequency=yFrequency)
             m$fitted <- ts(rep(NA,obsInSample), start=yStart, frequency=yFrequency)
             m$residuals <- ts(output$comp[1:obsInSample,1], start=yStart, frequency=yFrequency)
             if(h>0){
@@ -174,9 +172,11 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
             }
         }
         m$fitted[] <- output$comp[1:obsInSample,2]
-        m$fitted[is.nan(m$fitted)] <- NA
         #### Temporary solution with interpolated values ####
-        m$fitted[] <- approx(m$fitted, xout=c(1:obsInSample), rule=2)$y
+        if(any(is.nan(m$fitted))){
+            m$fitted[is.nan(m$fitted)] <- NA
+            m$fitted[] <- approx(m$fitted, xout=c(1:obsInSample), rule=2)$y
+        }
         m$residuals[is.nan(m$residuals)] <- NA
 
 #         # Create
