@@ -85,10 +85,10 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
     obsAll <- length(y) + (1 - holdout)*h;
     obsInSample <- length(y) - holdout*h;
 
-    yInSample <- matrix(y[1:obsInSample],ncol=1);
+    yInSample <- y[1:obsInSample];
     if(holdout){
         yForecastStart <- yIndex[obsInSample+1];
-        yHoldout <- matrix(y[-c(1:obsInSample)],ncol=1);
+        yHoldout <- y[-c(1:obsInSample)];
         yForecastIndex <- yIndex[-c(1:obsInSample)];
         yInSampleIndex <- yIndex[c(1:obsInSample)];
         yIndexAll <- yIndex;
