@@ -5,10 +5,11 @@
  ***************************/
 class INTLEVELclass{
 public:
+    vec y;
     bool errorExit = false, logTransform = true;
     string obsEq = "stock"; // "stock" or "flow"
-    mat comp, compV;
-    uword nObs;
+    mat u, comp, compV;
+    uword nObs, h;
     string compNames = "Error/Fit/Level";
     uvec tNonZero, thCum;
     // Other classes
@@ -19,7 +20,7 @@ public:
     INTLEVELclass(vec, mat, int, string, bool, vec, bool);
     // Rest of methods
     void estim(){m.estim();};
-    void forecast(){m.forecast();};
+    void forecast();
     // void filter(){m.filter();};
     void smooth();   // Smooth and forecast
     void validate();
@@ -45,6 +46,9 @@ INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
         }
     }
     uvec t = find(y != 0.0);
+    this->u = u;
+    if (u.n_rows > 0)
+        u = u.cols(t);
     if (logTransform)
         y(t) = log(y(t));
     uvec aux = t.tail_rows(1); uword lastT = aux(0);
@@ -64,27 +68,89 @@ INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
         this->thCum = thCum;
         this->nObs = y.n_rows + h;
         this->logTransform = logTransform;
+        this->h = h;
+        // y for smooth/forecast
+        // this->y.resize(nObs);
+        // this->y.fill(datum::nan);
+        // this->y(t) = y(t);
     }
     this->obsEq = obsEq;
 }
+// Forecast function
+void INTLEVELclass::forecast(){
+    // Cumulative predictions   **********************
+    // m.forecast();
+    // mSS.aEnd and mSS.PEnd already are the one step ahead forecasts
+    mSS = m.getInputs();
+    uword delta = tNonZero(mSS.y.n_rows - 1) - tNonZero(mSS.y.n_rows - 2);
+    vec beta, l = regspace<vec>(delta, h + delta - 1);
+    double varEta = exp(2 * mSS.p(0)), varEps = exp(2 * mSS.p(1));
+    mat PT;
+    mat u;
+    if (mSS.u.n_rows > 0){
+        u = mSS.u.tail_cols(h);
+        beta = mSS.p.rows(2, 1 + u.n_rows);
+    }
+    if (obsEq[0] == 's'){
+        mSS.yFor.resize(h);
+        mSS.yFor.fill(mSS.aEnd(0));
+        if (u.n_rows > 0)
+            mSS.yFor += u.t() * beta;
+        PT = (mSS.PEnd(0, 0) - varEps) / delta - varEta;
+        mSS.FFor = l * (PT + varEta) + varEps;   // 9.2.17 Harvey
+    } else{
+        mSS.yFor = mSS.aEnd(1)+ (l - delta) * mSS.aEnd(1) / delta;  // divided by delta_T
+        if (u.n_rows > 0)
+            mSS.yFor += u.t() * beta;
+        PT = (mSS.PEnd(1, 1) - delta * varEps - 1.0 / 3.0  * delta * delta * delta * varEta) / (delta * delta);
+        mSS.FFor = pow(l, 2) * PT + 1.0 / 3.0 * pow(l, 3) * varEta + l * varEps;  // 9.3.26 Harvey
+    }
+    m.setInputs(mSS);
+}
+// Smoothing function
 void INTLEVELclass::smooth(){
-    m.smooth(false);
-    SSinputs mSS = m.SSmodel::getInputs();
-    // uword nObs = mSS.y.n_rows;
-    // Components
-    uword nBefore = mSS.y.n_rows - mSS.v.n_rows;
     mat v(nObs, 1, fill::value(datum::nan)), F(nObs, 1), Ffit = v,
         yFit = v, a = v, P = v;
-    v.rows(tNonZero.rows(nBefore, mSS.v.n_rows)) = mSS.v;
-    F.rows(tNonZero.rows(nBefore, mSS.v.n_rows)) = mSS.F;
-    Ffit = F;
-    // Ffit.rows(tNonZero.rows(mSS.y.n_rows, tNonZero.n_rows - 1)) = mSS.FFor;
-    yFit.rows(tNonZero) = mSS.yFit;
-    a.rows(tNonZero) = mSS.a.row(0).t();
-    P.rows(tNonZero) = mSS.P.row(0).t();
+    if (true){    // interpolating and forecasting with smoothing algorithm
+        SSinputs mSS = m.SSmodel::getInputs();
+        vec y(nObs, fill::value(datum::nan));
+        y(tNonZero.rows(0, mSS.y.n_rows - 1)) = mSS.y;
+        CTLEVELclass mSmooth(mSS, y, u, regspace<vec>(1, y.n_rows), obsEq, this->mSS.verbose,
+                             exp(2 * this->mSS.p));
+        mSmooth.smooth(false);
+        mSS = mSmooth.SSmodel::getInputs();
+        v.tail_rows(mSS.v.n_rows) = mSS.v;
+        if (obsEq[0] == 's')
+            F.tail_rows(mSS.v.n_rows) = mSS.F;
+        else
+            F.tail_rows(mSS.v.n_rows) = mSS.P(span(1, 1), span(1, mSS.v.n_rows)).t();
+        Ffit = F;
+        // Ffit.rows(tNonZero.rows(mSS.y.n_rows, tNonZero.n_rows - 1)) = mSS.FFor;
+        yFit = mSS.yFit;
+        a = mSS.a.row(0).t();
+        P = mSS.P.row(0).t();
+    } else{
+        // Just components without interpolation
+        m.smooth(false);
+        SSinputs mSS = m.SSmodel::getInputs();
+        // uword nObs = mSS.y.n_rows;
+        // Components
+        // uword nBefore = mSS.y.n_rows - mSS.v.n_rows;
+        v.rows(tNonZero.rows(1, mSS.v.n_rows)) = mSS.v;
+        if (obsEq[0] == 's')
+            F.rows(tNonZero.rows(1, mSS.v.n_rows)) = mSS.F;
+        else
+            F.rows(tNonZero.rows(1, mSS.v.n_rows)) = mSS.P(span(1, 1), span(1, mSS.v.n_rows)).t();
+        Ffit = F;
+        // Ffit.rows(tNonZero.rows(mSS.y.n_rows, tNonZero.n_rows - 1)) = mSS.FFor;
+        yFit.rows(tNonZero) = mSS.yFit;
+        a.rows(tNonZero) = mSS.a.row(0).t();
+        P.rows(tNonZero) = mSS.P.row(0).t();
+    }
     comp = join_horiz(v, yFit, a);
     compV = join_horiz(F, F, P);
 }
+// Validation function
 void INTLEVELclass::validate(){
     char str[45];
     mSS = m.getInputs();
@@ -99,10 +165,13 @@ void INTLEVELclass::validate(){
     }
     snprintf(str, 45, " %s\n", MODEL.c_str());
     mSS.table.push_back(str);
-    if (logTransform)
-        snprintf(str, 45, " Logarthm transformation: Yes\n");
+    if (obsEq[1] == 's')
+        snprintf(str, 45, " Stock output\n");
     else
-        snprintf(str, 45, " Logarthm transformation: No\n");
+        snprintf(str, 45, " Flow output\n");
+    mSS.table.push_back(str);
+    if (logTransform)
+        snprintf(str, 45, " Log-transformed data\n");
     mSS.table.push_back(str);
     snprintf(str, 45, " %s", mSS.estimOk.c_str());
     mSS.table.push_back(str);

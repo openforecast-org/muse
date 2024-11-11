@@ -1498,12 +1498,9 @@ bool checkSystem(SSmatrix& sys){
     if (sum(tvMatrices > 0.0))
         sys.tvp = true;
     sys.tvMatrices = find(tvMatrices);
-    mat subR, subC;
-    subR = R.rows(0, R.n_cols - 1);
-    subC = C.rows(0, C.n_cols - 1);
-    if (tvMatrices(2) == 0 && sum(sum((subR - eye(R.n_cols, R.n_cols)))) == 0)
+    if (tvMatrices(2) == 0 && R.n_rows == R.n_cols && sum(sum((R - eye(R.n_cols, R.n_cols)))) == 0)
         sys.identityR = true;
-    if (tvMatrices(6) == 0 && sum(sum((subC - eye(C.n_cols, C.n_cols)))) == 0)
+    if (tvMatrices(6) == 0 && C.n_rows == C.n_cols && sum(sum((C - eye(C.n_cols, C.n_cols)))) == 0)
         sys.identityC = true;
     // if (sys.identityR && tvMatrices(3) == 0)
     //     sys.constantRQR = true;

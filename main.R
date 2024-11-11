@@ -1,21 +1,27 @@
 rm(list = ls())
-source("R/INTLEVEL.R")
+source("R/ctll.R")
 source("R/PTSfunctions.R")
 source("R/PTSS3functions.R")
 source("R/MSOEfunctions.R")
-Rcpp::sourceCpp("src/INTLEVELcpp2R.cpp")
-Rcpp::sourceCpp("src/MSOEc.cpp")
+Rcpp::sourceCpp("src/musecpp2R.cpp")
 
-# PTS example
-m = PTS(AirPassengers, model="zzz", verbose=TRUE)
-m = PTSestim(m)
-m = PTSsmooth(m)
-m = PTSvalidate(m)
+x = 1000 + rnorm(1000, 0, 1)
+test = ctll(x, silent=FALSE)
+
+stop()
+
+
+
+
+
 # Intermittent example
 y = ts(read.table("y.txt", header = FALSE, sep = "", dec = "."))
 # Continuous time
 h = 12
-m = funName(y, verbose = TRUE, h=h, logTransform = TRUE)
+m = ctll(y, silent=F, h=h, log = TRUE, type="flow")
+
+
+
 # plot
 # plot(y[ind], type="l")
 # lines(exp(m$comp[ind, 3]))
@@ -25,3 +31,10 @@ print(cbind(exp(m$yFor), exp(m$yFor + 2 * sqrt(m$yForV))))
 # plot with all data
 # plot(y, type="l")
 # lines(m$comp[, 3])
+
+
+# PTS example
+m = PTS(AirPassengers, model="zzz", verbose=TRUE)
+m = PTSestim(m)
+m = PTSsmooth(m)
+m = PTSvalidate(m)

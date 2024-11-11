@@ -112,13 +112,16 @@ CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
             sys.D = sys.Gam = sys.S = 0.0;
             // sys.delta = delta;
         } else{
-            printf("%s", "Not done yet!!!!!");
-            // sys.T.set_size(1, 1); sys.T(0, 0) = 1.0;
-            // sys.R = sys.T;
-            // sys.Q.set_size(t.n_elem, 1); sys.Q.fill(1.0);
-            // sys.Z = sys.T;
-            // sys.C = sys.T;
-            // sys.H = sys.T;
+            // printf("%s", "Not done yet!!!!!");
+            sys.T.set_size(2 * (t.n_elem), 2);
+            sys.T.fill(0.0);
+            sys.T.col(0).fill(1.0);
+            sys.R = {{1.0, 0.0, 0.0}, {0.0, 1.0, 1.0}};
+            sys.Z = {0, 1};
+            sys.C = {0.0};
+            sys.H = {0.0};
+            sys.Q.set_size(3 * t.n_elem, 3);
+            sys.Q.fill(0.0);
         }
         errorExit = checkSystem(sys);
         // Creating model object
@@ -155,10 +158,19 @@ void CTLEVELmatrices(vec p, SSmatrix* model, void* userInputs){
     // CTLEVELmodel* funInputs = (CTLEVELmodel*)userInputs;
     CTLEVELmodel* funInputs = static_cast<CTLEVELmodel*>(userInputs);
     if (funInputs->obsEq[0] == 's'){
-        // model->Q = exp(2 * p(0)) * model->delta;
         model->Q = exp(2 * p(0)) * funInputs->delta;
         model->H = exp(2 * p(1));
     } else{
-        printf("%s", "flow variables not done yet!!!");
+        uvec indC(1, fill::zeros);
+        model->T(regspace<uvec>(1, 2, model->T.n_rows - 1), indC) = funInputs->delta;
+        uvec indR = regspace<uvec>(0, 3, model->Q.n_rows - 1);
+        double varEta = exp(2 * p(0));
+        // mat aux(model->n, 1, fill::value(varEta));
+        model->Q(indR, indC) = funInputs->delta * varEta;
+        mat aux = 0.5 * pow(funInputs->delta, 2) * varEta;
+        model->Q(indR, indC + 1) = aux;
+        model->Q(indR + 1, indC) = aux;
+        model->Q(indR + 1, indC + 1) = (1.0 / 3.0) * pow(funInputs->delta, 3) * varEta;
+        model->Q(indR + 2, indC + 2) = funInputs->delta * exp(2 * p(1));
     }
 }
