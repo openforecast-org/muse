@@ -45,6 +45,11 @@ INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
             this->errorExit = true;
         }
     }
+    // Detecting logs and negative numbers
+    if (logTransform && any(y < 0)){
+        printf("%s", "ERROR: Data should be positive with log transformation!!!\n");
+        this->errorExit = true;
+    }
     uvec t = find(y != 0.0);
     this->u = u;
     if (u.n_rows > 0)

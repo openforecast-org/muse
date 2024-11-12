@@ -1,4 +1,4 @@
-// [[Rcpp::depends(RcppArmadillo)]] 
+// [[Rcpp::depends(RcppArmadillo)]]
 #include <RcppArmadillo.h>
 using namespace arma;
 using namespace std;
@@ -11,7 +11,7 @@ SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rho
            SEXP hs, SEXP tTests, SEXP criterions, SEXP ps, SEXP rubbish2s, SEXP rubbishs,
            SEXP verboses, SEXP stepwises, SEXP estimOks,
            SEXP p0s, SEXP vs, SEXP yFitVs, SEXP nonStationaryTermss,
-           SEXP rubbish3s, SEXP harmonicss, SEXP criterias, SEXP cycleLimitss, 
+           SEXP rubbish3s, SEXP harmonicss, SEXP criterias, SEXP cycleLimitss,
            SEXP betass, SEXP typeOutlierss, SEXP TVPs, SEXP trendOptionss,
            SEXP seasonalOptionss, SEXP irregularOptionss){
     // setbuf(stdout, NULL);
@@ -44,7 +44,7 @@ SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rho
     string trendOptions = CHAR(STRING_ELT(trendOptionss, 0));
     string seasonalOptions = CHAR(STRING_ELT(seasonalOptionss, 0));
     string irregularOptions = CHAR(STRING_ELT(irregularOptionss, 0));
-    
+
     vec y(yr.begin(), yr.size(), false);
     mat u(ur.begin(), ur.nrow(), ur.ncol(), false);
     vec periods(periodsr.begin(), periodsr.size(), false);
@@ -61,7 +61,7 @@ SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rho
     mat betas(betar.begin(), betar.nrow(), betar.ncol(), false);
     mat typeOutliers(typeOutliersr.begin(), typeOutliersr.nrow(), typeOutliersr.ncol(), false);
     vec TVP(TVPr.begin(), TVPr.size(), false);
-    
+
     // Correcting dimensions of u (k x n)
     size_t k = u.n_rows;
     size_t n = u.n_cols;
@@ -137,7 +137,7 @@ SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rho
     inputsSS.criteria = criteria;
     inputsSS.betaAug = betas.col(0);
     inputsSS.betaAugVar = betas.col(1);
-    
+
     inputsBSM.seas = rubbish(7);
     inputsBSM.stepwise = stepwise;
     inputsBSM.ns = rubbish3.col(0);
@@ -320,37 +320,23 @@ SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rho
 }
 
 // [[Rcpp::export]]
-SEXP INTLEVELc(SEXP ys, SEXP us, SEXP hs, SEXP obsEqs,
-               SEXP verboses, SEXP p0s, SEXP logTransforms){
-    // Translating inputs to armadillo data
-    // string command = CHAR(STRING_ELT(commands, 0));
-    NumericVector yr(ys);
-    mat u;
-    if (Rf_isNull(us)){
-        u.set_size(0, 0);
-    } else {
-        NumericMatrix ur(us);
-        mat aux(ur.begin(), ur.nrow(), ur.ncol(), false);
-        u = aux;
-        if (u.n_rows > u.n_cols)
-            u = u.t();
-    }
-    int h = as<int>(hs);
-    string obsEq = CHAR(STRING_ELT(obsEqs, 0));
-    NumericVector p0r(p0s);
-    bool verbose = as<bool>(verboses);
-    bool logTransform = as<bool>(logTransforms);
-    // Second step
-    vec y(yr.begin(), yr.size(), false);
-    vec p0(p0r.begin(), p0r.size(), false);
+SEXP INTLEVELc(string command, vec y, mat u, int h, string obsEq,
+               bool verbose, vec p0, bool logTransform){
+    if (u.n_rows > u.n_cols)
+        u = u.t();
     // Creating class
     INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform);
     if (mClass.errorExit)
         return List::create(Named("errorExit") = mClass.errorExit);
-    mClass.estim();
-    mClass.forecast();
-    mClass.smooth();
-    mClass.validate();
+    lower(command);
+    if (command[0] == 'e' || command[0] == 'f'){
+        mClass.estim();
+        mClass.forecast();
+    } else
+        mClass.estim();
+        mClass.forecast();
+        mClass.smooth();
+    }
     SSinputs m = mClass.m.SSmodel::getInputs();
     // Output
     return List::create(Named("p") = m.p,
@@ -362,5 +348,3 @@ SEXP INTLEVELc(SEXP ys, SEXP us, SEXP hs, SEXP obsEqs,
                         Named("compNames") = mClass.compNames
     );
 }
-
-
