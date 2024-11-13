@@ -332,7 +332,7 @@ SEXP INTLEVELc(string command, vec y, mat u, int h, string obsEq,
     if (command[0] == 'e' || command[0] == 'f'){
         mClass.estim();
         mClass.forecast();
-    } else
+    } else{
         mClass.estim();
         mClass.forecast();
         mClass.smooth();
