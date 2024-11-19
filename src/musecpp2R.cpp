@@ -320,17 +320,28 @@ SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rho
 }
 
 // [[Rcpp::export]]
-SEXP INTLEVELc(char command, arma::vec y, arma::mat u, int h, std::string obsEq,
+SEXP INTLEVELc(char command, arma::vec y, SEXP us, int h, std::string obsEq,
                bool verbose, arma::vec p0, bool logTransform){
-    if (u.n_rows > u.n_cols)
-        u = u.t();
+
+    mat u;
+    if(Rf_isNull(us)){
+        u.set_size(0,0);
+    }
+    else{
+        NumericMatrix ur(us);
+        mat aux(ur.begin(), ur.nrow(), ur.ncol(), false);
+        u = aux;
+        if (u.n_rows > u.n_cols){
+            u = u.t();
+        }
+    }
     // Creating class
     INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform, true);
     if (mClass.errorExit)
         return List::create(Named("errorExit") = mClass.errorExit);
     // lower(command);
     // if (command[0] == 'e' || command[0] == 'f'){
-    if (command == 'e' || command == 'f'){
+    if (command == 'f'){
         mClass.forecast();
     } else{
         mClass.forecast();
