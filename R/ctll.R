@@ -109,29 +109,13 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
 
     otLogical <- yInSample!=0;
 
-    out =  list(y = yInSample,
-                u = u,
-                h = h,
-                obsEq = obsEq,
-                p0 = B,
-                verbose = !silent,
-                logTransform = log,
-                # outputs
-                yFor = NULL,
-                yForV = NULL,
-                comp = NULL,
-                compV = NULL,
-                table = "",
-                p = NULL)
-    # smooth is here to get support for default plots etc.
-    m = structure(out, class=c("ctll","smooth"))
     # Re-doing u
-    if (!is.null(m$u)){
-        if (is.vector(m$u)){
-            u = matrix(m$u, 1, length(m$u))
+    if (!is.null(u)){
+        if (is.vector(u)){
+            u = matrix(u, 1, length(u))
         } else {
-            nu = dim(m$u)
-            u = as.numeric(m$u);
+            nu = dim(u)
+            u = as.numeric(u);
             u = matrix(u, nu[1], nu[2])
         }
     }
@@ -141,6 +125,10 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
     if (length(output) == 1){   # ERROR!!
         stop()
     } else {
+
+        # smooth is here to get support for default plots etc.
+        m <- structure(list(y = yInSample), class=c("ctll","smooth"))
+
         # m$p = output$p
         lu = size(m$u)[1]
         if (lu > 0)
@@ -179,6 +167,13 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         }
         m$residuals[is.nan(m$residuals)] <- NA
 
+        m$type <- obsEq
+        m$B0 <- B
+        # Estimated parameters
+        m$B <- setNames(as.vector(output$p), c("Var(eta)"))
+        m$silent <- silent
+        m$log <- log
+
 #         # Create
 #         if(is.ts(m$yInSample) && m$h > 0){
 #             fake = ts(c(m$y, NA), start = start(m$y), frequency = frequency(m$y))
@@ -201,8 +196,6 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         m$states <- m$comp[,3,drop=FALSE]
         # Variance of the residuals
         m$s2 <- sum(m$residuals^2, na.rm=TRUE)/(nobs(m))
-        # Estimated parameters
-        m$B <- setNames(as.vector(output$p), c("Var(eta)"))
         m$model <- "Continuous Time Local Level Model"
         m$log <- log
 
