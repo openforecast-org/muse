@@ -325,15 +325,13 @@ SEXP INTLEVELc(string command, vec y, mat u, int h, string obsEq,
     if (u.n_rows > u.n_cols)
         u = u.t();
     // Creating class
-    INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform);
+    INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform, true);
     if (mClass.errorExit)
         return List::create(Named("errorExit") = mClass.errorExit);
     lower(command);
     if (command[0] == 'e' || command[0] == 'f'){
-        mClass.estim();
         mClass.forecast();
     } else{
-        mClass.estim();
         mClass.forecast();
         mClass.smooth();
     }

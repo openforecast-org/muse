@@ -24,7 +24,7 @@ public:
     CTLEVELmodel userInputs;
     // Constructors
     CTLEVELclass(){};
-    CTLEVELclass(SSinputs, vec, mat, vec, string, bool, vec);
+    CTLEVELclass(SSinputs, vec, mat, vec, string, bool, vec, bool);
     // Rest of methods
     // void CTLEVELmatrices(vec, SSmatrix*, void*);
     // void estim(){mSS.estim();};
@@ -36,7 +36,7 @@ public:
 /**************************
  * Functions declarations
  ***************************/
-void CTLEVEL(vec, mat, vec, string, bool, vec);
+void CTLEVEL(vec, mat, vec, string, bool, vec, bool);
 // CTLEVELclass preProcess(vec, mat, vec, string, bool, vec);
 void CTLEVELmatrices(vec, SSmatrix*, void*);
 /**************************
@@ -44,7 +44,7 @@ void CTLEVELmatrices(vec, SSmatrix*, void*);
 ***************************/
 // Constructor
 CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
-                           bool verbose, vec p0) : SSmodel(data){
+                           bool verbose, vec p0, bool cllik) : SSmodel(data){
     this->obsEq = obsEq;
     bool errorExit = false;
     // NaNs in u
@@ -75,14 +75,16 @@ CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
         printf("%s", "ERROR: Initial parameter values should be positive!!!\n");
         this->errorExit = true;
     }
+    // Concentrated likelihood on/off!!!!!!!
+    this->SSmodel::inputs.cLlik = cllik;   // Concentrated likelihood on/off
     // Initial estimate
-    if (p0.n_rows >= 2)
+    if (p0.n_rows >= 2 && !this->SSmodel::inputs.cLlik)
         p0 = log(p0.rows(0, 1)) / 2;
-    else if (p0.n_rows == 1){
-        vec p1(1, fill::value(-1.15));
+    else if (p0.n_rows == 1 && !this->SSmodel::inputs.cLlik){
+        vec p1(1, fill::value(p0(0)));
         p0 = join_vert(log(p0.row(0)) / 2, p1);
     } else
-        p0.resize(2).fill(-1.15);
+        p0.resize(1 + !this->SSmodel::inputs.cLlik).fill(-1.15);
     int h = t.n_rows - y.n_rows;
     // Setting up system matrices for CTL model
     // SSinputs input = this->mSS.getInputs();
@@ -131,7 +133,6 @@ CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
         this->SSmodel::inputs.verbose = verbose;
         this->SSmodel::inputs.system = sys;
         this->SSmodel::inputs.p0 = p0;
-        this->SSmodel::inputs.cLlik = false;   // Concentrated likelihood on/off
         // CTLEVELmodel userInputs;
         this->userInputs.delta.resize(delta.size());
         this->userInputs.delta = delta;
@@ -144,10 +145,10 @@ CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
     // mSS.setInputs(input);
 }
 // Main function
-void CTLEVEL(vec y, mat u, vec t, string obsEq, bool verbose, vec p0){
+void CTLEVEL(vec y, mat u, vec t, string obsEq, bool verbose, vec p0, bool cllik){
     // Building standard SS model
     SSinputs mSS;
-    CTLEVELclass mClass(mSS, y, u, t, obsEq, verbose, p0);
+    CTLEVELclass mClass(mSS, y, u, t, obsEq, verbose, p0, cllik);
     // mClass = preProcess(y, u, t, obsEq, verbose, p0);
     mClass.estim();
     mClass.filter();
@@ -159,7 +160,8 @@ void CTLEVELmatrices(vec p, SSmatrix* model, void* userInputs){
     CTLEVELmodel* funInputs = static_cast<CTLEVELmodel*>(userInputs);
     if (funInputs->obsEq[0] == 's'){
         model->Q = exp(2 * p(0)) * funInputs->delta;
-        model->H = exp(2 * p(1));
+        if (p.n_rows > 1)
+            model->H = exp(2 * p(1));
     } else{
         uvec indC(1, fill::zeros);
         model->T(regspace<uvec>(1, 2, model->T.n_rows - 1), indC) = funInputs->delta;
@@ -171,6 +173,8 @@ void CTLEVELmatrices(vec p, SSmatrix* model, void* userInputs){
         model->Q(indR, indC + 1) = aux;
         model->Q(indR + 1, indC) = aux;
         model->Q(indR + 1, indC + 1) = (1.0 / 3.0) * pow(funInputs->delta, 3) * varEta;
-        model->Q(indR + 2, indC + 2) = funInputs->delta * exp(2 * p(1));
+        model->Q(indR + 2, indC + 2) = funInputs->delta;
+        if (p.n_rows > 1)
+            model->Q(indR + 2, indC + 2) *= exp(2 * p(1));
     }
 }

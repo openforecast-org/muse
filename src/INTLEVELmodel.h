@@ -6,7 +6,7 @@
 class INTLEVELclass{
 public:
     vec y;
-    bool errorExit = false, logTransform = true;
+    bool errorExit = false, logTransform = true, cllik = true, aggStock = true;
     string obsEq = "stock"; // "stock" or "flow"
     mat u, comp, compV;
     uword nObs, h;
@@ -17,9 +17,9 @@ public:
     CTLEVELmodel userInputs;
     CTLEVELclass m;
     // Constructor
-    INTLEVELclass(vec, mat, int, string, bool, vec, bool);
+    INTLEVELclass(vec, mat, int, string, bool, vec, bool, bool);
     // Rest of methods
-    void estim(){m.estim();};
+    // void estim(){m.estim();};
     void forecast();
     // void filter(){m.filter();};
     void smooth();   // Smooth and forecast
@@ -28,14 +28,14 @@ public:
 /**************************
  * Functions declarations
  ***************************/
-void INTLEVEL(vec, mat, int, string, bool, vec);
+void INTLEVEL(vec, mat, int, string, bool, vec, bool);
 // INTLEVELclass preProcess(vec, mat, int, string, bool, vec);
 /**************************
  * Functions implementations
  ***************************/
 // Constructor
 INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
-                             vec p0, bool logTransform){
+                             vec p0, bool logTransform, bool cllik){
     bool errorExit = false;
     // Correcting h in case there are inputs
     if (u.n_cols > 0){
@@ -52,8 +52,12 @@ INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
     }
     uvec t = find(y != 0.0);
     this->u = u;
-    if (u.n_rows > 0)
-        u = u.cols(t);
+    if (u.n_rows > 0){
+        if (u.n_cols > t.n_rows)
+            u = join_horiz(u.cols(t), u.cols(t(t.n_rows), u.n_cols - 1));
+        else
+            u = u.cols(t);
+    }
     if (logTransform)
         y(t) = log(y(t));
     uvec aux = t.tail_rows(1); uword lastT = aux(0);
@@ -61,7 +65,7 @@ INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
     uvec th = join_vert(t, regspace<uvec>(lastT + 1, lastT + h));
     uvec thCum = join_vert(t, lastT + cumsum(regspace<uvec>(1, h)));
     if (!errorExit){
-        CTLEVELclass m(mSS, y(t), u, conv_to<vec>::from(thCum), obsEq, verbose, p0);
+        CTLEVELclass m(mSS, y(t), u, conv_to<vec>::from(thCum), obsEq, verbose, p0, cllik);
         this->m = m;
         this->userInputs = m.userInputs;
         mSS = this->m.getInputs();
@@ -74,6 +78,8 @@ INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
         this->nObs = y.n_rows + h;
         this->logTransform = logTransform;
         this->h = h;
+        this->cllik = cllik;
+        this->aggStock = false;
         // y for smooth/forecast
         // this->y.resize(nObs);
         // this->y.fill(datum::nan);
@@ -86,30 +92,61 @@ void INTLEVELclass::forecast(){
     // Cumulative predictions   **********************
     // m.forecast();
     // mSS.aEnd and mSS.PEnd already are the one step ahead forecasts
+    m.estim();
     mSS = m.getInputs();
     uword delta = tNonZero(mSS.y.n_rows - 1) - tNonZero(mSS.y.n_rows - 2);
-    vec beta, l = regspace<vec>(delta, h + delta - 1);
-    double varEta = exp(2 * mSS.p(0)), varEps = exp(2 * mSS.p(1));
-    mat PT;
+    vec beta, l;
+    double varEta = exp(2 * mSS.p(0));
+    double varEps;
+    if (mSS.p.n_rows > 1 + mSS.u.n_rows)
+        varEps = exp(2 * mSS.p(1));
+    else
+        varEps = mSS.innVariance;
+    double PT;
     mat u;
     if (mSS.u.n_rows > 0){
         u = mSS.u.tail_cols(h);
         beta = mSS.p.rows(2, 1 + u.n_rows);
     }
+    if (mSS.cLlik)
+        mSS.PEnd *= mSS.innVariance;
+    PT = mSS.PEnd(0, 0);
     if (obsEq[0] == 's'){
+        l = regspace<vec>(delta, delta + h - 1);
         mSS.yFor.resize(h);
-        mSS.yFor.fill(mSS.aEnd(0));
-        if (u.n_rows > 0)
-            mSS.yFor += u.t() * beta;
-        PT = (mSS.PEnd(0, 0) - varEps) / delta - varEta;
-        mSS.FFor = l * (PT + varEta) + varEps;   // 9.2.17 Harvey
+        mSS.FFor = mSS.yFor;
+        if (aggStock){
+            // SS for aggregated output
+            l = regspace<vec>(1, h);
+            mSS.yFor = l * mSS.aEnd;
+            mat F(2, 2, fill::ones); F(0, 1) = 0;
+            mat Pt(2, 2, fill::value(varEta));
+            Pt(0, 0) = mSS.PEnd(0, 0);
+            Pt(1, 1) = mSS.PEnd(0, 0) + varEps;
+            mat Q(2, 2, fill::zeros);
+            Q(0, 0) = varEta;
+            Q(1, 1) = varEps;
+            for (uword i = 0; i < h; i++){
+                mSS.FFor(i) = Pt(1, 1);
+                Pt = F * Pt * F.t() + F * Q * F.t();
+            }
+        } else {
+            mSS.yFor.fill(mSS.aEnd(0));
+            mSS.FFor = PT + (l - delta) * varEta + varEps;   // 9.2.17 Harvey (490) or 3.5.8b (148)
+        }
     } else{
-        mSS.yFor = mSS.aEnd(1)+ (l - delta) * mSS.aEnd(1) / delta;  // divided by delta_T
-        if (u.n_rows > 0)
-            mSS.yFor += u.t() * beta;
-        PT = (mSS.PEnd(1, 1) - delta * varEps - 1.0 / 3.0  * delta * delta * delta * varEta) / (delta * delta);
-        mSS.FFor = pow(l, 2) * PT + 1.0 / 3.0 * pow(l, 3) * varEta + l * varEps;  // 9.3.26 Harvey
+        // aEnd and PEnd is one step ahead forecast for end + 1
+        // Danger when the last observation is preceded by zeros
+        l = regspace<vec>(1, h + delta);
+        vec aux(h + delta);
+        aux = (l - 1) * mSS.aEnd(0) / delta;
+        mSS.yFor = aux.tail_rows(h);
+        PT -= delta * varEta;
+        aux = pow(l, 2) * PT + 1.0 / 3.0 * pow(l, 3) * varEta + l * varEps;  // 9.3.26 Harvey (498)
+        mSS.FFor = aux.tail_rows(h);
     }
+    if (u.n_rows > 0)
+        mSS.yFor += u.rows(span(mSS.y.n_rows, u.n_cols)).t() * beta;
     m.setInputs(mSS);
 }
 // Smoothing function
@@ -121,7 +158,7 @@ void INTLEVELclass::smooth(){
         vec y(nObs, fill::value(datum::nan));
         y(tNonZero.rows(0, mSS.y.n_rows - 1)) = mSS.y;
         CTLEVELclass mSmooth(mSS, y, u, regspace<vec>(1, y.n_rows), obsEq, this->mSS.verbose,
-                             exp(2 * this->mSS.p));
+                             exp(2 * this->mSS.p), this->cllik);
         mSmooth.smooth(false);
         mSS = mSmooth.SSmodel::getInputs();
         v.tail_rows(mSS.v.n_rows) = mSS.v;
@@ -170,22 +207,36 @@ void INTLEVELclass::validate(){
     }
     snprintf(str, 45, " %s\n", MODEL.c_str());
     mSS.table.push_back(str);
-    if (obsEq[1] == 's')
+    if (obsEq[0] == 's')
         snprintf(str, 45, " Stock output\n");
     else
         snprintf(str, 45, " Flow output\n");
     mSS.table.push_back(str);
-    if (logTransform)
+    if (logTransform){
         snprintf(str, 45, " Log-transformed data\n");
-    mSS.table.push_back(str);
+        mSS.table.push_back(str);
+    }
     snprintf(str, 45, " %s", mSS.estimOk.c_str());
     mSS.table.push_back(str);
     mSS.table.push_back("------------------------------------\n");
     mSS.table.push_back("                 Param     |Grad| \n");
     mSS.table.push_back("------------------------------------\n");
-    snprintf(str, 45, " Var(eta):  %10.4f %10.6f\n", exp(2 * mSS.p(0)), abs(mSS.grad(0)));
+    double varEta = exp(2 * mSS.p(0)), varEps, ggrad = 0.0;
+    if (varEta < 1e-4)
+        snprintf(str, 45, " Var(eta):  %10.2e %10.6f\n", varEta, abs(mSS.grad(0)));
+    else
+        snprintf(str, 45, " Var(eta):  %10.4f %10.6f\n", varEta, abs(mSS.grad(0)));
     mSS.table.push_back(str);
-    snprintf(str, 45, " Var(eps):  %10.4f %10.6f\n", exp(2 * mSS.p(1)), abs(mSS.grad(1)));
+    if (mSS.p.n_rows + mSS.u.n_rows > 1){
+        varEps = exp(2 * mSS.p(1));
+        ggrad = abs(mSS.grad(1));
+    } else{
+        varEps= mSS.innVariance;
+    }
+    if (varEps < 1e-4)
+        snprintf(str, 45, " Var(eps):  %10.2e %10.6f\n", varEps, ggrad);
+    else
+        snprintf(str, 45, " Var(eps):  %10.4f %10.6f\n", varEps, ggrad);
     mSS.table.push_back(str);
     mSS.table.push_back("------------------------------------\n");
     snprintf(str, 45, "  AIC: %8.4f     BIC: %8.4f\n", mSS.criteria(1), mSS.criteria(2));
@@ -196,11 +247,11 @@ void INTLEVELclass::validate(){
     m.setInputs(mSS);
 }
 // Main function
-void INTLEVEL(vec y, mat u, int h, string obsEq, bool verbose, vec p0, bool logTransform){
+void INTLEVEL(vec y, mat u, int h, string obsEq, bool verbose, vec p0, bool logTransform, bool cllik){
     // Building standard SS model
-    INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform);
+    INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform, cllik);
     // mClass = preProcess(y, u, h, obsEq, verbose, p0);
-    mClass.estim();
+    // mClass.estim();
     mClass.forecast();
     // mClass.filter();
     mClass.smooth();

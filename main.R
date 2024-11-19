@@ -6,7 +6,7 @@ source("R/MSOEfunctions.R")
 Rcpp::sourceCpp("src/musecpp2R.cpp")
 
 x = 1000 + rnorm(1000, 0, 1)
-trash(x, silent=FALSE, log=T)
+ctll(x, silent=FALSE, log=T)
 
 stop()
 
