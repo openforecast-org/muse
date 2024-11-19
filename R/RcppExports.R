@@ -5,7 +5,7 @@ MSOEc <- function(commands, ys, us, models, periodss, rhoss, hs, tTests, criteri
     .Call('_muse_MSOEc', PACKAGE = 'muse', commands, ys, us, models, periodss, rhoss, hs, tTests, criterions, ps, rubbish2s, rubbishs, verboses, stepwises, estimOks, p0s, vs, yFitVs, nonStationaryTermss, rubbish3s, harmonicss, criterias, cycleLimitss, betass, typeOutlierss, TVPs, trendOptionss, seasonalOptionss, irregularOptionss)
 }
 
-INTLEVELc <- function(ys, us, hs, obsEqs, verboses, p0s, logTransforms) {
-    .Call('_muse_INTLEVELc', PACKAGE = 'muse', ys, us, hs, obsEqs, verboses, p0s, logTransforms)
+INTLEVELc <- function(command, y, u, h, obsEq, verbose, p0, logTransform) {
+    .Call('_muse_INTLEVELc', PACKAGE = 'muse', command, y, u, h, obsEq, verbose, p0, logTransform)
 }
 

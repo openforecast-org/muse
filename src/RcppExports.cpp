@@ -51,26 +51,27 @@ BEGIN_RCPP
 END_RCPP
 }
 // INTLEVELc
-SEXP INTLEVELc(SEXP ys, SEXP us, SEXP hs, SEXP obsEqs, SEXP verboses, SEXP p0s, SEXP logTransforms);
-RcppExport SEXP _muse_INTLEVELc(SEXP ysSEXP, SEXP usSEXP, SEXP hsSEXP, SEXP obsEqsSEXP, SEXP verbosesSEXP, SEXP p0sSEXP, SEXP logTransformsSEXP) {
+SEXP INTLEVELc(std::string command, arma::vec y, arma::mat u, int h, std::string obsEq, bool verbose, arma::vec p0, bool logTransform);
+RcppExport SEXP _muse_INTLEVELc(SEXP commandSEXP, SEXP ySEXP, SEXP uSEXP, SEXP hSEXP, SEXP obsEqSEXP, SEXP verboseSEXP, SEXP p0SEXP, SEXP logTransformSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type ys(ysSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type us(usSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type hs(hsSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type obsEqs(obsEqsSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type verboses(verbosesSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type p0s(p0sSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type logTransforms(logTransformsSEXP);
-    rcpp_result_gen = Rcpp::wrap(INTLEVELc(ys, us, hs, obsEqs, verboses, p0s, logTransforms));
+    Rcpp::traits::input_parameter< std::string >::type command(commandSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type y(ySEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type u(uSEXP);
+    Rcpp::traits::input_parameter< int >::type h(hSEXP);
+    Rcpp::traits::input_parameter< std::string >::type obsEq(obsEqSEXP);
+    Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type p0(p0SEXP);
+    Rcpp::traits::input_parameter< bool >::type logTransform(logTransformSEXP);
+    rcpp_result_gen = Rcpp::wrap(INTLEVELc(command, y, u, h, obsEq, verbose, p0, logTransform));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
     {"_muse_MSOEc", (DL_FUNC) &_muse_MSOEc, 29},
-    {"_muse_INTLEVELc", (DL_FUNC) &_muse_INTLEVELc, 7},
+    {"_muse_INTLEVELc", (DL_FUNC) &_muse_INTLEVELc, 8},
     {NULL, NULL, 0}
 };
 

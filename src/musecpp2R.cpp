@@ -320,8 +320,8 @@ SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rho
 }
 
 // [[Rcpp::export]]
-SEXP INTLEVELc(string command, vec y, mat u, int h, string obsEq,
-               bool verbose, vec p0, bool logTransform){
+SEXP INTLEVELc(std::string command, arma::vec y, arma::mat u, int h, std::string obsEq,
+               bool verbose, arma::vec p0, bool logTransform){
     if (u.n_rows > u.n_cols)
         u = u.t();
     // Creating class
