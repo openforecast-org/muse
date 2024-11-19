@@ -5,7 +5,7 @@
 \alias{forecast.ctll}
 \title{Continuous time Local Level model}
 \usage{
-ctll(y, u = NULL, type = c("stock", "flow"), log = TRUE, h = 12,
+ctll(y, u = NULL, type = c("stock", "flow"), log = FALSE, h = 12,
   holdout = FALSE, silent = TRUE, B = c(0.1, 0.1))
 
 \method{forecast}{ctll}(object, h = 10, interval = c("prediction", "none"),

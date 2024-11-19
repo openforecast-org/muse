@@ -33,7 +33,7 @@
 #'
 #' @rdname ctll
 #' @export
-ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
+ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
                 h=12, holdout=FALSE, silent=TRUE, B=c(0.1, 0.1)){
     # Copyright (C) 2024 - Inf  Diego Pedregal & Ivan Svetunkov
 
@@ -85,7 +85,7 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
     obsAll <- length(y) + (1 - holdout)*h;
     obsInSample <- length(y) - holdout*h;
 
-    yInSample <- y[1:obsInSample];
+    yInSample <- as.matrix(y[1:obsInSample]);
     if(holdout){
         yForecastStart <- yIndex[obsInSample+1];
         yHoldout <- y[-c(1:obsInSample)];
@@ -136,7 +136,7 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
         }
     }
     # Running C++ code
-    output = INTLEVELc(yInSample, u, h, obsEq, !silent, B, log)
+    output = INTLEVELc("e", yInSample, u, h, obsEq, !silent, B, log)
     # Preparing outputs
     if (length(output) == 1){   # ERROR!!
         stop()
@@ -202,7 +202,7 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=TRUE,
         # Variance of the residuals
         m$s2 <- sum(m$residuals^2, na.rm=TRUE)/(nobs(m))
         # Estimated parameters
-        m$B <- setNames(as.vector(output$p), c("Var(eta)", "Var(epsilon)"))
+        m$B <- setNames(as.vector(output$p), c("Var(eta)"))
         m$model <- "Continuous Time Local Level Model"
         m$log <- log
 
