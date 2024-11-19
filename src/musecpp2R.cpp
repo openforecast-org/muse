@@ -320,7 +320,7 @@ SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rho
 }
 
 // [[Rcpp::export]]
-SEXP INTLEVELc(std::string command, arma::vec y, arma::mat u, int h, std::string obsEq,
+SEXP INTLEVELc(char command, arma::vec y, arma::mat u, int h, std::string obsEq,
                bool verbose, arma::vec p0, bool logTransform){
     if (u.n_rows > u.n_cols)
         u = u.t();
@@ -328,8 +328,9 @@ SEXP INTLEVELc(std::string command, arma::vec y, arma::mat u, int h, std::string
     INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform, true);
     if (mClass.errorExit)
         return List::create(Named("errorExit") = mClass.errorExit);
-    lower(command);
-    if (command[0] == 'e' || command[0] == 'f'){
+    // lower(command);
+    // if (command[0] == 'e' || command[0] == 'f'){
+    if (command == 'e' || command == 'f'){
         mClass.forecast();
     } else{
         mClass.forecast();
