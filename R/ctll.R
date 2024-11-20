@@ -200,18 +200,19 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         m$log <- log
 
         if(log){
-            m$logLik <- sum(dlnorm(y[otLogical], m$fitted[otLogical], sqrt(m$s2), log=TRUE))
+            m$logLik <- sum(dlnorm(y[otLogical], m$fitted[otLogical], sqrt(m$s2), log=TRUE), na.rm=TRUE)
             m$fitted[] <- exp(m$fitted)
             m$forecast[] <- exp(m$forecast)
         }
         else{
-            m$logLik <- sum(dnorm(y[otLogical], m$fitted[otLogical], sqrt(m$s2), log=TRUE))
+            m$logLik <- sum(dnorm(y[otLogical], m$fitted[otLogical], sqrt(m$s2), log=TRUE), na.rm=TRUE)
         }
 
         m$comp <- NULL
         m$p <- NULL
         m$yFor <- NULL
         m$yForV <- NULL
+        m$u <- u
 
         if (!silent){
             cat("Done!\n")
@@ -268,7 +269,15 @@ residuals.ctll <- function(object, ...){
 forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
                           level=0.95, side=c("both", "upper", "lower"),
                           cumulative=FALSE, ...){
-    yInSample <- actuals(object)
+    yInSample <- as.matrix(actuals(object))
 
-    output = INTLEVELc(yInSample, object$u, h, object$obsEq, FALSE, object$B, object$log)
+    B <- object$B
+    if(object$log){
+        B <- exp(object$B)
+    }
+
+    output <- INTLEVELc("e", yInSample, object$u, h,
+                        object$type, FALSE, B, object$log)
+
+    print(output)
 }
