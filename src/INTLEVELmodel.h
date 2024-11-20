@@ -46,12 +46,13 @@ INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
         }
     }
     // Detecting logs and negative numbers
-    if (logTransform && any(y <= 0)){
+    if (logTransform && any(y < 0)){
         printf("%s", "ERROR: Data should be positive with log transformation!!!\n");
         this->errorExit = true;
     }
     // Ignore the missing values. This is how we encode the gaps
     uvec t =  find_finite(y);
+    // uvec t = find(y != 0.0);
     this->u = u;
     if (u.n_rows > 0){
         if (u.n_cols > t.n_rows)
@@ -160,6 +161,15 @@ void INTLEVELclass::smooth(){
         y(tNonZero.rows(0, mSS.y.n_rows - 1)) = mSS.y;
         CTLEVELclass mSmooth(mSS, y, u, regspace<vec>(1, y.n_rows), obsEq, this->mSS.verbose,
                              exp(2 * this->mSS.p), this->cllik);
+        // Set up system with correct parameters
+        mSS = mSmooth.getInputs();
+        CTLEVELmodel aux;
+        aux.delta.resize(mSS.y.n_rows);
+        aux.delta.fill(1.0);
+        aux.obsEq = obsEq;
+        CTLEVELmatrices(mSS.p, &mSS.system, &aux);
+        mSmooth.setInputs(mSS);
+        // Smoothing
         mSmooth.smooth(false);
         mSS = mSmooth.SSmodel::getInputs();
         v.tail_rows(mSS.v.n_rows) = mSS.v;
@@ -264,5 +274,7 @@ void INTLEVEL(vec y, mat u, int h, string obsEq, bool verbose, vec p0, bool logT
     for (unsigned int i = 0; i < mSS.table.size(); i++){
         printf("%s ", mSS.table[i].c_str());
     }
+    mat comp = exp(mClass.comp);
+    comp.col(1).t().print("components");
 }
 
