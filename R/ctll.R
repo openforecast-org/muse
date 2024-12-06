@@ -193,19 +193,20 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         m$table = output$table
         m$timeElapsed <- Sys.time()-startTime
 
-        m$states <- m$comp[,3,drop=FALSE]
+        m$states <- output$comp[,3,drop=FALSE]
         # Variance of the residuals
-        m$s2 <- sum(m$residuals^2, na.rm=TRUE)/(nobs(m))
+        m$scale <- sum(m$residuals^2, na.rm=TRUE)/(nobs(m))
         m$model <- "Continuous Time Local Level Model"
         m$log <- log
 
         if(log){
-            m$logLik <- sum(dlnorm(y[otLogical], m$fitted[otLogical], sqrt(m$s2), log=TRUE), na.rm=TRUE)
+            m$logLik <- sum(dlnorm(y[otLogical], m$fitted[otLogical], sqrt(m$scale), log=TRUE), na.rm=TRUE)
+            #### !!! This needs to be amended with the variance !!! ####
             m$fitted[] <- exp(m$fitted)
             m$forecast[] <- exp(m$forecast)
         }
         else{
-            m$logLik <- sum(dnorm(y[otLogical], m$fitted[otLogical], sqrt(m$s2), log=TRUE), na.rm=TRUE)
+            m$logLik <- sum(dnorm(y[otLogical], m$fitted[otLogical], sqrt(m$scale), log=TRUE), na.rm=TRUE)
         }
 
         m$comp <- NULL
@@ -269,15 +270,48 @@ residuals.ctll <- function(object, ...){
 forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
                           level=0.95, side=c("both", "upper", "lower"),
                           cumulative=FALSE, ...){
+    side <- match.arg(side);
+    interval <- match.arg(interval);
+
     yInSample <- as.matrix(actuals(object))
 
-    B <- object$B
-    if(object$log){
+    # B <- object$B
+    # if(object$log){
         B <- exp(object$B)
-    }
+    # }
 
-    output <- INTLEVELc("e", yInSample, object$u, h,
+    output <- INTLEVELc("f", yInSample, object$u, h,
                         object$type, FALSE, B, object$log)
 
-    print(output)
+    yMean <- yForecast <- output$yFor
+    yVariance <- output$yForV
+
+    if(interval=="prediction"){
+        if(side=="upper"){
+            yLower <- qnorm(level, mean=yForecast, sd=sqrt(yVariance))
+            yUpper <- rep(-Inf, h)
+        }
+        else if(side=="both"){
+            yLower <- qnorm((1-level)/2, mean=yForecast, sd=sqrt(yVariance))
+            yUpper <- qnorm((1+level)/2, mean=yForecast, sd=sqrt(yVariance))
+        }
+        else{
+            yLower <- rep(Inf, h)
+            yUpper <- qnorm(1-level, mean=yForecast, sd=sqrt(yVariance))
+        }
+    }
+    else{
+        yLower <- yUpper <- NULL;
+    }
+
+    if(object$log){
+        yMean[] <- exp(yMean + yVariance/2);
+        yLower[] <- exp(yLower)
+        yUpper[] <- exp(yUpper)
+    }
+
+    return(structure(list(model=object, mean=yMean, location=yForecast, variance=yVariance,
+                          lower=yLower, upper=yUpper, level=level,
+                          side=side, interval=interval, cumulative=cumulative),
+                     class="smooth.forecast"));
 }
