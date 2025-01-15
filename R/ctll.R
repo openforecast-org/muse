@@ -201,9 +201,9 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
 
         if(log){
             m$logLik <- sum(dlnorm(y[otLogical], m$fitted[otLogical], sqrt(m$scale), log=TRUE), na.rm=TRUE)
-            #### !!! This needs to be amended with the variance !!! ####
-            m$fitted[] <- exp(m$fitted)
-            m$forecast[] <- exp(m$forecast)
+            #### Variance here gives the mean from the log Normal distribution
+            m$fitted[] <- exp(m$fitted + m$variance[1]/2)
+            m$forecast[] <- exp(as.vector(m$forecast) + as.vector(m$variance)/2)
         }
         else{
             m$logLik <- sum(dnorm(y[otLogical], m$fitted[otLogical], sqrt(m$scale), log=TRUE), na.rm=TRUE)
