@@ -273,31 +273,74 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
     side <- match.arg(side);
     interval <- match.arg(interval);
 
-    yInSample <- as.matrix(actuals(object))
+    yInSample <- actuals(object);
+    obsInSample <- nobs(object);
 
     # B <- object$B
     # if(object$log){
         B <- exp(object$B)
     # }
 
-    output <- INTLEVELc("f", yInSample, object$u, h,
+    yIndex <- time(yInSample);
+    yClasses <- class(yInSample);
+    # Create indices for the future
+    if(any(yClasses=="ts")){
+        # ts structure
+        yForecastStart <- time(yInSample)[obsInSample]+deltat(yInSample);
+        yFrequency <- frequency(yInSample);
+        yForecastIndex <- yIndex[obsInSample]+as.numeric(diff(tail(yIndex,2)))*c(1:h);
+    }
+    else{
+        # zoo
+        yIndex <- time(yInSample);
+        yForecastIndex <- yIndex[obsInSample]+diff(tail(yIndex,2))*c(1:h);
+    }
+
+    # How many levels did user asked to produce
+    nLevels <- length(level);
+    # Cumulative forecasts have only one observation
+    if(cumulative){
+        # hFinal is the number of elements we will have in the final forecast
+        hFinal <- 1;
+    }
+    else{
+        hFinal <- h;
+    }
+
+    # Create necessary matrices for the forecasts
+    if(any(yClasses=="ts")){
+        yVariance <- yMean <- yForecast <- ts(vector("numeric", hFinal), start=yForecastStart, frequency=yFrequency);
+        yUpper <- yLower <- ts(matrix(0,hFinal,nLevels), start=yForecastStart, frequency=yFrequency);
+    }
+    else{
+        if(cumulative){
+            yVariance <- yMean <- yForecast <- zoo(vector("numeric", hFinal), order.by=yForecastIndex[1]);
+            yUpper <- yLower <- zoo(matrix(0,hFinal,nLevels), order.by=yForecastIndex[1]);
+        }
+        else{
+            yVariance <- yMean <- yForecast <- zoo(vector("numeric", hFinal), order.by=yForecastIndex);
+            yUpper <- yLower <- zoo(matrix(0,hFinal,nLevels), order.by=yForecastIndex);
+        }
+    }
+
+    output <- INTLEVELc("f", as.matrix(yInSample), object$u, h,
                         object$type, FALSE, B, object$log)
 
-    yMean <- yForecast <- output$yFor
-    yVariance <- output$yForV
+    yMean[] <- yForecast[] <- output$yFor
+    yVariance[] <- output$yForV
 
     if(interval=="prediction"){
         if(side=="upper"){
-            yLower <- qnorm(level, mean=yForecast, sd=sqrt(yVariance))
-            yUpper <- rep(-Inf, h)
+            yLower[] <- qnorm(level, mean=yForecast, sd=sqrt(yVariance))
+            yUpper[] <- rep(-Inf, h)
         }
         else if(side=="both"){
-            yLower <- qnorm((1-level)/2, mean=yForecast, sd=sqrt(yVariance))
-            yUpper <- qnorm((1+level)/2, mean=yForecast, sd=sqrt(yVariance))
+            yLower[] <- qnorm((1-level)/2, mean=yForecast, sd=sqrt(yVariance))
+            yUpper[] <- qnorm((1+level)/2, mean=yForecast, sd=sqrt(yVariance))
         }
         else{
-            yLower <- rep(Inf, h)
-            yUpper <- qnorm(1-level, mean=yForecast, sd=sqrt(yVariance))
+            yLower[] <- rep(Inf, h)
+            yUpper[] <- qnorm(1-level, mean=yForecast, sd=sqrt(yVariance))
         }
     }
     else{
