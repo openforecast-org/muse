@@ -42,6 +42,8 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
 
     obsEq <- match.arg(type);
 
+    cl <- match.call();
+
     #### This part allows us working with any class for y, not just ts
     #### Extract the class and indices to use the further in the code
     ### tsibble has its own index function, so shit happens because of it...
@@ -165,6 +167,8 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
             m$fitted[is.nan(m$fitted)] <- NA
             m$fitted[] <- approx(m$fitted, xout=c(1:obsInSample), rule=2)$y
         }
+        # mu is the location of the distribution
+        m$mu <- m$fitted
         m$residuals[is.nan(m$residuals)] <- NA
 
         m$type <- obsEq
@@ -200,13 +204,13 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         m$log <- log
 
         if(log){
-            m$logLik <- sum(dlnorm(y[otLogical], m$fitted[otLogical], sqrt(m$scale), log=TRUE), na.rm=TRUE)
-            #### Variance here gives the mean from the log Normal distribution
+            m$logLik <- sum(dlnorm(yInSample[otLogical], m$fitted[otLogical], sqrt(m$scale), log=TRUE), na.rm=TRUE)
+            #### Fitted and Forecast here correspond to the mean of the log Normal distribution
             m$fitted[] <- exp(m$fitted + m$variance[1]/2)
             m$forecast[] <- exp(as.vector(m$forecast) + as.vector(m$variance)/2)
         }
         else{
-            m$logLik <- sum(dnorm(y[otLogical], m$fitted[otLogical], sqrt(m$scale), log=TRUE), na.rm=TRUE)
+            m$logLik <- sum(dnorm(yInSample[otLogical], m$fitted[otLogical], sqrt(m$scale), log=TRUE), na.rm=TRUE)
         }
 
         m$comp <- NULL
@@ -214,6 +218,7 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         m$yFor <- NULL
         m$yForV <- NULL
         m$u <- u
+        m$call <- cl
 
         if (!silent){
             cat("Done!\n")
@@ -227,7 +232,9 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
 
 #' @export
 print.ctll <- function(x, digits=4, ...){
-    cat("Time elapsed:",round(as.numeric(x$timeElapsed,units="secs"),2),"seconds\n");
+    cat("Time elapsed:",round(as.numeric(x$timeElapsed,units="secs"),2),"seconds");
+    cat(paste0("\nModel estimated using ",tail(all.vars(x$call[[1]]),1),
+               "() function: ",x$model));
     cat(x$table);
 
     cat("\nSample size:", nobs(x));
@@ -331,16 +338,16 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
 
     if(interval=="prediction"){
         if(side=="upper"){
-            yLower[] <- qnorm(level, mean=yForecast, sd=sqrt(yVariance))
+            yLower[] <- qnorm(level, mean=yMean, sd=sqrt(yVariance))
             yUpper[] <- rep(-Inf, h)
         }
         else if(side=="both"){
-            yLower[] <- qnorm((1-level)/2, mean=yForecast, sd=sqrt(yVariance))
-            yUpper[] <- qnorm((1+level)/2, mean=yForecast, sd=sqrt(yVariance))
+            yLower[] <- qnorm((1-level)/2, mean=yMean, sd=sqrt(yVariance))
+            yUpper[] <- qnorm((1+level)/2, mean=yMean, sd=sqrt(yVariance))
         }
         else{
             yLower[] <- rep(Inf, h)
-            yUpper[] <- qnorm(1-level, mean=yForecast, sd=sqrt(yVariance))
+            yUpper[] <- qnorm(1-level, mean=yMean, sd=sqrt(yVariance))
         }
     }
     else{
@@ -353,7 +360,7 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
         yUpper[] <- exp(yUpper)
     }
 
-    return(structure(list(model=object, mean=yMean, location=yForecast, variance=yVariance,
+    return(structure(list(model=object, mean=yMean, mu=yForecast, variance=yVariance,
                           lower=yLower, upper=yUpper, level=level,
                           side=side, interval=interval, cumulative=cumulative),
                      class="smooth.forecast"));
