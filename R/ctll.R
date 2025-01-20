@@ -174,7 +174,8 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         m$type <- obsEq
         m$B0 <- B
         # Estimated parameters
-        m$B <- setNames(as.vector(output$p), c("Var(eta)"))
+        # exp(2*p) is what Diego said is the variance of eta
+        m$B <- setNames(as.vector(exp(2*output$p)), c("Var(eta)"))
         m$silent <- silent
         m$log <- log
 
@@ -283,9 +284,9 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
     yInSample <- actuals(object);
     obsInSample <- nobs(object);
 
-    # B <- object$B
+    B <- object$B
     # if(object$log){
-        B <- exp(object$B)
+        # B <- exp(2*object$B)
     # }
 
     yIndex <- time(yInSample);
