@@ -110,8 +110,11 @@ void INTLEVELclass::forecast(){
         u = mSS.u.tail_cols(h);
         beta = mSS.p.rows(2, 1 + u.n_rows);
     }
-    if (mSS.cLlik)
+    if (mSS.cLlik) {
         mSS.PEnd *= mSS.innVariance;
+        varEta *= mSS.innVariance;
+        varEps = mSS.innVariance;
+    }
     PT = mSS.PEnd(0, 0);
     if (obsEq[0] == 's'){
         l = regspace<vec>(delta, delta + h - 1);
