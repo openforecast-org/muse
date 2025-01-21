@@ -123,6 +123,15 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
     }
     # Running C++ code
     output = INTLEVELc("e", yInSample, u, h, obsEq, !silent, B, log)
+
+
+
+    cat("This are the new fields:\n")
+    print(cbind(output$yForAgg, output$yForVAgg))
+
+
+
+
     # Preparing outputs
     if (length(output) == 1){   # ERROR!!
         stop()

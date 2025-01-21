@@ -5,6 +5,13 @@ source("R/PTSS3functions.R")
 source("R/MSOEfunctions.R")
 Rcpp::sourceCpp("src/musecpp2R.cpp")
 
+set.seed(41)
+x <- c(rnorm(25,100,10),rnorm(25,110,10),rnorm(25,120,10),rnorm(25,150,10))
+m = ctll(x, holdout=TRUE, h=10, log=TRUE)
+fm = forecast(m, h=10)
+plot(fm, legend=FALSE)
+stop()
+
 x = 1000 + rnorm(1000, 0, 1)
 ctll(x, silent=FALSE, log=T)
 

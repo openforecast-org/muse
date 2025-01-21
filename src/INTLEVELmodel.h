@@ -12,6 +12,7 @@ public:
     uword nObs, h;
     string compNames = "Error/Fit/Level";
     uvec tNonZero, thCum;
+    vec yForAgg, yForVAgg;
     // Other classes
     SSinputs mSS;
     CTLEVELmodel userInputs;
@@ -120,7 +121,7 @@ void INTLEVELclass::forecast(){
         l = regspace<vec>(delta, delta + h - 1);
         mSS.yFor.resize(h);
         mSS.FFor = mSS.yFor;
-        if (aggStock){
+        // if (aggStock){
             // SS for aggregated output
             l = regspace<vec>(1, h);
             mSS.yFor = l * mSS.aEnd;
@@ -135,10 +136,14 @@ void INTLEVELclass::forecast(){
                 mSS.FFor(i) = Pt(1, 1);
                 Pt = F * Pt * F.t() + F * Q * F.t();
             }
-        } else {
+
+            yForAgg = mSS.yFor;
+            yForVAgg = mSS.FFor;
+
+        // } else {
             mSS.yFor.fill(mSS.aEnd(0));
             mSS.FFor = PT + (l - delta) * varEta + varEps;   // 9.2.17 Harvey (490) or 3.5.8b (148)
-        }
+        // }
     } else{
         // aEnd and PEnd is one step ahead forecast for end + 1
         // Danger when the last observation is preceded by zeros
