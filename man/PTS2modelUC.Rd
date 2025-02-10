@@ -17,3 +17,8 @@ a UC model
 \description{
 Translates PTS model to UC model
 }
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
+}

@@ -27,3 +27,8 @@ m1 <- PTScomponents(m1)
 \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSestim}},
          \code{\link{PTSvalidate}}, \code{\link{PTS}}
 }
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
+}

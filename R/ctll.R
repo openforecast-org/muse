@@ -12,6 +12,7 @@
 #' variable is a price of a product. Example of the flow variable is the income over
 #' time.
 #' @param h Length of forecasting horizon.
+#' @param u DIEGO NEEDS TO EXPLAIN WHAT THIS IS
 #' @param holdout If TRUE, then the holdout of the size h is taken from the data
 #' (can be used for the model testing purposes).
 #' @param silent Specifies, whether to provide the progress of the function
@@ -31,6 +32,7 @@
 #' y <- rpois(100,1)
 #' ctll(y)
 #'
+#' @importFrom zoo zoo
 #' @rdname ctll
 #' @export
 ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
@@ -50,7 +52,7 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
     if(inherits(y,"tbl_ts")){
         yIndex <- y[[1]];
         if(any(duplicated(yIndex))){
-            warning(paste0("You have duplicated time stamps in the variable ",yName,
+            warning(paste0("You have duplicated time stamps in the variable ",
                            ". I will refactor this."),call.=FALSE);
             yIndex <- yIndex[1] + c(1:length(y[[1]])) * diff(tail(yIndex,2));
         }
@@ -252,16 +254,25 @@ print.ctll <- function(x, digits=4, ...){
     print(round(ICs,digits));
 }
 
+#' @importFrom stats coef
 #' @export
 coef.ctll <- function(object, ...){
     return(object$B);
 }
 
+#' @importFrom stats nobs
+#' @export
+nparam.ctll <- function(object, ...){
+    return(length(actuals(object)));
+}
+
+#' @importFrom greybox nparam
 #' @export
 nparam.ctll <- function(object, ...){
     return(length(coef(object)));
 }
 
+#' @importFrom stats residuals
 #' @export
 residuals.ctll <- function(object, ...){
     return(object$residuals);
@@ -377,8 +388,8 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
                      class="ctll.forecast"));
 }
 
-#' @rdname ctll
 #' @method plot ctll.forecast
+#' @importFrom greybox actuals
 #' @export
 plot.ctll.forecast <- function(x, ...){
     yClasses <- class(actuals(x$model));

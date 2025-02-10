@@ -3,7 +3,6 @@
 \name{ctll}
 \alias{ctll}
 \alias{forecast.ctll}
-\alias{plot.ctll.forecast}
 \title{Continuous time Local Level model}
 \usage{
 ctll(y, u = NULL, type = c("stock", "flow"), log = FALSE, h = 12,
@@ -12,11 +11,11 @@ ctll(y, u = NULL, type = c("stock", "flow"), log = FALSE, h = 12,
 \method{forecast}{ctll}(object, h = 10, interval = c("prediction", "none"),
   level = 0.95, side = c("both", "upper", "lower"), cumulative = FALSE,
   ...)
-
-\method{plot}{ctll.forecast}(x, ...)
 }
 \arguments{
 \item{y}{Vector or ts object, containing data needed to be forecasted.}
+
+\item{u}{DIEGO NEEDS TO EXPLAIN WHAT THIS IS}
 
 \item{type}{What type of variable to assume: stock or flow. Example of the stock
 variable is a price of a product. Example of the flow variable is the income over

@@ -4,8 +4,8 @@
 \alias{PTSsetup}
 \title{PTSsetup}
 \usage{
-PTSsetup(y, u = NULL, model = "ZZZ", h = 12, criterion = "aic",
-  armaIdent = FALSE, verbose = FALSE)
+PTSsetup(y, u = NULL, model = "ZZZ", s = NULL, lambda = NULL, h = 12,
+  criterion = "aic", armaIdent = FALSE, verbose = FALSE)
 }
 \arguments{
 \item{y}{a time series to forecast (it may be either a numerical vector or
@@ -26,6 +26,10 @@ model for each component with one or two letters:
 
 }}
 
+\item{s}{seasonal period of time series (1 for annual, 4 for quarterly, ...)}
+
+\item{lambda}{Box-Cox lambda parameter (NULL: estimate)}
+
 \item{h}{forecast horizon. If the model includes inputs h is not used, the lenght of u is used instead.}
 
 \item{criterion}{information criterion for identification ("aic", "bic" or "aicc").}
@@ -33,10 +37,6 @@ model for each component with one or two letters:
 \item{armaIdent}{check for arma models for error component (TRUE / FALSE).}
 
 \item{verbose}{intermediate estimation output (TRUE / FALSE)}
-
-\item{s}{seasonal period of time series (1 for annual, 4 for quarterly, ...)}
-
-\item{lambda}{Box-Cox lambda parameter (NULL: estimate)}
 }
 \value{
 An object of class \code{PTS}. It is a list with fields including all the inputs and
@@ -79,4 +79,9 @@ m1 <- PTSsetup(log(AirPassengers))
 \seealso{
 \code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},
          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+}
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
 }

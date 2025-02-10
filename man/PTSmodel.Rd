@@ -73,9 +73,14 @@ Standard methods applicable to MSOE objects are print, summary, plot,
 fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
 }
 \examples{
-m1 <- PTSmodel(log(AirPassengers))
+# m1 <- PTSmodel(log(AirPassengers))
 }
 \seealso{
 \code{\link{PTS}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+}
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
 }

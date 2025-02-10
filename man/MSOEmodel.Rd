@@ -72,7 +72,7 @@ The number of models to search for is reduced, depending on the result of this t
 \value{
 An object of class \code{MSOE}. It is a list with fields including all the inputs and
         the fields listed below as outputs. All the functions in this package fill in
-        part of the fields of any \code{MSOE} object as specified in what follows (function 
+        part of the fields of any \code{MSOE} object as specified in what follows (function
         \code{MSOE} fills in all of them at once):
 
 After running \code{MSOEmodel} or \code{MSOEestim}:
@@ -113,9 +113,9 @@ Estimates and forecasts MSOE general univariate models
 }
 \details{
 \code{MSOEmodel} is a function for modelling and forecasting univariate
-time series according to Unobserved Components models (MSOE). 
+time series according to Unobserved Components models (MSOE).
 It sets up the model with a number of control variables that
-govern the way the rest of functions in the package work. It also estimates 
+govern the way the rest of functions in the package work. It also estimates
 the model parameters by Maximum Likelihood and forecasts the data.
 Standard methods applicable to MSOE objects are print, summary, plot,
 fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
@@ -128,6 +128,11 @@ m1 <- MSOEmodel(y, model = "llt/equal/arma(0,0)")
 }
 }
 \seealso{
-\code{\link{MSOE}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, \code{\link{MSOEsmooth}}, 
+\code{\link{MSOE}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, \code{\link{MSOEsmooth}},
          \code{\link{MSOEcomponents}},
+}
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
 }

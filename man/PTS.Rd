@@ -79,3 +79,8 @@ m1 <- PTS(log(AirPassengers))
 \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
 }
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
+}

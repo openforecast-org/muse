@@ -50,7 +50,7 @@ void lower(string& model){
 // Replace "what" by string "by" in string "input"
 void strReplace(string what, string by, string& input){
   size_t i;
-  
+
   i = input.find(what);
   if (i <= input.length()){
     input.replace(i, what.length(), by);
@@ -60,7 +60,7 @@ void strReplace(string what, string by, string& input){
 // Removing spaces in string
 void deblank(string& input){
   size_t i;
-  
+
   i = input.find(" ");
   if (i <= input.length()){
     input.erase(i, 1);

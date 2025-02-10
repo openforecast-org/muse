@@ -36,3 +36,8 @@ m1 <- PTSestim(m1)
 \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
          \code{\link{PTScomponents}}, \code{\link{PTS}}
 }
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
+}

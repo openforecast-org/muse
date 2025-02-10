@@ -49,7 +49,8 @@ CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
     bool errorExit = false;
     // NaNs in u
     if (u.n_rows > 0 && u.has_nonfinite()){
-        printf("%s", "ERROR: missing values not allowed in input variables!!!\n");
+        // MUTE checks - R doesn't like them
+        // printf("%s", "ERROR: missing values not allowed in input variables!!!\n");
         this->errorExit = true;
     }
     if (u.n_rows > u.n_cols){
@@ -57,22 +58,22 @@ CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
     }
     // Checking length of t with respect to u
     if (u.n_cols > 0 && u.n_rows != t.n_rows){
-        printf("%s", "ERROR: Time index length and inputs length should be equal!!!\n");
+        // printf("%s", "ERROR: Time index length and inputs length should be equal!!!\n");
         this->errorExit = true;
     }
     // Checking length of t with respect to y
     if (y.n_rows > t.n_rows){
-        printf("%s", "ERROR: Time index length should be equal or greater to output length!!!\n");
+        // printf("%s", "ERROR: Time index length should be equal or greater to output length!!!\n");
         this->errorExit = true;
     }
     // obsEq options
     lower(obsEq);
     if (obsEq[0] != 's' && obsEq[0] != 'f'){
-        printf("%s", "ERROR: obsEq input should be either \"stock\" or \"flow\"!!!\n");
+        // printf("%s", "ERROR: obsEq input should be either \"stock\" or \"flow\"!!!\n");
         this->errorExit = true;
     }
     if (any(p0 < 0.0)){
-        printf("%s", "ERROR: Initial parameter values should be positive!!!\n");
+        // printf("%s", "ERROR: Initial parameter values should be positive!!!\n");
         this->errorExit = true;
     }
     // Concentrated likelihood on/off!!!!!!!

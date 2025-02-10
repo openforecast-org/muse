@@ -131,3 +131,6 @@ m1 <- MSOEsetup(y, model = "llt/?/equal/?", outlier = 4)
 \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, \code{\link{MSOEsmooth}},
          \code{\link{MSOEcomponents}},
 }
+\author{
+Diego Pedregal & Ivan Svetunkov
+}

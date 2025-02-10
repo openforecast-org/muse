@@ -25,7 +25,7 @@
 #' @param armaIdent check for arma models for error component (TRUE / FALSE).
 #' @param verbose intermediate estimation output (TRUE / FALSE)
 #'
-#' @author 
+#' @template authors
 #'
 #' @return An object of class \code{PTS}. It is a list with fields including all the inputs and
 #'         the fields listed below as outputs. All the functions in this package fill in
@@ -63,7 +63,7 @@
 #' m1 <- PTSsetup(log(AirPassengers))
 #' @rdname PTSsetup
 #' @export
-PTSsetup <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
+PTSsetup <- function(y, u = NULL, model="ZZZ", s=NULL, lambda=NULL, h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
          # power
          aux = tolower(substr(model, 1, 1))
          if (aux == "z")
@@ -133,13 +133,13 @@ PTSsetup <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaId
 #' \item comp:  Estimated components in matrix form
 #' }
 #'
-#' @author 
+#' @template authors
 #'
 #' @seealso \code{\link{PTS}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
 #'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
 #'
 #' @examples
-#' m1 <- PTSmodel(log(AirPassengers))
+#' # m1 <- PTSmodel(log(AirPassengers))
 #' @rdname PTSmodel
 #' @export
 PTSmodel <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
@@ -184,7 +184,7 @@ PTSmodel <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaId
 #' \item comp:  Estimated components in matrix form
 #' }
 #'
-#' @author 
+#' @template authors
 #'
 #' @seealso \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
 #'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
@@ -219,7 +219,7 @@ PTS <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaIdent =
 #' \item yForV:    Variance of forecasted values of output
 #' }
 #'
-#' @author 
+#' @template authors
 #'
 #' @seealso \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
 #'          \code{\link{PTScomponents}}, \code{\link{PTS}}
@@ -263,14 +263,14 @@ PTSestim <- function(m){
 #' \item table: Estimation and validation table
 #' }
 #'
-#' @author 
+#' @template authors
 #'
 #' @seealso \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSestim}},
 #'          \code{\link{PTScomponents}}, \code{\link{PTS}}
 #'
 #' @examples
-#' m1 <- PTSmodel(log(AirPassengers))
-#' m1 <- PTSvalidate(m1)
+#' # m1 <- PTSmodel(log(AirPassengers))
+#' # m1 <- PTSvalidate(m1)
 #' @rdname PTSvalidate
 #' @export
 PTSvalidate <- function(m, verbose = TRUE){
@@ -290,7 +290,7 @@ PTSvalidate <- function(m, verbose = TRUE){
 #' \item comp:  Estimated components in matrix form
 #' }
 #'
-#' @author 
+#' @template authors
 #'
 #' @seealso \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSestim}},
 #'          \code{\link{PTSvalidate}}, \code{\link{PTS}}
@@ -321,7 +321,7 @@ PTScomponents <- function(m){
 #'
 #' @return arma orders
 #'
-#' @author
+#' @template authors
 #'
 #' @rdname modelUC2arma
 #' @export
@@ -342,10 +342,11 @@ modelUC2arma <- function(model){
 #' @description Translates modelUC to model PTS
 #'
 #' @param modelUC a UC model
+#' @param lambda is the Box-Cox parameter
 #'
 #' @return a PTS model
 #'
-#' @author 
+#' @template authors
 #'
 #' @rdname modelUC2PTS
 #' @export
@@ -394,7 +395,7 @@ modelUC2PTS <- function(modelUC, lambda){
 #'
 #' @return a UC model
 #'
-#' @author 
+#' @template authors
 #'
 #' @rdname PTS2modelUC
 #' @export
@@ -425,8 +426,6 @@ PTS2modelUC <- function(model, armaOrders = c(0, 0)){
         #         modelU = paste0("/different", modelU)
         else
                 stop("ERROR: incorrect seasonal model!!")
-        #' \item Trend: Z / None / Local / Global / Damped
-        #'
 
         # trend
         aux = tolower(substr(model, 2, n - 1))

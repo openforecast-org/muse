@@ -22,10 +22,15 @@ filled in, in particular:
 Shows a table of estimation and diagnostics results for PTS models
 }
 \examples{
-m1 <- PTSmodel(log(AirPassengers))
-m1 <- PTSvalidate(m1)
+# m1 <- PTSmodel(log(AirPassengers))
+# m1 <- PTSvalidate(m1)
 }
 \seealso{
 \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSestim}},
          \code{\link{PTScomponents}}, \code{\link{PTS}}
+}
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
 }

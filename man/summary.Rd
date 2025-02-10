@@ -18,8 +18,8 @@ Prints an PTS object on screen
 See help of \code{PTS}.
 }
 \examples{
-m1 <- PTSmodel(log(AirPassengers))
-summary(m1)
+# m1 <- PTSmodel(log(AirPassengers))
+# summary(m1)
 }
 \seealso{
 \code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},

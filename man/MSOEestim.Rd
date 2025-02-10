@@ -10,7 +10,7 @@ MSOEestim(sys)
 \item{sys}{an object of type \code{MSOE} created with \code{MSOE}}
 }
 \value{
-The same input object with the appropriate fields 
+The same input object with the appropriate fields
 filled in, in particular:
 \itemize{
 \item p:        Estimated transformed parameters
@@ -29,7 +29,7 @@ Estimates and forecasts MSOE models
 \details{
 \code{MSOEestim} estimates and forecasts a time series using an
 MSOE model.
-The optimization method is a BFGS quasi-Newton algorithm with a 
+The optimization method is a BFGS quasi-Newton algorithm with a
 backtracking line search using Armijo conditions.
 Parameter names in output table are the following:
 \itemize{
@@ -60,6 +60,11 @@ m1 <- MSOEestim(m1)
 }
 }
 \seealso{
-\code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, 
+\code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}},
          \code{\link{MSOEsmooth}}, \code{\link{MSOEcomponents}}
+}
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
 }

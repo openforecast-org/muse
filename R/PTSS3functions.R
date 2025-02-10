@@ -2,9 +2,9 @@
 #' @description size of vectors or matrices
 #'
 #' @param y matrix, array or vector
-#' 
+#'
 #' @author Diego J. Pedregal
-#' 
+#'
 #' @rdname size
 #' @export
 size = function(y){
@@ -27,8 +27,8 @@ size = function(y){
 #'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
 #'
 #' @examples
-#' m1 <- PTSmodel(log(AirPassengers))
-#' print(m1)
+#' # m1 <- PTSmodel(log(AirPassengers))
+#' # print(m1)
 #' @rdname print
 #' @export
 print.PTS = function(x, ...){
@@ -52,8 +52,8 @@ print.PTS = function(x, ...){
 #'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
 #'
 #' @examples
-#' m1 <- PTSmodel(log(AirPassengers))
-#' summary(m1)
+#' # m1 <- PTSmodel(log(AirPassengers))
+#' # summary(m1)
 #' @rdname summary
 #' @export
 summary.PTS = function(object, ...){
@@ -102,8 +102,8 @@ plot.PTS = function(x, ...){
 #'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
 #'
 #' @examples
-#' m1 <- PTSmodel(log(AirPassengers))
-#' fitted(m1)
+#' # m1 <- PTSmodel(log(AirPassengers))
+#' # fitted(m1)
 #' @rdname fitted
 #' @export
 fitted.PTS = function(object, ...){
@@ -126,8 +126,8 @@ fitted.PTS = function(object, ...){
 #'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
 #'
 #' @examples
-#' m1 <- PTSmodel(log(AirPassengers))
-#' residuals(m1)
+#' # m1 <- PTSmodel(log(AirPassengers))
+#' # residuals(m1)
 #' @rdname residuals
 #' @export
 residuals.PTS = function(object, ...){

@@ -15,3 +15,8 @@ arma orders
 \description{
 Extracts arma part of modelUC model
 }
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
+}

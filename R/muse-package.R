@@ -19,5 +19,8 @@
 #'
 #' x <- rnorm(100,100,10)
 #'
+#' @importFrom stats AIC BIC approx coef deltat dlnorm dnorm end fitted frequency is.ts nobs qnorm setNames start time ts
+#' @importFrom greybox AICc BICc graphmaker
+#' @importFrom utils tail
 #' @useDynLib muse
 NULL

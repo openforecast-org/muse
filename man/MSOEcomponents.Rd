@@ -10,7 +10,7 @@ MSOEcomponents(sys)
 \item{sys}{an object of type \code{MSOE} created with \code{MSOE} or \code{MSOEmodel}}
 }
 \value{
-The same input object with the appropriate fields 
+The same input object with the appropriate fields
 filled in, in particular:
 \itemize{
 \item comp:  Estimated components in matrix form
@@ -29,6 +29,11 @@ m1 <- MSOEcomponents(m1)
 }
 }
 \seealso{
-\code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, 
-         \code{\link{MSOEsmooth}}, \code{\link{MSOEdisturb}},
+\code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}},
+         \code{\link{MSOEsmooth}},
+}
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
 }

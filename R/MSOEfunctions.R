@@ -1,8 +1,8 @@
 #' @title MSOEsetup
 #' @description Sets up MSOE general univariate models
-#' 
+#'
 #' @details See help of \code{MSOE}.
-#' 
+#'
 #' @param y a time series to forecast (it may be either a numerical vector or
 #' a time series object). This is the only input required. If a vector, the additional
 #' input \code{periods} should be supplied compulsorily (see below).
@@ -14,11 +14,11 @@
 #' "trend/cycle/seasonal/irregular". The possibilities available for each component are:
 #' \itemize{
 #' \item Trend: ? / none / rw / irw / llt / dt / td;
-#' 
+#'
 #' \item Seasonal: ? / none / equal / different;
-#' 
+#'
 #' \item Irregular: ? / none / arma(0, 0) / arma(p, q) - with p and q integer positive orders;
-#' 
+#'
 #' \item Cycles: ? / none / combination of positive or negative numbers. Positive numbers fix
 #' the period of the cycle while negative values estimate the period taking as initial
 #' condition the absolute value of the period supplied. Several cycles with positive or negative values are possible
@@ -44,14 +44,14 @@
 #' @param trendOptions trend models to select amongst (e.g., "rw/llt").
 #' @param seasonalOptions seasonal models to select amongst (e.g., "none/differentt").
 #' @param irregularOptions irregular models to select amongst (e.g., "none/arma(0,1)").
-#' 
-#' @author
-#' 
+#'
+#' @author Diego Pedregal & Ivan Svetunkov
+#'
 #' @return An object of class \code{MSOE}. It is a list with fields including all the inputs and
 #'         the fields listed below as outputs. All the functions in this package fill in
 #'         part of the fields of any \code{MSOE} object as specified in what follows (function
 #'         \code{MSOE} fills in all of them at once):
-#' 
+#'
 #' After running \code{MSOEmodel} or \code{MSOEestim}:
 #' \itemize{
 #' \item p:        Estimated parameters
@@ -63,18 +63,18 @@
 #' \item grad:     Gradient at estimated parameters
 #' \item covp:     Covariance matrix of parameters
 #' }
-#' 
+#'
 #' After running \code{MSOEvalidate}:
 #' \itemize{
 #' \item table: Estimation and validation table
 #' }
-#' 
+#'
 #' After running \code{MSOEcomponents}:
 #' \itemize{
 #' \item comp:      Estimated components in matrix form
 #' \item compV:     Estimated components variance in matrix form
 #' }
-#' 
+#'
 #' After running \code{MSOEfilter}, \code{MSOEsmooth}:
 #' \itemize{
 #' \item yFit:  Fitted values of output
@@ -84,14 +84,14 @@
 #' \item aFor:  Forecasts of states
 #' \item PFor:  Forecasts of states variances
 #' }
-#' 
+#'
 #' Standard methods applicable to MSOE objects are print, summary, plot,
 #' fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
-#' 
+#'
 #' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, \code{\link{MSOEsmooth}},
 #'          \code{\link{MSOEcomponents}},
-#' 
-#' 
+#'
+#'
 #' @examples
 #' \dontrun{
 #' y <- log(AirPassengers)
@@ -194,20 +194,20 @@ MSOEsetup = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
 #' @description Estimates and forecasts MSOE general univariate models
 #'
 #' @details \code{MSOEmodel} is a function for modelling and forecasting univariate
-#' time series according to Unobserved Components models (MSOE). 
+#' time series according to Unobserved Components models (MSOE).
 #' It sets up the model with a number of control variables that
-#' govern the way the rest of functions in the package work. It also estimates 
+#' govern the way the rest of functions in the package work. It also estimates
 #' the model parameters by Maximum Likelihood and forecasts the data.
 #' Standard methods applicable to MSOE objects are print, summary, plot,
 #' fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
 #'
 #' @inheritParams MSOEsetup
-#' 
+#'
 #' @return An object of class \code{MSOE}. It is a list with fields including all the inputs and
 #'         the fields listed below as outputs. All the functions in this package fill in
-#'         part of the fields of any \code{MSOE} object as specified in what follows (function 
+#'         part of the fields of any \code{MSOE} object as specified in what follows (function
 #'         \code{MSOE} fills in all of them at once):
-#' 
+#'
 #' After running \code{MSOEmodel} or \code{MSOEestim}:
 #' \itemize{
 #' \item p:        Estimated parameters
@@ -219,18 +219,18 @@ MSOEsetup = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
 #' \item grad:     Gradient at estimated parameters
 #' \item covp:     Covariance matrix of parameters
 #' }
-#' 
+#'
 #' After running \code{MSOEvalidate}:
 #' \itemize{
 #' \item table: Estimation and validation table
 #' }
-#' 
+#'
 #' After running \code{MSOEcomponents}:
 #' \itemize{
 #' \item comp:  Estimated components in matrix form
 #' \item compV: Estimated components variance in matrix form
 #' }
-#' 
+#'
 #' After running \code{MSOEfilter}, \code{MSOEsmooth}:
 #' \itemize{
 #' \item yFit:  Fitted values of output
@@ -240,13 +240,13 @@ MSOEsetup = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
 #' \item aFor:  Forecasts of states
 #' \item PFor:  Forecasts of states variances
 #' }
-#' 
-#' @author 
-#' 
-#' @seealso \code{\link{MSOE}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, \code{\link{MSOEsmooth}}, 
+#'
+#' @template authors
+#'
+#' @seealso \code{\link{MSOE}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, \code{\link{MSOEsmooth}},
 #'          \code{\link{MSOEcomponents}},
-#'          
-#'          
+#'
+#'
 #' @examples
 #' \dontrun{
 #' y <- log(AirPassengers)
@@ -258,7 +258,7 @@ MSOEsetup = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
 MSOEmodel = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, outlier = 9999, tTest = FALSE, criterion = "aic",
                    periods = NA, verbose = FALSE, stepwise = FALSE, p0 = -9999.9, arma = TRUE,
                    TVP = NULL, trendOptions = "rw/llt/srw/dt", seasonalOptions = "none/linear/equal", irregularOptions = "arma(0,0)"){
-    m = MSOEsetup(y, u, model, h, lambda, outlier, tTest, criterion, 
+    m = MSOEsetup(y, u, model, h, lambda, outlier, tTest, criterion,
                 periods, verbose, stepwise, p0, arma,
                 TVP, trendOptions, seasonalOptions, irregularOptions)
     m = MSOEestim(m)
@@ -268,23 +268,23 @@ MSOEmodel = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
 #' @description Runs all relevant functions for MSOE modelling
 #'
 #' @details \code{MSOE} is a function for modelling and forecasting univariate
-#' time series according to Unobserved Components models (MSOE). 
+#' time series according to Unobserved Components models (MSOE).
 #' It sets up the model with a number of control variables that
-#' govern the way the rest of functions in the package work. It also estimates 
+#' govern the way the rest of functions in the package work. It also estimates
 #' the model parameters by Maximum Likelihood, forecasts the data, performs smoothing,
 #' estimates model disturbances, estimates components and shows statistical diagnostics.
 #' Standard methods applicable to MSOE objects are print, summary, plot,
 #' fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
 #'
 #' @inheritParams MSOEsetup
-#' 
-#' @author 
-#' 
+#'
+#' @template authors
+#'
 #' @return An object of class \code{MSOE}. It is a list with fields including all the inputs and
 #'         the fields listed below as outputs. All the functions in this package fill in
-#'         part of the fields of any \code{MSOE} object as specified in what follows (function 
+#'         part of the fields of any \code{MSOE} object as specified in what follows (function
 #'         \code{MSOE} fills in all of them at once):
-#' 
+#'
 #' After running \code{MSOEmodel} or \code{MSOEestim}:
 #' \itemize{
 #' \item p:        Estimated parameters
@@ -296,18 +296,18 @@ MSOEmodel = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
 #' \item grad:     Gradient at estimated parameters
 #' \item covp:     Covariance matrix of parameters
 #' }
-#' 
+#'
 #' After running \code{MSOEvalidate}:
 #' \itemize{
 #' \item table: Estimation and validation table
 #' }
-#' 
+#'
 #' After running \code{MSOEcomponents}:
 #' \itemize{
 #' \item comp:  Estimated components in matrix form
 #' \item compV: Estimated components variance in matrix form
 #' }
-#' 
+#'
 #' After running \code{MSOEfilter}, \code{MSOEsmooth} or  \code{MSOEdisturb}:
 #' \itemize{
 #' \item yFit:  Fitted values of output
@@ -317,17 +317,17 @@ MSOEmodel = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
 #' \item aFor:  Forecasts of states
 #' \item PFor:  Forecasts of states variances
 #' }
-#' 
+#'
 #' After running \code{MSOEdisturb}:
 #' \itemize{
 #' \item eta: State perturbations estimates
 #' \item eps: Observed perturbations estimates
 #' }
-#' 
-#' @seealso \code{\link{MSOE}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, \code{\link{MSOEsmooth}}, 
+#'
+#' @seealso \code{\link{MSOE}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, \code{\link{MSOEsmooth}},
 #'          \code{\link{MSOEcomponents}},
-#'          
-#'          
+#'
+#'
 #' @examples
 #' \dontrun{
 #' y <- log(AirPassengers)
@@ -339,7 +339,7 @@ MSOEmodel = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
 MSOE = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, outlier = 9999, tTest = FALSE, criterion = "aic",
               periods = NA, verbose = FALSE, stepwise = FALSE, p0 = -9999.9, arma = TRUE,
               TVP = NULL, trendOptions = "rw/llt/srw/dt", seasonalOptions = "none/linear/equal", irregularOptions = "arma(0,0)"){
-    m = MSOEsetup(y, u, model, h, lambda, outlier, tTest, criterion, 
+    m = MSOEsetup(y, u, model, h, lambda, outlier, tTest, criterion,
                 periods, verbose, stepwise, p0, arma,
                 TVP, trendOptions, seasonalOptions, irregularOptions)
     m = MSOEestim(m)
@@ -356,7 +356,7 @@ MSOE = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, outlier
 #'
 #' @details \code{MSOEestim} estimates and forecasts a time series using an
 #' MSOE model.
-#' The optimization method is a BFGS quasi-Newton algorithm with a 
+#' The optimization method is a BFGS quasi-Newton algorithm with a
 #' backtracking line search using Armijo conditions.
 #' Parameter names in output table are the following:
 #' \itemize{
@@ -376,13 +376,13 @@ MSOE = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, outlier
 #' \item Beta(#):   Beta parameter of input #.
 #' \item Cnst:      Constant.
 #' }
-#' 
+#'
 #' Standard methods applicable to MSOEomp objects are print, summary, plot,
 #' fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
 #'
 #' @param sys an object of type \code{MSOE} created with \code{MSOE}
-#' 
-#' @return The same input object with the appropriate fields 
+#'
+#' @return The same input object with the appropriate fields
 #' filled in, in particular:
 #' \itemize{
 #' \item p:        Estimated transformed parameters
@@ -394,13 +394,13 @@ MSOE = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, outlier
 #' \item grad:     Gradient of log-likelihood at the optimum
 #' \item iter:     Estimation iterations
 #' }
-#' 
-#' @author 
-#' 
-#' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, 
+#'
+#' @template authors
+#'
+#' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}},
 #'          \code{\link{MSOEsmooth}}, \code{\link{MSOEcomponents}}
-#'          
-#'          
+#'
+#'
 #' @examples
 #' \dontrun{
 #' m1 <- MSOEsetup(log(AirPassengers))
@@ -412,7 +412,7 @@ MSOEestim = function(sys){
     sys$table = NA
     sys$hidden$constPar = NA
     # Estimation
-    rubbish = c(sys$hidden$d_t, sys$hidden$innVariance, sys$hidden$objFunValue, TRUE, 
+    rubbish = c(sys$hidden$d_t, sys$hidden$innVariance, sys$hidden$objFunValue, TRUE,
                 sys$outlier, sys$arma, sys$iter, sys$hidden$seas, sys$lambda,
                 sys$hidden$MSOE, sys$hidden$PTSnames)
     rubbish2 = cbind(sys$grad, sys$hidden$constPar, sys$hidden$typePar)
@@ -434,10 +434,10 @@ MSOEestim = function(sys){
         kInitial = 0
     }
     output = MSOEc("estimate", y, u, sys$model, sys$periods, sys$rhos,
-                    sys$h, sys$tTest, sys$criterion, sys$hidden$truePar, rubbish2, rubbish, sys$verbose, 
+                    sys$h, sys$tTest, sys$criterion, sys$hidden$truePar, rubbish2, rubbish, sys$verbose,
                     sys$stepwise, sys$hidden$estimOk, sys$p0, sys$v, sys$yFitV,
                     sys$hidden$nonStationaryTerms, rubbish3, sys$hidden$harmonics,
-                    as.vector(sys$criteria), sys$hidden$cycleLimits, 
+                    as.vector(sys$criteria), sys$hidden$cycleLimits,
                     cbind(sys$hidden$beta, sys$hidden$betaV), sys$hidden$typeOutliers,
                     sys$TVP, sys$trendOptions, sys$seasonalOptions, sys$irregularOptions)
     if (output$model == "error"){
@@ -470,7 +470,7 @@ MSOEestim = function(sys){
     sys$grad = rubbish2[, 1]
     sys$hidden$constPar = rubbish2[, 2]
     sys$hidden$typePar = rubbish2[, 3]
-    sys$hidden$cycleLimits = matrix(output$cycleLimits, 
+    sys$hidden$cycleLimits = matrix(output$cycleLimits,
                                     length(output$cycleLimits) / 2, 2)
     sys$hidden$d_t = output$rubbish[1]
     sys$hidden$innVariance = output$rubbish[2]
@@ -510,9 +510,9 @@ MSOEestim = function(sys){
 #'
 #' @param sys reserved input
 #' @param command reserved input
-#' 
-#' @author 
-#' 
+#'
+#' @template authors
+#'
 #' @noRd
 filter_ = function(sys, command){
     if (is.ts(sys$y)){
@@ -525,16 +525,16 @@ filter_ = function(sys, command){
     } else {
         u = sys$u
     }
-    rubbish = c(sys$hidden$d_t, sys$hidden$innVariance, sys$hidden$objFunValue, TRUE, 
+    rubbish = c(sys$hidden$d_t, sys$hidden$innVariance, sys$hidden$objFunValue, TRUE,
                 sys$outlier, sys$arma, sys$iter, sys$hidden$seas, sys$lambda,
                 sys$hidden$MSOE, sys$hidden$PTSnames)
     rubbish2 = cbind(sys$grad, sys$hidden$constPar, sys$hidden$typePar)
     rubbish3 = cbind(sys$hidden$ns, sys$hidden$nPar)
     output = MSOEc(command, y, u, sys$model, sys$periods, sys$rhos,
-                    sys$h, sys$tTest, sys$criterion, sys$hidden$truePar, rubbish2, rubbish, sys$verbose, 
+                    sys$h, sys$tTest, sys$criterion, sys$hidden$truePar, rubbish2, rubbish, sys$verbose,
                     sys$stepwise, sys$hidden$estimOk, sys$p0, sys$v, sys$yFitV,
                     sys$hidden$nonStationaryTerms, rubbish3, sys$hidden$harmonics,
-                    as.vector(sys$criteria), sys$hidden$cycleLimits, 
+                    as.vector(sys$criteria), sys$hidden$cycleLimits,
                     cbind(sys$hidden$beta, sys$hidden$betaV), sys$hidden$typeOutliers,
                     sys$TVP, sys$trendOptions, sys$seasonalOptions, sys$irregularOptions)
     # Convert to R list
@@ -652,8 +652,8 @@ filter_ = function(sys, command){
 #' fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
 #'
 #' @param sys an object of type \code{MSOE} created with \code{MSOE}
-#' 
-#' @return The same input object with the appropriate fields 
+#'
+#' @return The same input object with the appropriate fields
 #' filled in, in particular:
 #' \itemize{
 #' \item yFit:  Fitted values of output
@@ -661,13 +661,13 @@ filter_ = function(sys, command){
 #' \item a:     State estimates
 #' \item P:     Variance of state estimates (diagonal of covariance matrices)
 #' }
-#' 
-#' @author 
-#' 
-#' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, 
+#'
+#' @template authors
+#'
+#' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}},
 #'          \code{\link{MSOEsmooth}}, \code{\link{MSOEcomponents}},
-#'          
-#'          
+#'
+#'
 #' @examples
 #' \dontrun{
 #' m1 <- MSOE(log(AirPassengers))
@@ -684,8 +684,8 @@ MSOEfilter = function(sys){
 #' fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
 #'
 #' @param sys an object of type \code{MSOE} created with \code{MSOE}
-#' 
-#' @return The same input object with the appropriate fields 
+#'
+#' @return The same input object with the appropriate fields
 #' filled in, in particular:
 #' \itemize{
 #' \item yFit:  Fitted values of output
@@ -693,13 +693,13 @@ MSOEfilter = function(sys){
 #' \item a:     State estimates
 #' \item P:     Variance of state estimates (diagonal of covariance matrices)
 #' }
-#' 
-#' @author 
-#' 
-#' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, 
+#'
+#' @template authors
+#'
+#' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}},
 #'          \code{\link{MSOEcomponents}},
-#'          
-#'          
+#'
+#'
 #' @examples
 #' \dontrun{
 #' m1 <- MSOE(log(AirPassengers))
@@ -714,11 +714,11 @@ MSOEsmooth = function(sys){
 #' @description Shows a table of estimation and diagnostics results for MSOE models.
 #' Equivalent to print or summary.
 #' The table shows information in four sections:
-#' Firstly, information about the model estimated, the relevant 
+#' Firstly, information about the model estimated, the relevant
 #' periods of the seasonal component included, and further information about
 #' convergence.
-#' Secondly, parameters with their names are provided, the asymptotic standard errors, 
-#' the ratio of the two, and the gradient at the optimum. One asterisk indicates 
+#' Secondly, parameters with their names are provided, the asymptotic standard errors,
+#' the ratio of the two, and the gradient at the optimum. One asterisk indicates
 #' concentrated-out parameters and two asterisks signals parameters constrained during estimation.
 #' Thirdly, information criteria and the value of the log-likelihood.
 #' Finally, diagnostic statistics about innovations, namely, the Ljung-Box Q test of absense
@@ -727,19 +727,19 @@ MSOEsmooth = function(sys){
 #'
 #' @param sys an object of type \code{MSOE} created with \code{MSOE}
 #' @param printScreen print to screen or just return output table
-#' 
-#' @return The same input object with the appropriate fields 
+#'
+#' @return The same input object with the appropriate fields
 #' filled in, in particular:
 #' \itemize{
 #' \item table: Estimation and validation table
 #' }
-#' 
-#' @author 
-#' 
-#' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEfilter}}, 
+#'
+#' @template authors
+#'
+#' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEfilter}},
 #'          \code{\link{MSOEsmooth}}, \code{\link{MSOEcomponents}},
-#'          
-#'          
+#'
+#'
 #' @examples
 #' \dontrun{
 #' m1 <- MSOE(log(gdp))
@@ -767,16 +767,16 @@ MSOEvalidate = function(sys, printScreen = TRUE){
     # Convert to R list
     #sys$periods = sys$hidden$periods0
     #sys$rhos = sys$hidden$rhos0
-    rubbish = c(sys$hidden$d_t, sys$hidden$innVariance, sys$hidden$objFunValue, TRUE, 
+    rubbish = c(sys$hidden$d_t, sys$hidden$innVariance, sys$hidden$objFunValue, TRUE,
                 sys$outlier, sys$arma, sys$iter, sys$hidden$seas, sys$lambda,
                 sys$hidden$MSOE, sys$hidden$PTSnames)
     rubbish2 = cbind(sys$grad, sys$hidden$constPar, sys$hidden$typePar)
     rubbish3 = cbind(sys$hidden$ns, sys$hidden$nPar)
     output = MSOEc("validate", y, u, sys$model, sys$periods, sys$rhos,
-                    sys$h, sys$tTest, sys$criterion, sys$hidden$truePar, rubbish2, rubbish, sys$verbose, 
+                    sys$h, sys$tTest, sys$criterion, sys$hidden$truePar, rubbish2, rubbish, sys$verbose,
                     sys$stepwise, sys$hidden$estimOk, sys$p0, sys$v, sys$yFitV,
                     sys$hidden$nonStationaryTerms, rubbish3, sys$hidden$harmonics,
-                    as.vector(sys$criteria), sys$hidden$cycleLimits, 
+                    as.vector(sys$criteria), sys$hidden$cycleLimits,
                     cbind(sys$hidden$beta, sys$hidden$betaV), sys$hidden$typeOutliers,
                     sys$TVP, sys$trendOptions, sys$seasonalOptions, sys$irregularOptions)
     sys$table = output$table
@@ -816,7 +816,7 @@ MSOEvalidate = function(sys, printScreen = TRUE){
     rownames(sys$covp) = output$parNames[1 : dim(sys$covp)[1]]
     colnames(sys$covp) = output$parNames[1 : dim(sys$covp)[1]]
     names(sys$p) = output$parNames[1 : nPar]
-    
+
     return(sys)
 }
 #' @title MSOEcomponents
@@ -825,20 +825,20 @@ MSOEvalidate = function(sys, printScreen = TRUE){
 #' fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
 #'
 #' @param sys an object of type \code{MSOE} created with \code{MSOE} or \code{MSOEmodel}
-#' 
-#' @return The same input object with the appropriate fields 
+#'
+#' @return The same input object with the appropriate fields
 #' filled in, in particular:
 #' \itemize{
 #' \item comp:  Estimated components in matrix form
 #' \item compV: Estimated components variance in matrix form
 #' }
-#' 
-#' @author 
-#' 
-#' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}}, 
-#'          \code{\link{MSOEsmooth}}, \code{\link{MSOEdisturb}},
-#'          
-#'          
+#'
+#' @template authors
+#'
+#' @seealso \code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEvalidate}}, \code{\link{MSOEfilter}},
+#'          \code{\link{MSOEsmooth}},
+#'
+#'
 #' @examples
 #' \dontrun{
 #' m1 <- MSOE(log(AirPassengers))
@@ -857,16 +857,16 @@ MSOEcomponents= function(sys){
     } else {
         u = sys$u
     }
-    rubbish = c(sys$hidden$d_t, sys$hidden$innVariance, sys$hidden$objFunValue, TRUE, 
+    rubbish = c(sys$hidden$d_t, sys$hidden$innVariance, sys$hidden$objFunValue, TRUE,
                 sys$outlier, sys$arma, sys$iter, sys$hidden$seas, sys$lambda,
                 sys$hidden$MSOE, sys$hidden$PTSnames)
     rubbish2 = cbind(sys$grad, sys$hidden$constPar, sys$hidden$typePar)
     rubbish3 = cbind(sys$hidden$ns, sys$hidden$nPar)
     output = MSOEc("components", y, u, sys$model, sys$periods, sys$rhos,
-                    sys$h, sys$tTest, sys$criterion, sys$hidden$truePar, rubbish2, rubbish, sys$verbose, 
+                    sys$h, sys$tTest, sys$criterion, sys$hidden$truePar, rubbish2, rubbish, sys$verbose,
                     sys$stepwise, sys$hidden$estimOk, sys$p0, sys$v, sys$yFitV,
                     sys$hidden$nonStationaryTerms, rubbish3, sys$hidden$harmonics,
-                    as.vector(sys$criteria), sys$hidden$cycleLimits, 
+                    as.vector(sys$criteria), sys$hidden$cycleLimits,
                     cbind(sys$hidden$beta, sys$hidden$betaV), sys$hidden$typeOutliers,
                     sys$TVP, sys$trendOptions, sys$seasonalOptions, sys$irregularOptions)
     # Convert to R list
@@ -949,7 +949,6 @@ MSOEcomponents= function(sys){
     names = strsplit(output$compNames, "/")
     colnames(sys$comp) = names[[1]]
     colnames(sys$compV) = names[[1]]
-    
+
     return(sys)
 }
-    

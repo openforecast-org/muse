@@ -8,10 +8,17 @@ modelUC2PTS(modelUC, lambda)
 }
 \arguments{
 \item{modelUC}{a UC model}
+
+\item{lambda}{is the Box-Cox parameter}
 }
 \value{
 a PTS model
 }
 \description{
 Translates modelUC to model PTS
+}
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
 }

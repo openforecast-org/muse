@@ -18,8 +18,8 @@ Residuals of PTS object
 See help of \code{PTS}.
 }
 \examples{
-m1 <- PTSmodel(log(AirPassengers))
-residuals(m1)
+# m1 <- PTSmodel(log(AirPassengers))
+# residuals(m1)
 }
 \seealso{
 \code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},

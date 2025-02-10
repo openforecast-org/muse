@@ -12,7 +12,7 @@ MSOEvalidate(sys, printScreen = TRUE)
 \item{printScreen}{print to screen or just return output table}
 }
 \value{
-The same input object with the appropriate fields 
+The same input object with the appropriate fields
 filled in, in particular:
 \itemize{
 \item table: Estimation and validation table
@@ -22,11 +22,11 @@ filled in, in particular:
 Shows a table of estimation and diagnostics results for MSOE models.
 Equivalent to print or summary.
 The table shows information in four sections:
-Firstly, information about the model estimated, the relevant 
+Firstly, information about the model estimated, the relevant
 periods of the seasonal component included, and further information about
 convergence.
-Secondly, parameters with their names are provided, the asymptotic standard errors, 
-the ratio of the two, and the gradient at the optimum. One asterisk indicates 
+Secondly, parameters with their names are provided, the asymptotic standard errors,
+the ratio of the two, and the gradient at the optimum. One asterisk indicates
 concentrated-out parameters and two asterisks signals parameters constrained during estimation.
 Thirdly, information criteria and the value of the log-likelihood.
 Finally, diagnostic statistics about innovations, namely, the Ljung-Box Q test of absense
@@ -40,6 +40,11 @@ m1 <- MSOEvalidate(m1)
 }
 }
 \seealso{
-\code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEfilter}}, 
+\code{\link{MSOE}}, \code{\link{MSOEmodel}}, \code{\link{MSOEfilter}},
          \code{\link{MSOEsmooth}}, \code{\link{MSOEcomponents}},
+}
+\author{
+Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
+
+Ivan Svetunkov, \email{ivan@svetunkov.com}
 }
