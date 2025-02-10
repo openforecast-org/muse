@@ -124,13 +124,8 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
     # Running C++ code
     output = INTLEVELc("e", yInSample, u, h, obsEq, !silent, B, log)
 
-
-
-    cat("This are the new fields:\n")
-    print(cbind(output$yForAgg, output$yForVAgg))
-
-
-
+    # cat("This are the new fields:\n")
+    # print(cbind(output$yForAgg, output$yForVAgg))
 
     # Preparing outputs
     if (length(output) == 1){   # ERROR!!
@@ -343,8 +338,14 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
     output <- INTLEVELc("f", as.matrix(yInSample), object$u, h,
                         object$type, FALSE, B, object$log)
 
-    yMean[] <- yForecast[] <- output$yFor
-    yVariance[] <- output$yForV
+    if(cumulative){
+        yMean[] <- yForecast[] <- output$yForAgg[h]
+        yVariance[] <- output$yForVAgg[h]
+    }
+    else{
+        yMean[] <- yForecast[] <- output$yFor
+        yVariance[] <- output$yForV
+    }
 
     if(interval=="prediction"){
         if(side=="upper"){
@@ -371,7 +372,75 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
     }
 
     return(structure(list(model=object, mean=yMean, mu=yForecast, variance=yVariance,
-                          lower=yLower, upper=yUpper, level=level,
+                          lower=yLower, upper=yUpper, level=level, h=h,
                           side=side, interval=interval, cumulative=cumulative),
-                     class="smooth.forecast"));
+                     class="ctll.forecast"));
+}
+
+#' @rdname ctll
+#' @method plot ctll.forecast
+#' @export
+plot.ctll.forecast <- function(x, ...){
+    yClasses <- class(actuals(x$model));
+
+    ellipsis <- list(...);
+
+    if(is.null(ellipsis$legend)){
+        ellipsis$legend <- FALSE;
+        ellipsis$parReset <- FALSE;
+    }
+
+    if(is.null(ellipsis$main)){
+        ellipsis$main <- paste0("Forecast from the ",x$model$model);
+    }
+
+    if(!is.null(x$model$holdout)){
+        yHoldout <- x$model$holdout;
+        if(any(yClasses=="ts")){
+            ellipsis$actuals <- ts(c(actuals(x$model),yHoldout),
+                                   start=start(actuals(x$model)),
+                                   frequency=frequency(actuals(x$model)));
+        }
+        else{
+            ellipsis$actuals <- zoo(c(as.vector(actuals(x$model)),as.vector(yHoldout)),
+                                    order.by=c(time(actuals(x$model)),time(yHoldout)));
+        }
+    }
+    else{
+        ellipsis$actuals <- actuals(x$model);
+    }
+
+    ellipsis$forecast <- x$mean;
+    ellipsis$lower <- x$lower;
+    ellipsis$upper <- x$upper;
+    ellipsis$fitted <- fitted(x);
+    ellipsis$level <- x$level;
+
+    if(x$cumulative){
+        if(any(yClasses=="ts")){
+            ellipsis$forecast <- ts(ellipsis$forecast / x$h,
+                                    start=start(ellipsis$forecast),
+                                    frequency=frequency(ellipsis$forecast));
+            ellipsis$lower <- ts(ellipsis$lower / x$h,
+                                    start=start(ellipsis$lower),
+                                    frequency=frequency(ellipsis$lower));
+            ellipsis$upper <- ts(ellipsis$upper / x$h,
+                                    start=start(ellipsis$upper),
+                                    frequency=frequency(ellipsis$upper));
+            ellipsis$main <- paste0("Mean ", ellipsis$main);
+        }
+        else{
+            ellipsis$forecast <- zoo(ellipsis$forecast / x$h,
+                                    order.by=time(ellipsis$forecast)+c(1:x$h)-1);
+            ellipsis$lower <- zoo(ellipsis$lower / x$h,
+                                    order.by=time(ellipsis$lower)+c(1:x$h)-1);
+            ellipsis$upper <- zoo(ellipsis$upper / x$h,
+                                    order.by=time(ellipsis$upper)+c(1:x$h)-1);
+            ellipsis$main <- paste0("Mean ", ellipsis$main);
+            ellipsis$actuals <- zoo(c(as.vector(actuals(x$model)),as.vector(yHoldout)),
+                                    order.by=c(time(actuals(x$model)),time(yHoldout)));
+        }
+    }
+
+    do.call(graphmaker, ellipsis);
 }
