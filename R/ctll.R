@@ -361,14 +361,14 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
     if(interval=="prediction"){
         if(side=="upper"){
             yLower[] <- qnorm(level, mean=yMean, sd=sqrt(yVariance))
-            yUpper[] <- rep(-Inf, h)
+            yUpper[] <- rep(-Inf, hFinal)
         }
         else if(side=="both"){
             yLower[] <- qnorm((1-level)/2, mean=yMean, sd=sqrt(yVariance))
             yUpper[] <- qnorm((1+level)/2, mean=yMean, sd=sqrt(yVariance))
         }
         else{
-            yLower[] <- rep(Inf, h)
+            yLower[] <- rep(Inf, hFinal)
             yUpper[] <- qnorm(1-level, mean=yMean, sd=sqrt(yVariance))
         }
     }
