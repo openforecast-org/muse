@@ -8,7 +8,7 @@ public:
     vec y;
     bool errorExit = false, logTransform = true, cllik = true, aggStock = true;
     string obsEq = "stock"; // "stock" or "flow"
-    mat u, comp, compV;
+    mat u, comp, compV, simul;
     uword nObs, h;
     string compNames = "Error/Fit/Level";
     uvec tNonZero, thCum;
@@ -18,7 +18,7 @@ public:
     CTLEVELmodel userInputs;
     CTLEVELclass m;
     // Constructor
-    INTLEVELclass(vec, mat, int, string, bool, vec, bool, bool);
+    INTLEVELclass(vec, mat, int, string, bool, vec, bool, bool, mat);
     // Rest of methods
     // void estim(){m.estim();};
     void forecast();
@@ -29,14 +29,14 @@ public:
 /**************************
  * Functions declarations
  ***************************/
-void INTLEVEL(vec, mat, int, string, bool, vec, bool);
+void INTLEVEL(vec, mat, int, string, bool, vec, bool, mat);
 // INTLEVELclass preProcess(vec, mat, int, string, bool, vec);
 /**************************
  * Functions implementations
  ***************************/
 // Constructor
 INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
-                             vec p0, bool logTransform, bool cllik){
+                             vec p0, bool logTransform, bool cllik, mat simul) {
     bool errorExit = false;
     // Correcting h in case there are inputs
     if (u.n_cols > 0){
@@ -61,6 +61,7 @@ INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
         else
             u = u.cols(t);
     }
+    this->simul = simul;  // noise coming from R
     if (logTransform)
         y(t) = log(y(t));
     uvec aux = t.tail_rows(1); uword lastT = aux(0);
@@ -121,7 +122,6 @@ void INTLEVELclass::forecast(){
         l = regspace<vec>(delta, delta + h - 1);
         mSS.yFor.resize(h);
         mSS.FFor = mSS.yFor;
-        // if (aggStock){
             // SS for aggregated output
             l = regspace<vec>(1, h);
             mSS.yFor = l * mSS.aEnd;
@@ -144,6 +144,21 @@ void INTLEVELclass::forecast(){
             mSS.yFor.fill(mSS.aEnd(0));
             mSS.FFor = PT + (l - delta) * varEta + varEps;   // 9.2.17 Harvey (490) or 3.5.8b (148)
         // }
+        if (simul.n_rows > 0) {  // Simulations //////////////////////////////
+            uvec ind = shuffle(linspace<uvec>(0, simul.n_cols - 1, simul.n_cols));
+            mat simul1 = simul.cols(ind);
+            simul *= sqrt(varEps);     // Re-scaling noise
+            simul1 *= sqrt(varEta);    // Re-scaling noise
+            simul1 += simul1 + repmat(mSS.aEnd, simul1.n_rows, simul1.n_cols);
+            simul += simul + simul1;
+            if (logTransform)
+                simul = cumsum(exp(simul));
+            else
+                simul = cumsum(simul);
+            // for (uword i = 0; i < simul.n_cols; i++) {
+            //     simul.col(i) = cumsum(mSS.yFor + simul.col(i));
+            // }
+        }
     } else{
         // aEnd and PEnd is one step ahead forecast for end + 1
         // Danger when the last observation is preceded by zeros
@@ -266,9 +281,10 @@ void INTLEVELclass::validate(){
     m.setInputs(mSS);
 }
 // Main function
-void INTLEVEL(vec y, mat u, int h, string obsEq, bool verbose, vec p0, bool logTransform, bool cllik){
+void INTLEVEL(vec y, mat u, int h, string obsEq, bool verbose, vec p0, bool logTransform,
+              bool cllik, mat noise){
     // Building standard SS model
-    INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform, cllik);
+    INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform, cllik, noise);
     // mClass = preProcess(y, u, h, obsEq, verbose, p0);
     // mClass.estim();
     mClass.forecast();

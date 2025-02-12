@@ -1,4 +1,6 @@
 rm(list = ls())
+library(UComp)
+library(ggplot2)
 source("R/ctll.R")
 source("R/PTSfunctions.R")
 source("R/PTSS3functions.R")
@@ -7,13 +9,39 @@ Rcpp::sourceCpp("src/musecpp2R.cpp")
 
 set.seed(41)
 x <- c(rnorm(25,100,10),rnorm(25,110,10),rnorm(25,120,10),rnorm(25,150,10))
+h = 10
+nsimul = 2000
+noise = matrix(rnorm(nsimul * h), h, nsimul)
+output = INTLEVELc("e", head(x, -10), NULL, h, "stock", TRUE, c(0.1, 0.1), TRUE, noise)
+autoplot(as.ts(output$cumulatedSimul)) + theme(legend.position = "none")
+
+stop()
+
+
+
+
+
 m = ctll(x, holdout=TRUE, h=10, log=TRUE)
 fm = forecast(m, h=10)
 plot(fm, legend=FALSE)
-stop()
 
-x = 1000 + rnorm(1000, 0, 1)
-ctll(x, silent=FALSE, log=T)
+# output = INTLEVELc("e", yInSample, u, h, obsEq, !silent, B, log)
+
+par = sqrt(exp(2 * output$p))
+nSimul = 1000
+simul = matrix(NA, 10, nSimul)
+for (i in 1 : nSimul) {
+    simul[, i] = cumsum(exp(output$yFor + rnorm(h, 0, par)))
+}
+
+
+bandLogs = output$yForAgg + 2 * sqrt(output$yForVAgg)
+l = 1 : h
+slns = l * log(l)
+band1 = exp((bandLogs + slns) / l)
+forecasts = exp(output$yForAgg[1] + log(l))
+bandSimul = cumsum(exp(output$yFor)) + 2 * sqrt(diag(var(t(simul))))
+print(cbind(forecasts, band1, bandSimul))
 
 stop()
 

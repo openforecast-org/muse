@@ -321,13 +321,12 @@ SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rho
 
 // [[Rcpp::export]]
 SEXP INTLEVELc(char command, arma::vec y, SEXP us, int h, std::string obsEq,
-               bool verbose, arma::vec p0, bool logTransform){
+               bool verbose, arma::vec p0, bool logTransform, SEXP noises){
 
     mat u;
-    if(Rf_isNull(us)){
+    if (Rf_isNull(us)){
         u.set_size(0,0);
-    }
-    else{
+    } else{
         NumericMatrix ur(us);
         mat aux(ur.begin(), ur.nrow(), ur.ncol(), false);
         u = aux;
@@ -335,8 +334,16 @@ SEXP INTLEVELc(char command, arma::vec y, SEXP us, int h, std::string obsEq,
             u = u.t();
         }
     }
+    mat noise;
+    if (Rf_isNull(noises)) {
+        noise.set_size(0, 0);
+    } else {
+        NumericMatrix noiser(noises);
+        mat aux(noiser.begin(), noiser.nrow(), noiser.ncol(), false);
+        noise = aux;
+    }
     // Creating class
-    INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform, true);
+    INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform, true, noise);
     if (mClass.errorExit)
         return List::create(Named("errorExit") = mClass.errorExit);
     // lower(command);
@@ -354,6 +361,7 @@ SEXP INTLEVELc(char command, arma::vec y, SEXP us, int h, std::string obsEq,
                         Named("yForV") = m.FFor,
                         Named("yForAgg") = mClass.yForAgg,
                         Named("yForVAgg") = mClass.yForVAgg,
+                        Named("cumulatedSimul") = mClass.simul,
                         Named("table") = m.table,
                         Named("comp") = mClass.comp,
                         Named("compV") = mClass.compV,

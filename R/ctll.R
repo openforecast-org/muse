@@ -123,8 +123,16 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
             u = matrix(u, nu[1], nu[2])
         }
     }
+
+
+    ##################
+    # Noises assumed with mean zero and variance 1
+    nsimul = 20
+    noise = matrix(rnorm(nsimul * h), h, nsimul)
+    ######################
+
     # Running C++ code
-    output = INTLEVELc("e", yInSample, u, h, obsEq, !silent, B, log)
+    output = INTLEVELc("e", yInSample, u, h, obsEq, !silent, B, log, noise)
 
     # cat("This are the new fields:\n")
     # print(cbind(output$yForAgg, output$yForVAgg))
