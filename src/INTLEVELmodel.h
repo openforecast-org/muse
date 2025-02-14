@@ -8,17 +8,18 @@ public:
     vec y;
     bool errorExit = false, logTransform = true, cllik = true, aggStock = true;
     string obsEq = "stock"; // "stock" or "flow"
-    mat u, comp, compV, simul;
+    mat u, comp, compV; //, simul, noiseETA;
     uword nObs, h;
     string compNames = "Error/Fit/Level";
     uvec tNonZero, thCum;
     vec yForAgg, yForVAgg;
+    vec coef;
     // Other classes
     SSinputs mSS;
     CTLEVELmodel userInputs;
     CTLEVELclass m;
     // Constructor
-    INTLEVELclass(vec, mat, int, string, bool, vec, bool, bool, mat);
+    INTLEVELclass(vec, mat, int, string, bool, vec, bool, bool); //, mat, mat);
     // Rest of methods
     // void estim(){m.estim();};
     void forecast();
@@ -29,14 +30,16 @@ public:
 /**************************
  * Functions declarations
  ***************************/
-void INTLEVEL(vec, mat, int, string, bool, vec, bool, mat);
+void INTLEVEL(vec, mat, int, string, bool, vec, bool);  //, mat, mat);
 // INTLEVELclass preProcess(vec, mat, int, string, bool, vec);
 /**************************
  * Functions implementations
  ***************************/
 // Constructor
 INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
-                             vec p0, bool logTransform, bool cllik, mat simul) {
+                             vec p0, bool logTransform, bool cllik) {
+                             // mat noiseETA, mat simul) {
+    // simul is epsilon noise in reallity
     bool errorExit = false;
     // Correcting h in case there are inputs
     if (u.n_cols > 0){
@@ -61,7 +64,8 @@ INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
         else
             u = u.cols(t);
     }
-    this->simul = simul;  // noise coming from R
+    // this->simul = simul;  // noise coming from R
+    // this->noiseETA = noiseETA;
     if (logTransform)
         y(t) = log(y(t));
     uvec aux = t.tail_rows(1); uword lastT = aux(0);
@@ -117,6 +121,8 @@ void INTLEVELclass::forecast(){
         varEta *= mSS.innVariance;
         varEps = mSS.innVariance;
     }
+    coef.resize(2);
+    coef(0) = varEta; coef(1) = varEps;
     PT = mSS.PEnd(0, 0);
     if (obsEq[0] == 's'){
         l = regspace<vec>(delta, delta + h - 1);
@@ -144,21 +150,16 @@ void INTLEVELclass::forecast(){
             mSS.yFor.fill(mSS.aEnd(0));
             mSS.FFor = PT + (l - delta) * varEta + varEps;   // 9.2.17 Harvey (490) or 3.5.8b (148)
         // }
-        if (simul.n_rows > 0) {  // Simulations //////////////////////////////
-            uvec ind = shuffle(linspace<uvec>(0, simul.n_cols - 1, simul.n_cols));
-            mat simul1 = simul.cols(ind);
-            simul *= sqrt(varEps);     // Re-scaling noise
-            simul1 *= sqrt(varEta);    // Re-scaling noise
-            simul1 += simul1 + repmat(mSS.aEnd, simul1.n_rows, simul1.n_cols);
-            simul += simul + simul1;
-            if (logTransform)
-                simul = cumsum(exp(simul));
-            else
-                simul = cumsum(simul);
-            // for (uword i = 0; i < simul.n_cols; i++) {
-            //     simul.col(i) = cumsum(mSS.yFor + simul.col(i));
-            // }
-        }
+        // if (simul.n_rows > 0) {  // Simulations //////////////////////////////
+        //     simul *= sqrt(varEps);     // Re-scaling noise of epsilon
+        //     noiseETA *= sqrt(varEta);    // Re-scaling noise
+        //     noiseETA += repmat(mSS.yFor, 1, noiseETA.n_cols);
+        //     simul += noiseETA;
+        //     if (logTransform)
+        //         simul = cumsum(exp(simul));
+        //     else
+        //         simul = cumsum(simul);
+        // }
     } else{
         // aEnd and PEnd is one step ahead forecast for end + 1
         // Danger when the last observation is preceded by zeros
@@ -282,9 +283,9 @@ void INTLEVELclass::validate(){
 }
 // Main function
 void INTLEVEL(vec y, mat u, int h, string obsEq, bool verbose, vec p0, bool logTransform,
-              bool cllik, mat noise){
+              bool cllik) {  //, mat noiseETA, mat noiseEPS){
     // Building standard SS model
-    INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform, cllik, noise);
+    INTLEVELclass mClass(y, u, h, obsEq, verbose, p0, logTransform, cllik);  //, noiseETA, noiseEPS);
     // mClass = preProcess(y, u, h, obsEq, verbose, p0);
     // mClass.estim();
     mClass.forecast();

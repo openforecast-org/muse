@@ -11,9 +11,18 @@ set.seed(41)
 x <- c(rnorm(25,100,10),rnorm(25,110,10),rnorm(25,120,10),rnorm(25,150,10))
 h = 10
 nsimul = 2000
-noise = matrix(rnorm(nsimul * h), h, nsimul)
-output = INTLEVELc("e", head(x, -10), NULL, h, "stock", TRUE, c(0.1, 0.1), TRUE, noise)
-autoplot(as.ts(output$cumulatedSimul)) + theme(legend.position = "none")
+logTransform = TRUE
+output = INTLEVELc("e", head(x, -10), NULL, h, "stock", TRUE, c(0.1, 0.1), logTransform)
+# Simulations
+noiseETA = matrix(rnorm(nsimul * h), h, nsimul) * sqrt(output$coef[1])
+noiseEPS = matrix(rnorm(nsimul * h), h, nsimul) * sqrt(output$coef[2])
+states = matrix(rep(output$yFor, nsimul), h, nsimul) + noiseETA
+if (logTransform) {
+   simul = apply(exp(states + noiseEPS), 2, cumsum)
+} else {
+   simul = apply(states + noiseEPS, 2, cumsum)
+}
+print(autoplot(as.ts(simul)) + theme(legend.position = "none"))
 
 stop()
 
