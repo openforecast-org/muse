@@ -55,8 +55,8 @@ INTLEVELclass::INTLEVELclass(vec y, mat u, int h, string obsEq, bool verbose,
         this->errorExit = true;
     }
     // Ignore the missing values. This is how we encode the gaps
-    uvec t =  find_finite(y);
-    // uvec t = find(y != 0.0);
+    // uvec t =  find_finite(y);
+    uvec t = find(y != 0.0);
     this->u = u;
     if (u.n_rows > 0){
         if (u.n_cols > t.n_rows)
