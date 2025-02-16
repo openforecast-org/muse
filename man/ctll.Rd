@@ -8,9 +8,9 @@
 ctll(y, u = NULL, type = c("stock", "flow"), log = FALSE, h = 12,
   holdout = FALSE, silent = TRUE, B = c(0.1, 0.1))
 
-\method{forecast}{ctll}(object, h = 10, interval = c("prediction", "none"),
-  level = 0.95, side = c("both", "upper", "lower"), cumulative = FALSE,
-  ...)
+\method{forecast}{ctll}(object, h = 10, interval = c("prediction",
+  "simulated", "none"), level = 0.95, side = c("both", "upper", "lower"),
+  cumulative = FALSE, nsim = 1e+05, ...)
 }
 \arguments{
 \item{y}{Vector or ts object, containing data needed to be forecasted.}
@@ -46,6 +46,8 @@ or produce an upper/lower quantile only.}
 
 \item{cumulative}{Logical, specifying whether to return the cumulative
 point forecasts and quantiles.}
+
+\item{nsim}{Number of simulated series to produce if \code{interval="simulated"}.}
 
 \item{...}{Other parameters (not yet used).}
 }

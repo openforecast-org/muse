@@ -55,8 +55,8 @@ fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
 }
 \examples{
 \dontrun{
-m1 <- MSOEsetup(log(AirPassengers))
-m1 <- MSOEestim(m1)
+# m1 <- MSOEsetup(log(AirPassengers))
+# m1 <- MSOEestim(m1)
 }
 }
 \seealso{

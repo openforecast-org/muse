@@ -18,8 +18,8 @@ Plot components of PTS object
 See help of \code{PTS}.
 }
 \examples{
-m1 <- PTS(log(AirPassengers))
-plot(m1)
+# m1 <- PTS(log(AirPassengers))
+# plot(m1)
 }
 \seealso{
 \code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},

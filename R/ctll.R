@@ -124,18 +124,8 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         }
     }
 
-
-    ##################
-    # Noises assumed with mean zero and variance 1
-    nsimul = 20
-    noise = matrix(rnorm(nsimul * h), h, nsimul)
-    ######################
-
     # Running C++ code
-    output = INTLEVELc("e", yInSample, u, h, obsEq, !silent, B, log, noise)
-
-    # cat("This are the new fields:\n")
-    # print(cbind(output$yForAgg, output$yForVAgg))
+    output = INTLEVELc("e", yInSample, u, h, obsEq, !silent, B, log)
 
     # Preparing outputs
     if (length(output) == 1){   # ERROR!!
@@ -217,6 +207,7 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         m$scale <- sum(m$residuals^2, na.rm=TRUE)/(nobs(m))
         m$model <- "Continuous Time Local Level Model"
         m$log <- log
+        m$profile <- m$states[obsInSample,1]
 
         if(log){
             m$logLik <- sum(dlnorm(yInSample[otLogical], m$fitted[otLogical], sqrt(m$scale), log=TRUE), na.rm=TRUE)
@@ -234,6 +225,7 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         m$yForV <- NULL
         m$u <- u
         m$call <- cl
+        m$coef <- setNames(as.vector(output$coef), c("V(Eta)","V(Epsilon)"));
 
         if (!silent){
             cat("Done!\n")
@@ -295,12 +287,14 @@ residuals.ctll <- function(object, ...){
 #' or produce an upper/lower quantile only.
 #' @param cumulative Logical, specifying whether to return the cumulative
 #' point forecasts and quantiles.
+#' @param nsim Number of simulated series to produce if \code{interval="simulated"}.
 #' @param ... Other parameters (not yet used).
 #' @importFrom generics forecast
+#' @importFrom stats rnorm quantile var
 #' @export
-forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
+forecast.ctll <- function(object, h=10, interval=c("prediction","simulated","none"),
                           level=0.95, side=c("both", "upper", "lower"),
-                          cumulative=FALSE, ...){
+                          cumulative=FALSE, nsim=100000, ...){
     side <- match.arg(side);
     interval <- match.arg(interval);
 
@@ -311,6 +305,10 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
     # if(object$log){
         # B <- exp(2*object$B)
     # }
+
+    if(cumulative && object$log){
+        interval[] <- "simulated";
+    }
 
     yIndex <- time(yInSample);
     yClasses <- class(yInSample);
@@ -379,15 +377,54 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","none"),
             yLower[] <- qnorm(1-level, mean=yMean, sd=sqrt(yVariance))
             yUpper[] <- rep(Inf, hFinal)
         }
+
+        if(object$log){
+            yMean[] <- exp(yMean + yVariance/2);
+            yLower[] <- exp(yLower)
+            yUpper[] <- exp(yUpper)
+        }
+    }
+    else if(interval=="simulated"){
+        states <- matrix(NA, h, nsim);
+        noiseEta <- matrix(rnorm(nsim * h, 0, sqrt(object$coef[1])), h, nsim);
+        noiseEpsilon <- matrix(rnorm(nsim * h, 0, sqrt(object$coef[2])), h, nsim);
+        states[1,] <- object$profile + noiseEta[1,];
+        ySimulated <- ctllSim(states, noiseEta, noiseEpsilon, object$log);
+        if(cumulative){
+            yMean[] <- mean(apply(ySimulated, 2, sum));
+            yVariance[] <- var(apply(ySimulated, 2, sum));
+            if(side=="upper"){
+                yLower[] <- rep(-Inf, hFinal)
+                yUpper[] <- quantile(apply(ySimulated, 2, sum), probs=level);
+            }
+            else if(side=="both"){
+                yLower[] <- quantile(apply(ySimulated, 2, sum), probs=(1-level)/2);
+                yUpper[] <- quantile(apply(ySimulated, 2, sum), probs=(1+level)/2);
+            }
+            else{
+                yLower[] <- quantile(apply(ySimulated, 2, sum), probs=1-level);
+                yUpper[] <- rep(Inf, hFinal)
+            }
+        }
+        else{
+            yMean[] <- apply(ySimulated, 1, mean);
+            yVariance[] <- apply(ySimulated, 1, var);
+            if(side=="upper"){
+                yLower[] <- rep(-Inf, hFinal)
+                yUpper[] <- apply(ySimulated, 1, quantile, probs=level);
+            }
+            else if(side=="both"){
+                yLower[] <- apply(ySimulated, 1, quantile, probs=(1-level)/2);
+                yUpper[] <- apply(ySimulated, 1, quantile, probs=(1+level)/2);
+            }
+            else{
+                yLower[] <- apply(ySimulated, 1, quantile, probs=1-level);
+                yUpper[] <- rep(Inf, hFinal)
+            }
+        }
     }
     else{
         yLower <- yUpper <- NULL;
-    }
-
-    if(object$log){
-        yMean[] <- exp(yMean + yVariance/2);
-        yLower[] <- exp(yLower)
-        yUpper[] <- exp(yUpper)
     }
 
     # Names for quantiles
@@ -429,6 +466,7 @@ print.ctll.forecast <- function(x, ...){
 
 #' @method plot ctll.forecast
 #' @importFrom greybox actuals
+#' @importFrom graphics abline points
 #' @export
 plot.ctll.forecast <- function(x, ...){
     yClasses <- class(actuals(x$model));

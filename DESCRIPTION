@@ -1,8 +1,8 @@
 Package: muse
 Type: Package
 Title: Multiple Unobserved Sources of Error
-Version: 0.0.1.41003
-Date: 2024-12-06
+Version: 0.0.1.41004
+Date: 2025-02-16
 Authors@R: c(person("Diego J.", "Pedregal", role = c("aut", "ctb"),
                      email = "Diego.Pedregal@uclm.es",
                      comment = c(ORCID = "0000-0003-4958-0969")),

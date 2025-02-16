@@ -1,7 +1,8 @@
-muse v0.0.1 (Release data: 2024-12-06)
+muse v0.0.1 (Release data: 2025-02-16)
 =======
 
 Changes:
 * Created the package
 * Diego uploaded the code for the ctll() and pts() functions. Ivan started preparing the documentation.
 * The working version of ctll() and the related methods, such as fitted(), residuals(), forecast() etc.
+* Simulated interval and cumulative forecasts in ctll()

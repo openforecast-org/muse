@@ -190,7 +190,7 @@ PTSmodel <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaId
 #'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
 #'
 #' @examples
-#' m1 <- PTS(log(AirPassengers))
+#' # m1 <- PTS(log(AirPassengers))
 #' @rdname PTS
 #' @export
 PTS <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
@@ -296,8 +296,8 @@ PTSvalidate <- function(m, verbose = TRUE){
 #'          \code{\link{PTSvalidate}}, \code{\link{PTS}}
 #'
 #' @examples
-#' m1 <- PTS(log(AirPassengers))
-#' m1 <- PTScomponents(m1)
+#' # m1 <- PTS(log(AirPassengers))
+#' # m1 <- PTScomponents(m1)
 #' @rdname PTScomponents
 #' @export
 PTScomponents <- function(m){

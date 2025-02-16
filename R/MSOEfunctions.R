@@ -346,7 +346,7 @@ MSOE = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, outlier
     if (m$model == "error")
         return(m)
     m = MSOEvalidate(m, verbose)
-    m = MSOEdisturb(m)
+    # m = MSOEdisturb(m)
     m = MSOEsmooth(m)
     m = MSOEcomponents(m)
     return(m)
@@ -403,8 +403,8 @@ MSOE = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, outlier
 #'
 #' @examples
 #' \dontrun{
-#' m1 <- MSOEsetup(log(AirPassengers))
-#' m1 <- MSOEestim(m1)
+#' # m1 <- MSOEsetup(log(AirPassengers))
+#' # m1 <- MSOEestim(m1)
 #' }
 #' @rdname MSOEestim
 #' @export

@@ -20,8 +20,8 @@ filled in, in particular:
 Estimates components of PTS models
 }
 \examples{
-m1 <- PTS(log(AirPassengers))
-m1 <- PTScomponents(m1)
+# m1 <- PTS(log(AirPassengers))
+# m1 <- PTScomponents(m1)
 }
 \seealso{
 \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSestim}},

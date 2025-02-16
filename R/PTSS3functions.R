@@ -73,8 +73,8 @@ summary.PTS = function(object, ...){
 #'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
 #'
 #' @examples
-#' m1 <- PTS(log(AirPassengers))
-#' plot(m1)
+#' # m1 <- PTS(log(AirPassengers))
+#' # plot(m1)
 #' @rdname plot
 #' @export
 plot.PTS = function(x, ...){

@@ -11,6 +11,20 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// ctllSim
+arma::mat ctllSim(arma::mat states, arma::mat const& noiseEta, arma::mat const& noiseEpsilon, bool const& logValue);
+RcppExport SEXP _muse_ctllSim(SEXP statesSEXP, SEXP noiseEtaSEXP, SEXP noiseEpsilonSEXP, SEXP logValueSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::mat >::type states(statesSEXP);
+    Rcpp::traits::input_parameter< arma::mat const& >::type noiseEta(noiseEtaSEXP);
+    Rcpp::traits::input_parameter< arma::mat const& >::type noiseEpsilon(noiseEpsilonSEXP);
+    Rcpp::traits::input_parameter< bool const& >::type logValue(logValueSEXP);
+    rcpp_result_gen = Rcpp::wrap(ctllSim(states, noiseEta, noiseEpsilon, logValue));
+    return rcpp_result_gen;
+END_RCPP
+}
 // MSOEc
 SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rhoss, SEXP hs, SEXP tTests, SEXP criterions, SEXP ps, SEXP rubbish2s, SEXP rubbishs, SEXP verboses, SEXP stepwises, SEXP estimOks, SEXP p0s, SEXP vs, SEXP yFitVs, SEXP nonStationaryTermss, SEXP rubbish3s, SEXP harmonicss, SEXP criterias, SEXP cycleLimitss, SEXP betass, SEXP typeOutlierss, SEXP TVPs, SEXP trendOptionss, SEXP seasonalOptionss, SEXP irregularOptionss);
 RcppExport SEXP _muse_MSOEc(SEXP commandsSEXP, SEXP ysSEXP, SEXP usSEXP, SEXP modelsSEXP, SEXP periodssSEXP, SEXP rhossSEXP, SEXP hsSEXP, SEXP tTestsSEXP, SEXP criterionsSEXP, SEXP psSEXP, SEXP rubbish2sSEXP, SEXP rubbishsSEXP, SEXP verbosesSEXP, SEXP stepwisesSEXP, SEXP estimOksSEXP, SEXP p0sSEXP, SEXP vsSEXP, SEXP yFitVsSEXP, SEXP nonStationaryTermssSEXP, SEXP rubbish3sSEXP, SEXP harmonicssSEXP, SEXP criteriasSEXP, SEXP cycleLimitssSEXP, SEXP betassSEXP, SEXP typeOutlierssSEXP, SEXP TVPsSEXP, SEXP trendOptionssSEXP, SEXP seasonalOptionssSEXP, SEXP irregularOptionssSEXP) {
@@ -70,6 +84,7 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_muse_ctllSim", (DL_FUNC) &_muse_ctllSim, 4},
     {"_muse_MSOEc", (DL_FUNC) &_muse_MSOEc, 29},
     {"_muse_INTLEVELc", (DL_FUNC) &_muse_INTLEVELc, 8},
     {NULL, NULL, 0}
