@@ -6,6 +6,13 @@ source("R/PTSfunctions.R")
 source("R/PTSS3functions.R")
 source("R/MSOEfunctions.R")
 Rcpp::sourceCpp("src/musecpp2R.cpp")
+cat("\014")
+
+load("x.Rdata")
+test <- ctll(x, h=14, holdout=TRUE, silent=FALSE, log=TRUE, B=c(0.1,0.1))
+output = INTLEVELc("e", head(x, -14), NULL, 14, "stock", TRUE, c(10, 10), TRUE)
+
+stop()
 
 set.seed(41)
 x <- c(rnorm(25,100,10),rnorm(25,110,10),rnorm(25,120,10),rnorm(25,150,10))
@@ -16,7 +23,11 @@ output = INTLEVELc("e", head(x, -10), NULL, h, "stock", TRUE, c(0.1, 0.1), logTr
 # Simulations
 noiseETA = matrix(rnorm(nsimul * h), h, nsimul) * sqrt(output$coef[1])
 noiseEPS = matrix(rnorm(nsimul * h), h, nsimul) * sqrt(output$coef[2])
-states = matrix(rep(output$yFor, nsimul), h, nsimul) + noiseETA
+states = matrix(NA, h, nsimul)
+states[1, ] = rep(output$yFor[1], nsimul) + noiseETA[1, ]
+for (i in 2 : h) {
+    states[i, ] = states[i - 1, ] + noiseETA[i, ]
+}
 if (logTransform) {
    simul = apply(exp(states + noiseEPS), 2, cumsum)
 } else {

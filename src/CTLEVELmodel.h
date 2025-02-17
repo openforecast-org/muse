@@ -50,7 +50,7 @@ CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
     // NaNs in u
     if (u.n_rows > 0 && u.has_nonfinite()){
         // MUTE checks - R doesn't like them
-        // printf("%s", "ERROR: missing values not allowed in input variables!!!\n");
+        printf("%s", "ERROR: missing values not allowed in input variables!!!\n");
         this->errorExit = true;
     }
     if (u.n_rows > u.n_cols){
@@ -58,34 +58,48 @@ CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
     }
     // Checking length of t with respect to u
     if (u.n_cols > 0 && u.n_rows != t.n_rows){
-        // printf("%s", "ERROR: Time index length and inputs length should be equal!!!\n");
+        printf("%s", "ERROR: Time index length and inputs length should be equal!!!\n");
         this->errorExit = true;
     }
     // Checking length of t with respect to y
     if (y.n_rows > t.n_rows){
-        // printf("%s", "ERROR: Time index length should be equal or greater to output length!!!\n");
+        printf("%s", "ERROR: Time index length should be equal or greater to output length!!!\n");
         this->errorExit = true;
     }
     // obsEq options
     lower(obsEq);
     if (obsEq[0] != 's' && obsEq[0] != 'f'){
-        // printf("%s", "ERROR: obsEq input should be either \"stock\" or \"flow\"!!!\n");
+        printf("%s", "ERROR: obsEq input should be either \"stock\" or \"flow\"!!!\n");
         this->errorExit = true;
     }
     if (any(p0 < 0.0)){
-        // printf("%s", "ERROR: Initial parameter values should be positive!!!\n");
+        printf("%s", "ERROR: Initial parameter values should be positive!!!\n");
         this->errorExit = true;
     }
+    if (this->errorExit)
+        return;
     // Concentrated likelihood on/off!!!!!!!
     this->SSmodel::inputs.cLlik = cllik;   // Concentrated likelihood on/off
     // Initial estimate
-    if (p0.n_rows >= 2 && !this->SSmodel::inputs.cLlik)
-        p0 = log(p0.rows(0, 1)) / 2;
-    else if (p0.n_rows == 1 && !this->SSmodel::inputs.cLlik){
-        vec p1(1, fill::value(p0(0)));
-        p0 = join_vert(log(p0.row(0)) / 2, p1);
-    } else
-        p0.resize(1 + !this->SSmodel::inputs.cLlik).fill(-1.15);
+    if (p0.n_elem == 0) {
+        if (cllik)
+            p0.resize(1).fill(-2.3);
+        else {
+            p0.resize(2);
+            p0(0) = -2.3;
+            p0(1) = -1.15;
+        }
+    } else if (p0.n_elem == 1) {
+        p0 = log(p0) / 2;
+        if (!cllik) {
+            vec aux(2);
+            aux(0) = p0(0);
+            aux(1) = -1.15;
+            p0.resize(2);
+            p0 = aux;
+        }
+    } else if (p0.n_rows >= 2)
+        p0 = log(p0.rows(0, !cllik + 1)) / 2;
     int h = t.n_rows - y.n_rows;
     // Setting up system matrices for CTL model
     // SSinputs input = this->mSS.getInputs();
