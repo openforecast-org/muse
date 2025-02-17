@@ -411,14 +411,14 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","simulated","non
             yVariance[] <- apply(ySimulated, 1, var);
             if(side=="upper"){
                 yLower[] <- rep(-Inf, hFinal)
-                yUpper[] <- apply(ySimulated, 1, quantile, probs=level);
+                yUpper[] <- t(apply(ySimulated, 1, quantile, probs=level));
             }
             else if(side=="both"){
-                yLower[] <- apply(ySimulated, 1, quantile, probs=(1-level)/2);
-                yUpper[] <- apply(ySimulated, 1, quantile, probs=(1+level)/2);
+                yLower[] <- t(apply(ySimulated, 1, quantile, probs=(1-level)/2));
+                yUpper[] <- t(apply(ySimulated, 1, quantile, probs=(1+level)/2));
             }
             else{
-                yLower[] <- apply(ySimulated, 1, quantile, probs=1-level);
+                yLower[] <- t(apply(ySimulated, 1, quantile, probs=1-level));
                 yUpper[] <- rep(Inf, hFinal)
             }
         }
