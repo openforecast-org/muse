@@ -36,7 +36,7 @@
 #' @rdname ctll
 #' @export
 ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
-                h=12, holdout=FALSE, silent=TRUE, B=c(0.1, 0.1)){
+                h=12, holdout=FALSE, silent=TRUE, B=NULL){
     # Copyright (C) 2024 - Inf  Diego Pedregal & Ivan Svetunkov
 
     # Start measuring the time of calculations
@@ -122,6 +122,17 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
             u = as.numeric(u);
             u = matrix(u, nu[1], nu[2])
         }
+    }
+
+    # If B was not provided, get an estimate
+    if(is.null(B)){
+        B = rep(NA, 2);
+        dy = diff(y[1:obsInSample]);
+        dy[] = dy - mean(dy, na.rm=TRUE);
+        n = obsInSample - 1;
+        B[2] = -sum(dy[2:n] * dy[1:(n - 1)]) / (n - 2);
+        B[1] = var(dy, na.rm = TRUE) - 2 * B[2];
+        B = abs(B);
     }
 
     # Running C++ code

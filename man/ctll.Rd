@@ -6,7 +6,7 @@
 \title{Continuous time Local Level model}
 \usage{
 ctll(y, u = NULL, type = c("stock", "flow"), log = FALSE, h = 12,
-  holdout = FALSE, silent = TRUE, B = c(0.1, 0.1))
+  holdout = FALSE, silent = TRUE, B = NULL)
 
 \method{forecast}{ctll}(object, h = 10, interval = c("prediction",
   "simulated", "none"), level = 0.95, side = c("both", "upper", "lower"),
