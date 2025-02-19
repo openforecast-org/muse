@@ -8,9 +8,26 @@ source("R/MSOEfunctions.R")
 Rcpp::sourceCpp("src/musecpp2R.cpp")
 cat("\014")
 
+load("x1.Rdata")
+dx = diff(x)
+dx = dx - mean(dx, na.rm=TRUE)
+n = length(dx)
+g1 = sum(dx[2 : n] * dx[1 : (n - 1)]) / (n - 2)
+g0 = var(dx, na.rm = TRUE)
+B = c(NA, 2)
+B[2] = -g1
+B[1] = g0 - 2 * B[2]
+B = abs(B)
+output = INTLEVELc("e", head(x, -14), NULL, 14, "stock", TRUE, B, TRUE)
+t0 <- ctll(x, h=14, holdout=TRUE, silent=FALSE, log=TRUE, B=B)
+t1 <- ctll(x, h=14, holdout=TRUE, silent=FALSE, log=TRUE, B=c(0.1, var(x)))
+t2 <- ctll(x, h=14, holdout=TRUE, silent=FALSE, log=TRUE, B=c(0.01, 0.1))
+stop()
+
 load("x.Rdata")
+test <- ctll(x, h=14, holdout=TRUE, silent=FALSE, log=TRUE, B=B)
 test <- ctll(x, h=14, holdout=TRUE, silent=FALSE, log=TRUE, B=c(0.1,0.1))
-output = INTLEVELc("e", head(x, -14), NULL, 14, "stock", TRUE, c(10, 10), TRUE)
+output = INTLEVELc("e", head(x, -14), NULL, 14, "stock", TRUE, c(0.1, var(x)), TRUE)
 
 stop()
 
