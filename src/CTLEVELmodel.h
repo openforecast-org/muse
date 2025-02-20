@@ -99,7 +99,7 @@ CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
             p0 = aux;
         }
     } else if (p0.n_rows >= 2)
-        p0 = log(p0.rows(0, !cllik + 1)) / 2;
+        p0 = log(p0.rows(0, !cllik)) / 2;
     int h = t.n_rows - y.n_rows;
     // Setting up system matrices for CTL model
     // SSinputs input = this->mSS.getInputs();
