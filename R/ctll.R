@@ -189,8 +189,8 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
         m$type <- obsEq
         m$B0 <- B
         # Estimated parameters
-        # exp(2*p) is what Diego said is the variance of eta
-        m$B <- setNames(as.vector(exp(2*output$p)), c("Var(eta)"))
+        # exp(2*p) is the ratio of variances of eta to epsilon
+        m$B <- setNames(as.vector(exp(2*output$p)), c("Theta"))
         m$silent <- silent
         m$log <- log
 
@@ -313,9 +313,6 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","simulated","non
     obsInSample <- nobs(object);
 
     B <- object$B
-    # if(object$log){
-        # B <- exp(2*object$B)
-    # }
 
     if(cumulative && object$log){
         interval[] <- "simulated";
@@ -436,6 +433,9 @@ forecast.ctll <- function(object, h=10, interval=c("prediction","simulated","non
     }
     else{
         yLower <- yUpper <- NULL;
+        if(object$log){
+            yMean[] <- exp(yMean + yVariance/2);
+        }
     }
 
     # Names for quantiles
