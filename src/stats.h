@@ -404,12 +404,12 @@ void beraj(vec& y, double& bj, double& pbj){
   int nNan, n = y.n_elem;
   vec yn = removeNans(y, nNan);
   yn = yn - mean(yn);
-  vec media3 = mean(pow(yn, 3));
-  vec media4 = mean(pow(yn, 4));
-  vec stdb = sqrt(mean(pow(yn, 2)));
-  vec skew = media3 / pow(stdb, 3);
-  vec kurto = media4 / pow(stdb, 4) - 3;
-  bj = (n - nNan) / 6 * (pow(as_scalar(skew), 2) + pow(as_scalar(kurto), 2) / 4);
+  double media3 = as_scalar(mean(pow(yn, 3)));
+  double media4 = as_scalar(mean(pow(yn, 4)));
+  double stdb = as_scalar(sqrt(mean(pow(yn, 2))));
+  double skew = as_scalar(media3 / pow(stdb, 3));
+  double kurto = as_scalar(media4 / pow(stdb, 4) - 3);
+  bj = (n - nNan) / 6 * (pow(skew, 2) + pow(kurto, 2) / 4);
   pbj = exp(-bj / 2);
 }
 // Heteroskedasticity ratio of variances
