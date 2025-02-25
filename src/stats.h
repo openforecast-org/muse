@@ -54,7 +54,7 @@ rowvec nanMean(mat y);
 double nanStddev(vec y);
 rowvec nanStddev(mat y);
 double nanMin(vec y);
-// Incomplete beta function 
+// Incomplete beta function
 double betaInc(double, double, double);
 // Estimation table
 void outputTable(vec, vector<string>&);
@@ -120,7 +120,7 @@ double adfTest(vec& y, vec lags, double& BIC, double& AIC, double& AICc){
   int aux;
   y = y - mean(removeNans(y, aux));
   // Creating lagged matrix
-  mat X = join_rows(join_rows(y(span(maxLag + 1, n - 1)), y(span(maxLag, n - 2))), 
+  mat X = join_rows(join_rows(y(span(maxLag + 1, n - 1)), y(span(maxLag, n - 2))),
                     lag(y(span(1, n - 1)) - y(span(0, n - 2)), lags));
   // Regression with constant and no trend
   vec beta, stdBeta, e;
@@ -170,7 +170,7 @@ void harmonicRegress(vec& y, mat& u, vec period, uword trendPow, vec& beta, vec&
     bool seasonal = true;
     if (any(period == 1)){
         seasonal = false;
-    } 
+    }
     if (seasonal){
         harm = regspace<uvec>(1, 1, period.n_elem);
         w = 2 * datum::pi / period.t();
@@ -276,7 +276,7 @@ void selectAR(vec& y, double maxAR, string criterion, vec& arOrder, vec& eBest, 
 void selectARMA(vec y, double period, double maxAR, string criterion, vec& orders, vec& betaOpt){
   vec arOrder;
   double minCritAR;
-  vec eBest, arBeta, maxOrders(2); 
+  vec eBest, arBeta, maxOrders(2);
   maxOrders.fill((int)period - 1);
   orders.zeros(2);
   betaOpt.fill(0);
@@ -288,7 +288,7 @@ void selectARMA(vec y, double period, double maxAR, string criterion, vec& order
     orders(0) = arOrder(0);
     betaOpt = -arBeta;
     return ;
-  }  
+  }
   // AR identification
   mat X = lag(y, regspace(0, maxAR));
   vec stdBeta, e;
@@ -301,10 +301,10 @@ void selectARMA(vec y, double period, double maxAR, string criterion, vec& order
   do {
     if (orders(0) < maxOrders(0)){
       if (orders(1) == 0){     // Pure AR(p+1)
-        regress(X(span(ind(0), ind(1)), 0), X(span(ind(0), ind(1)), span(1, orders(0) + 1)), 
+        regress(X(span(ind(0), ind(1)), 0), X(span(ind(0), ind(1)), span(1, orders(0) + 1)),
                   beta1, stdBeta, e, BIC, AIC, AICc);
       } else {                // ARMA(p+1, q)
-        regress(X(span(ind(0), ind(1)), 0), join_rows(X(span(ind(0), ind(1)), span(1, orders(0) + 1)), 
+        regress(X(span(ind(0), ind(1)), 0), join_rows(X(span(ind(0), ind(1)), span(1, orders(0) + 1)),
                   eData.cols(span(0, orders(1) - 1))), beta1, stdBeta, e, BIC, AIC, AICc);
       }
       if (criterion == "aic"){
@@ -316,11 +316,11 @@ void selectARMA(vec y, double period, double maxAR, string criterion, vec& order
       }
 //      stdBeta = sqrt(covBeta.diag());
     }
-    if (orders(1) < maxOrders(1)){    
+    if (orders(1) < maxOrders(1)){
       if (orders(0) == 0){           // Pure MA(q+1)
         regress(X(span(ind(0), ind(1)), 0), eData.cols(span(0, orders(1))), beta2, stdBeta, e, BIC, AIC, AICc);
       } else {                      // ARMA(p, q+1)
-        regress(X(span(ind(0), ind(1)), 0), join_rows(X(span(ind(0), ind(1)), span(1, orders(0))), 
+        regress(X(span(ind(0), ind(1)), 0), join_rows(X(span(ind(0), ind(1)), span(1, orders(0))),
                   eData.cols(span(0, orders(1)))), beta2, stdBeta, e, BIC, AIC, AICc);
       }
       if (criterion == "aic"){
@@ -380,10 +380,10 @@ void linearARMA(vec& y, vec orders, vec& beta, vec& stdBeta){
     regress(X(span(aux(0) - dim, aux(0) - 1), span(0)),
             eData(span(aux(1) - dim, aux(1) - 1), span(0, orders(1) - 1)), beta, stdBeta, e, BIC, AIC, AICc);
   } else if (orders(1) == 0){   // pure AR
-    regress(X(span(aux(0) - dim, aux(0) - 1), span(0)), X(span(aux(0) - dim, aux(0) - 1), span(1, orders(0))), 
+    regress(X(span(aux(0) - dim, aux(0) - 1), span(0)), X(span(aux(0) - dim, aux(0) - 1), span(1, orders(0))),
             beta, stdBeta, e, BIC, AIC, AICc);
   } else {                      // mixed ARMA
-    regress(X(span(aux(0) - dim, aux(0) - 1), span(0)), join_rows(X(span(aux(0) - dim, aux(0) - 1), span(1, orders(0))), 
+    regress(X(span(aux(0) - dim, aux(0) - 1), span(0)), join_rows(X(span(aux(0) - dim, aux(0) - 1), span(1, orders(0))),
               eData(span(aux(1) - dim, aux(1) - 1), span(0, orders(1) - 1))), beta, stdBeta, e, BIC, AIC, AICc);
   }
 //  stdBeta = sqrt(covBeta.diag());
@@ -527,7 +527,7 @@ double nanMin(vec y){
 // Incomplete beta function
 double betaInc(double a, double b, double x){
   // Abramowitz and Stegun, Handbook of Mathematical Functions
-  // Press, WH and Teukolsky, SA (1988), Evaluating Continued 
+  // Press, WH and Teukolsky, SA (1988), Evaluating Continued
   //        Fractions and Computing Exponential Integrals
   //         https://doi.org/10.1063/1.4822777
   // Lentz's algorithm for 0 < x < 1
@@ -538,13 +538,13 @@ double betaInc(double a, double b, double x){
     return(1 - betaInc(b, a , 1 - x));
   }
   double cte,
-  dM = 1, 
-  C = 1, 
-  D = 0, 
-  C_D = 0, 
+  dM = 1,
+  C = 1,
+  D = 0,
+  C_D = 0,
   f = 1,
   den = 1;
-  cte = exp(a * log(x) + b * log(1 - x) - log(a) - 
+  cte = exp(a * log(x) + b * log(1 - x) - log(a) -
     lgamma(a) - lgamma(b) + lgamma(a + b));
   int m, i = 0;
   do{

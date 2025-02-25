@@ -104,8 +104,8 @@ void INTLEVELclass::forecast(){
     mSS = m.getInputs();
     if (mSS.p0.n_elem == 0 && mSS.cLlik) {    // Select initial conditions
         mSS.p0.resize(1);
-        vec p0 = {-3, -2.5, -2, -1.5, -1, -0.5, 0, 1}, val(8), aux(1);
-        for (int i = 0; i < 8; i++) {
+        vec p0 = {-10, -8, -5, -3, -2, -1, 0, 1, 3}, val(9), aux(1);
+        for (int i = 0; i < 9; i++) {
             aux(0) = p0(i);
             val(i) = m.evalLlik(aux);
         }
