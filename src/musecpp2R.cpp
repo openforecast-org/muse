@@ -321,9 +321,8 @@ SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rho
 
 // [[Rcpp::export]]
 SEXP INTLEVELc(char command, arma::vec y, SEXP us, int h, std::string obsEq,
-               bool verbose, arma::vec p0, bool logTransform) {
+               bool verbose, SEXP p0s, bool logTransform) {
                // SEXP noiseETAs, SEXP noiseEPSs){
-
     mat u;
     if (Rf_isNull(us)){
         u.set_size(0,0);
@@ -334,6 +333,14 @@ SEXP INTLEVELc(char command, arma::vec y, SEXP us, int h, std::string obsEq,
         if (u.n_rows > u.n_cols){
             u = u.t();
         }
+    }
+    vec p0;
+    if (Rf_isNull(p0s)) {
+        p0.set_size(0);
+    } else {
+        NumericVector p0r(p0s);
+        vec aux(p0r.begin(), p0r.size(), false);
+        p0 = aux;
     }
     // mat noiseETA;
     // if (Rf_isNull(noiseETAs)) {

@@ -82,9 +82,9 @@ CTLEVELclass::CTLEVELclass(SSinputs data, vec y, mat u, vec t, string obsEq,
     this->SSmodel::inputs.cLlik = cllik;   // Concentrated likelihood on/off
     // Initial estimate
     if (p0.n_elem == 0) {
-        if (cllik)
-            p0.resize(1).fill(-2.3);
-        else {
+        if (!cllik) {
+            // p0.resize(1).fill(-2.3);
+        // else {
             p0.resize(2);
             p0(0) = -2.3;
             p0(1) = -1.15;

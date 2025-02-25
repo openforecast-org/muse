@@ -100,6 +100,19 @@ void INTLEVELclass::forecast(){
     // Cumulative predictions   **********************
     // m.forecast();
     // mSS.aEnd and mSS.PEnd already are the one step ahead forecasts
+    // Initial conditions
+    mSS = m.getInputs();
+    if (mSS.p0.n_elem == 0 && mSS.cLlik) {    // Select initial conditions
+        mSS.p0.resize(1);
+        vec p0 = {-3, -2.5, -2, -1.5, -1, -0.5, 0, 1}, val(8), aux(1);
+        for (int i = 0; i < 8; i++) {
+            aux(0) = p0(i);
+            val(i) = m.evalLlik(aux);
+        }
+        mSS.p0(0) = p0(val.index_min());
+        m.setInputs(mSS);
+    }
+    // Estimation
     m.estim();
     mSS = m.getInputs();
     uword delta = tNonZero(mSS.y.n_rows - 1) - tNonZero(mSS.y.n_rows - 2);
