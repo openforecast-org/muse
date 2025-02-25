@@ -125,15 +125,15 @@ ctll = function(y, u=NULL, type=c("stock", "flow"), log=FALSE,
     }
 
     # If B was not provided, get an estimate
-    if(is.null(B)){
-        B = rep(NA, 2);
-        dy = diff(y[1:obsInSample]);
-        dy[] = dy - mean(dy, na.rm=TRUE);
-        n = obsInSample - 1;
-        B[2] = -sum(dy[2:n] * dy[1:(n - 1)]) / (n - 2);
-        B[1] = var(dy, na.rm = TRUE) - 2 * B[2];
-        B = abs(B);
-    }
+    # if(is.null(B)){
+    #     B = rep(NA, 2);
+    #     dy = diff(y[1:obsInSample]);
+    #     dy[] = dy - mean(dy, na.rm=TRUE);
+    #     n = obsInSample - 1;
+    #     B[2] = -sum(dy[2:n] * dy[1:(n - 1)]) / (n - 2);
+    #     B[1] = var(dy, na.rm = TRUE) - 2 * B[2];
+    #     B = abs(B);
+    # }
 
     # Running C++ code
     output = INTLEVELc("e", yInSample, u, h, obsEq, !silent, B, log)
