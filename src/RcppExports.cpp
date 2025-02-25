@@ -65,8 +65,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // INTLEVELc
-SEXP INTLEVELc(char command, arma::vec y, SEXP us, int h, std::string obsEq, bool verbose, arma::vec p0, bool logTransform);
-RcppExport SEXP _muse_INTLEVELc(SEXP commandSEXP, SEXP ySEXP, SEXP usSEXP, SEXP hSEXP, SEXP obsEqSEXP, SEXP verboseSEXP, SEXP p0SEXP, SEXP logTransformSEXP) {
+SEXP INTLEVELc(char command, arma::vec y, SEXP us, int h, std::string obsEq, bool verbose, SEXP p0s, bool logTransform);
+RcppExport SEXP _muse_INTLEVELc(SEXP commandSEXP, SEXP ySEXP, SEXP usSEXP, SEXP hSEXP, SEXP obsEqSEXP, SEXP verboseSEXP, SEXP p0sSEXP, SEXP logTransformSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -76,9 +76,9 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type h(hSEXP);
     Rcpp::traits::input_parameter< std::string >::type obsEq(obsEqSEXP);
     Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
-    Rcpp::traits::input_parameter< arma::vec >::type p0(p0SEXP);
+    Rcpp::traits::input_parameter< SEXP >::type p0s(p0sSEXP);
     Rcpp::traits::input_parameter< bool >::type logTransform(logTransformSEXP);
-    rcpp_result_gen = Rcpp::wrap(INTLEVELc(command, y, us, h, obsEq, verbose, p0, logTransform));
+    rcpp_result_gen = Rcpp::wrap(INTLEVELc(command, y, us, h, obsEq, verbose, p0s, logTransform));
     return rcpp_result_gen;
 END_RCPP
 }
