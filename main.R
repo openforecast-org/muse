@@ -18,9 +18,9 @@ load("x.Rdata")
 # B[2] = -g1
 # B[1] = g0 - 2 * B[2]
 # B = abs(B)
-B = 0.01
-output = INTLEVELc("e", head(x, -7), NULL, 7, "stock", TRUE, NULL, TRUE)
-output = INTLEVELc("e", head(x, -14), NULL, 14, "stock", TRUE, NULL, TRUE)
+B = exp(-6)
+output = INTLEVELc("e", head(x, -7), NULL, 7, "stock", TRUE, B, TRUE)
+output = INTLEVELc("e", head(x, -14), NULL, 14, "stock", TRUE, B, TRUE)
 test <- ctll(x, h=14, holdout=TRUE, silent=TRUE, log=TRUE)
 
 stop()

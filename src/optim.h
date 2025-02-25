@@ -73,9 +73,10 @@ int quasiNewton(std::function <double (vec& x, void* inputs)> objFun,
     flag = stopCriteria(crit, mean(abs(gradNew)), abs(objOld - objNew) / abs(objOld), 
                         mean(abs(xOld - xNew) / abs(xOld)), nIter, nOverallFuns);
     if (flag > 5){
-        objNew = objOld;
+        // objNew = objOld;
         gradNew = gradOld;
         xNew = xOld;
+        objNew = objFun(xNew, inputs);
     }
     // Inverse Hessian BFGS update
     if (!flag){
