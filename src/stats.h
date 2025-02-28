@@ -401,16 +401,15 @@ void infoCriteria(double llik, int k, int n, double& AIC, double& BIC, double&AI
 }
 // Gaussianity Bera-Jarque
 void beraj(vec& y, double& bj, double& pbj){
-  int nNan, n = y.n_elem;
-  vec yn = removeNans(y, nNan);
-  yn = yn - mean(yn);
-  double media3 = as_scalar(mean(pow(yn, 3)));
-  double media4 = as_scalar(mean(pow(yn, 4)));
-  double stdb = as_scalar(sqrt(mean(pow(yn, 2))));
-  double skew = as_scalar(media3 / pow(stdb, 3));
-  double kurto = as_scalar(media4 / pow(stdb, 4) - 3);
-  bj = (n - nNan) / 6 * (pow(skew, 2) + pow(kurto, 2) / 4);
-  pbj = exp(-bj / 2);
+    int nNan, n = y.n_elem;
+    vec yn = removeNans(y, nNan);
+    yn = yn - mean(yn);
+    vec media3; media3 = mean(pow(yn, 3));
+    vec media4; media4 = mean(pow(yn, 4));
+    vec stdb; stdb = sqrt(mean(pow(yn, 2)));
+    vec skew = media3 / pow(stdb, 3);
+    vec kurto = media4 / pow(stdb, 4) - 3;
+    bj = (n - nNan) / 6 * (pow(as_scalar(skew), 2) + pow(as_scalar(kurto), 2) / 4);
 }
 // Heteroskedasticity ratio of variances
 void heterosk(vec& y, double& F, double& pF, int& df){
@@ -668,7 +667,7 @@ void outputTable(vec v, vector<string>& table){
     acfCoef2.zeros(ncoef);
   }
   // Gaussianity
-  double bj1, pbj1, bj2 = datum::nan, pbj2 = datum::nan;
+  double bj1 = datum::nan, pbj1 = datum::nan, bj2 = datum::nan, pbj2 = datum::nan;
   beraj(v, bj1, pbj1);
   if (nOutliers > 0){
     beraj(vClean, bj2, pbj2);

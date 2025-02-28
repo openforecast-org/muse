@@ -8,7 +8,7 @@ source("R/MSOEfunctions.R")
 Rcpp::sourceCpp("src/musecpp2R.cpp")
 cat("\014")
 
-load("x.Rdata")
+load("../x.Rdata")
 # dx = diff(x)
 # dx = dx - mean(dx, na.rm=TRUE)
 # n = length(dx)
