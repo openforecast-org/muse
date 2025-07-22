@@ -194,7 +194,7 @@ PTSmodel <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaId
 #' @rdname PTS
 #' @export
 PTS <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
-        m = PTSsetup(y, u, model, h, criterion, armaIdent, verbose)
+        m = PTSsetup(y, u, model, NULL, NULL, h, criterion, armaIdent, verbose)
         m = PTSestim(m)
         m = PTSvalidate(m, verbose)
         m = PTScomponents(m)

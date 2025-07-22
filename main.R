@@ -8,6 +8,27 @@ source("R/MSOEfunctions.R")
 Rcpp::sourceCpp("src/musecpp2R.cpp")
 cat("\014")
 
+
+# PTS example
+m = PTSsetup(AirPassengers, u=NULL, model="ZZZ", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTSestim(m)
+m = PTSvalidate(m)
+m = PTScomponents(m)
+
+m = PTS(AirPassengers, u=NULL, model="zzz", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+
+    m = PTSsetup(y, u, model, h, criterion, armaIdent, verbose)
+    m = PTSestim(m)
+
+
+
+m = PTScomponents(m)
+m = PTSvalidate(m)
+
+stop()
+
+
+
 load("../x.Rdata")
 # dx = diff(x)
 # dx = dx - mean(dx, na.rm=TRUE)
@@ -18,39 +39,41 @@ load("../x.Rdata")
 # B[2] = -g1
 # B[1] = g0 - 2 * B[2]
 # B = abs(B)
-B = exp(-6)
-output = INTLEVELc("e", head(x, -7), NULL, 7, "stock", TRUE, B, TRUE)
-output = INTLEVELc("e", head(x, -14), NULL, 14, "stock", TRUE, B, TRUE)
-test <- ctll(x, h=14, holdout=TRUE, silent=TRUE, log=TRUE)
 
-stop()
-output = INTLEVELc("e", head(x, -7), NULL, 7, "stock", TRUE, B, TRUE)
-m <- ctll(x, h=7, holdout=TRUE, log=TRUE, B=c(0.01,0.1), silent=FALSE)
-m <- ctll(x, h=7, holdout=TRUE, log=TRUE, B=c(0.1,1), silent=FALSE)
-stop()
 
-set.seed(41)
-x <- c(rnorm(25,100,10),rnorm(25,110,10),rnorm(25,120,10),rnorm(25,150,10))
-h = 10
-nsimul = 2000
-logTransform = TRUE
-output = INTLEVELc("e", head(x, -10), NULL, h, "stock", TRUE, c(0.1, 0.1), logTransform)
-# Simulations
-noiseETA = matrix(rnorm(nsimul * h), h, nsimul) * sqrt(output$coef[1])
-noiseEPS = matrix(rnorm(nsimul * h), h, nsimul) * sqrt(output$coef[2])
-states = matrix(NA, h, nsimul)
-states[1, ] = rep(output$yFor[1], nsimul) + noiseETA[1, ]
-for (i in 2 : h) {
-    states[i, ] = states[i - 1, ] + noiseETA[i, ]
-}
-if (logTransform) {
-   simul = apply(exp(states + noiseEPS), 2, cumsum)
-} else {
-   simul = apply(states + noiseEPS, 2, cumsum)
-}
-print(autoplot(as.ts(simul)) + theme(legend.position = "none"))
-
-stop()
+# B = exp(-6)
+# output = INTLEVELc("e", head(x, -7), NULL, 7, "stock", TRUE, B, TRUE)
+# output = INTLEVELc("e", head(x, -14), NULL, 14, "stock", TRUE, B, TRUE)
+# test <- ctll(x, h=14, holdout=TRUE, silent=TRUE, log=TRUE)
+#
+# stop()
+# output = INTLEVELc("e", head(x, -7), NULL, 7, "stock", TRUE, B, TRUE)
+# m <- ctll(x, h=7, holdout=TRUE, log=TRUE, B=c(0.01,0.1), silent=FALSE)
+# m <- ctll(x, h=7, holdout=TRUE, log=TRUE, B=c(0.1,1), silent=FALSE)
+# stop()
+#
+# set.seed(41)
+# x <- c(rnorm(25,100,10),rnorm(25,110,10),rnorm(25,120,10),rnorm(25,150,10))
+# h = 10
+# nsimul = 2000
+# logTransform = TRUE
+# output = INTLEVELc("e", head(x, -10), NULL, h, "stock", TRUE, c(0.1, 0.1), logTransform)
+# # Simulations
+# noiseETA = matrix(rnorm(nsimul * h), h, nsimul) * sqrt(output$coef[1])
+# noiseEPS = matrix(rnorm(nsimul * h), h, nsimul) * sqrt(output$coef[2])
+# states = matrix(NA, h, nsimul)
+# states[1, ] = rep(output$yFor[1], nsimul) + noiseETA[1, ]
+# for (i in 2 : h) {
+#     states[i, ] = states[i - 1, ] + noiseETA[i, ]
+# }
+# if (logTransform) {
+#    simul = apply(exp(states + noiseEPS), 2, cumsum)
+# } else {
+#    simul = apply(states + noiseEPS, 2, cumsum)
+# }
+# print(autoplot(as.ts(simul)) + theme(legend.position = "none"))
+#
+# stop()
 
 
 
@@ -126,8 +149,3 @@ print(cbind(exp(m$yFor), exp(m$yFor + 2 * sqrt(m$yForV))))
 # lines(m$comp[, 3])
 
 
-# PTS example
-m = PTS(AirPassengers, model="zzz", verbose=TRUE)
-m = PTSestim(m)
-m = PTSsmooth(m)
-m = PTSvalidate(m)

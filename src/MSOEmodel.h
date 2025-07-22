@@ -38,12 +38,12 @@ struct BSMmodel{
         irregular,              // type of irregular
         cycle0,                 // type of cycle without numbers
         compNames = "",         // components names
-        trendOptions = "rw/llt/srw/dt",          // trend options to select amongst (none/rw/llt/td/dt/srw)
-        seasonalOptions = "none/equal/linear", // seasonal options to select amongst (none/equal/different/linear)
+        trendOptions = "rw/llt/td/dt",          // trend options to select amongst (none/rw/llt/td/dt/srw)
+        seasonalOptions = "none/linear/equal", // seasonal options to select amongst (none/equal/different/linear)
         irregularOptions = "none/arma(0,0)";      // irregular components (none/arma(p,q))
     int ar = 0, ma = 0;         // AR and MA orders of irregular component
     double seas,                // seasonal period
-           lambda = 1.0;              // Box-Cox transformation parameter
+           lambda = 1.0;        // Box-Cox transformation parameter
     vec rhos,                   // vector indicating whether period is cyclical or seasonal
         ns,                     // number of states in components (trend, cycle, seasonal, irregular)
         nPar,                   // number of parameters in components (trend, cycle, seasonal, irregular)
@@ -84,7 +84,7 @@ private:
     // Initializing parameters of BSM model
     void initParBsm();
     // Optimization routine
-    int quasiNewtonBSM(std::function <double (vec&, void*)>, 
+    int quasiNewtonBSM(std::function <double (vec&, void*)>,
                        std::function <vec (vec&, void*, double, int&)>,
                        vec&, void*, double&, vec&, mat&, bool);
     // Estimation of a family of UC models
@@ -364,7 +364,7 @@ void BSM(vec y, mat u, string model, int h, double outlier, bool tTest, string c
     // m.disturb();
 }
 // Pre-processing
-bool preProcess(vec y, mat& u, string& model, int& h, double& outlier, 
+bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
                 string& criterion, vec periods, vec p0, int& iniObs,
                 string trendOptions, string seasonalOptions, string irregularOptions,
                 vec& TVP, double& lambda){
@@ -628,7 +628,7 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
     // inputsBSM.arma = arma;
     //inputsBSM.errorExit = errorExit;
     //inputsBSM.rhos = rhos;
-    
+
     //vec VOID(1); VOID.fill(datum::nan);
     // inputsSS.p = VOID;
     // inputsSS.grad = VOID;
@@ -651,7 +651,7 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
     // inputsBSM.typePar = VOID;
     // inputsBSM.typeOutliers = {-1, -1};
     // inputsBSM.cycleLimits = VOID;
-    
+
     //inputsBSM.seas = max(periods);
     //inputsSS.p = {datum::nan};        // Estimated parameters (vec)
     // inputsSS.v = {datum::nan};        // Estimated innovations (vec)
@@ -668,7 +668,7 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
     // inputsSS.criteria = {datum::nan}; // Likelihood and information criteria at optimum (vec)
     // inputsBSM.cycleLimits = {datum::nan};
     // inputsBSM.rhos = inputsBSM.periods; inputsBSM.rhos.fill(1);
-    
+
     //BSMclass m(inputsSS, inputsBSM);
     //return m;
     //if (errorExit)
@@ -676,7 +676,7 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
     //   if (y.has_nan())
     //        m.interpolate();
     //return m;
-    
+
     // Building UComp system
     //BSMclass sysBSM(inputsSS, inputsBSM);
 }
@@ -936,7 +936,7 @@ void BSMclass::interpolate(int iniObs){
     // inputs = sysCopy;
     // SSmodel::inputs = ssCopy;
     // SSmodel::inputs.y(missing) = yFit(missing + lastObs);
-    
+
 }
 // Estimation: runs estim(p) or ident()
 void BSMclass::estim(bool VERBOSE){
@@ -1186,15 +1186,15 @@ void BSMclass::smooth(bool outlier){
 */
 // Estimation of a family of UC models
 void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
-                        double& minCrit, bool VERBOSE, 
+                        double& minCrit, bool VERBOSE,
                         double oldMinCrit, int nuInit){
     // Estim a number of UC models and select the best according to minCrit
     //       The best is compared to oldMinCrit that is the current best system
     //       and the overall best is put into SSmodel::inputs and inputs
     //       If there is no previous model to compare to set oldMinCrit to 1e12
-    double curCrit, 
-    AIC, 
-    BIC, 
+    double curCrit,
+    AIC,
+    BIC,
     AICc;
     SSinputs bestSS = SSmodel::inputs;
     BSMmodel bestBSM = inputs;
@@ -1266,16 +1266,16 @@ void BSMclass::ident(string show, bool VERBOSE){
     double season,
     maxLag,
     outlierCopy = SSmodel::inputs.outlier;
-    string inputTrend = inputs.trend, 
+    string inputTrend = inputs.trend,
         inputCycle = inputs.cycle,
-        inputSeasonal = inputs.seasonal, 
-        inputIrregular = inputs.irregular, 
+        inputSeasonal = inputs.seasonal,
+        inputIrregular = inputs.irregular,
         model,
-        trendTypes, 
-        cycTypes, 
-        seasTypes, 
-        irrTypes, 
-        restRW; 
+        trendTypes,
+        cycTypes,
+        seasTypes,
+        irrTypes,
+        restRW;
     int trueTrend,
     nuInit = SSmodel::inputs.u.n_rows;
     //bool VERBOSE = SSmodel::inputs.verbose;
@@ -1790,7 +1790,7 @@ void BSMclass::estimOutlier(vec p0, bool VERBOSE){
         if ((!obj.is_finite()) || (obj(0) > best(0))){
             // Model with outliers did not converge or is worse than initial
             SSmodel::inputs = bestSS;
-            inputs = bestBSM;      
+            inputs = bestBSM;
         }
     }
     // Restoring initial values
@@ -1858,9 +1858,9 @@ void BSMclass::components(){
         // uvec ind = find_finite(SSmodel::inputs.y);
         // inputs.compV()
         // inputs.compV.row(3).cols(0, ny) = SSmodel::inputs.F.rows(0, ny).t();
-        // 
-        // 
-        // 
+        //
+        //
+        //
         // inputs.compV.row(3).cols(0, ny) = SSmodel::inputs.F.rows(0, ny).t();
         rowvec v = inputs.comp.row(3).cols(0, ny);
         uvec aux = find_finite(v);
@@ -2395,14 +2395,14 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                              bool verbosef){
     // Code for inputs.constPar
     // 0: not constrained; 1: concentrated-out; 2: zero variance; 3: alpha constrained
-    int nx = xNew.n_elem, 
-        flag = 0, 
-        nOverallFuns, 
-        nFuns = 0, 
+    int nx = xNew.n_elem,
+        flag = 0,
+        nOverallFuns,
+        nFuns = 0,
         nIter = 0;
     double objOld, alpha_i;
-    vec gradOld(nx), 
-        xOld = xNew, 
+    vec gradOld(nx),
+        xOld = xNew,
         d(nx);
     vec crit(5); crit(0) = 1e-6; crit(1) = 1e-7; crit(2) = 1e-5; crit(3) = 1000; crit(4) = 10000;
     iHess.eye(nx, nx);
@@ -2593,7 +2593,7 @@ string stateNames(BSMmodel sys){
     if (sys.ns(1) > 0){
         j = 1;
         for (uword i = 0; i < sys.ns(1); i = i + 2){
-            namesStates += "/Cycle" + to_string(j) + 
+            namesStates += "/Cycle" + to_string(j) +
                            "/Cycle" + to_string(j) + "*";
             j++;
         }
@@ -2632,8 +2632,8 @@ string stateNames(BSMmodel sys){
 }
 // Count states and parameters of BSM model
 void BSMclass::countStates(vec periods, string trend, string cycle, string seasonal, string irregular){
-    // string trend, string cycle, string seasonal, string irregular, 
-    // int nu, vec P, vec rhos, vec& ns, vec& nPar, int& arOrder, 
+    // string trend, string cycle, string seasonal, string irregular,
+    // int nu, vec P, vec rhos, vec& ns, vec& nPar, int& arOrder,
     // int& maOrder, bool& exact
     inputs.ns = zeros(7);
     inputs.nPar = inputs.ns;
@@ -2772,7 +2772,7 @@ void BSMclass::initMatricesBsm(vec periods, vec rhos, string trend, string cycle
     uvec aux;
     if (inputs.ns(1) > 0){
         aux = find(rhos < 0);
-        bsm2ss(inputs.ns(0), inputs.ns(1), abs(periods(aux)), abs(rhos(aux)), 
+        bsm2ss(inputs.ns(0), inputs.ns(1), abs(periods(aux)), abs(rhos(aux)),
                &SSmodel::inputs.system.T, &SSmodel::inputs.system.Z);
     }
     // Seasonal
@@ -3308,7 +3308,7 @@ void dummy(uword indMax, uword typeO, rowvec& u){
 void splitModel(string model, string& trend, string& cycle, string& seasonal, string& irregular){
     int ind1, ind2, ind3;
     string aux1, aux2;
-    
+
     lower(model);
     deblank(model);
     ind1 = model.find("/");
@@ -3494,30 +3494,57 @@ int findFirst(vec y, int n){
 string UC2PTS(string modelUC, double lambda){
     vector<string> aux;
     chopString(modelUC, "/", aux);
-    // power
-    string model = "(N,";
-    if (lambda == 0.0)
-        model = "(Y,";
+    // noise
+    char modelt[2] = "N", models[2] = "N";
     // trend
-    if (aux[0] == "rw" || aux[0] == "none")
-            model += "N,";
-    else if (aux[0] == "srw")
-            model += "D,";
+    if (aux[0] == "dt")
+        strcpy(modelt, "F");
     else if (aux[0] == "llt")
-            model += "L,";
+        strcpy(modelt, "L");
     else if (aux[0] == "td")
-            model += "G,";
+        strcpy(modelt, "G");
+    else if (aux[0] == "srw")
+        strcpy(modelt, "D");
     // seasonal
-    if (aux[2] == "none")
-            model += "N)";
-    else if (aux[2] == "equal")
-            model += "T)";
-    // else if (aux[2] == "different")
-    //         model += "D)";
+    if (aux[2] == "equal")
+        strcpy(models, "T");
     else if (aux[2] == "linear")
-            model += "D)";
+        strcpy(models, "D");
+    else if (aux[2] == "different")
+        strcpy(models, "F");
+    char model[30];
+    snprintf(model, 30, "(%3.1f, %1s, %1s)", lambda, modelt, models);
     return model;
 }
+///// OLD VERSION
+// Translates names from UC to PTS
+// string UC2PTS(string modelUC, double lambda){
+//     vector<string> aux;
+//     chopString(modelUC, "/", aux);
+//     // power
+//     string model = "(N,";
+//     if (lambda == 0.0)
+//         model = "(Y,";
+//     // trend
+//     if (aux[0] == "rw" || aux[0] == "none")
+//             model += "N,";
+//     else if (aux[0] == "srw")
+//             model += "D,";
+//     else if (aux[0] == "llt")
+//             model += "L,";
+//     else if (aux[0] == "td")
+//             model += "G,";
+//     // seasonal
+//     if (aux[2] == "none")
+//             model += "N)";
+//     else if (aux[2] == "equal")
+//             model += "T)";
+//     // else if (aux[2] == "different")
+//     //         model += "D)";
+//     else if (aux[2] == "linear")
+//             model += "D)";
+//     return model;
+// }
 // Show SSmodel
 void showSS(SSmatrix m){
     printf("*********** SS system start *********\n");
