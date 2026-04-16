@@ -1,5 +1,5 @@
 rm(list = ls())
-library(UComp)
+# library(UComp)
 library(ggplot2)
 source("R/ctll.R")
 source("R/PTSfunctions.R")
@@ -7,13 +7,27 @@ source("R/PTSS3functions.R")
 source("R/MSOEfunctions.R")
 Rcpp::sourceCpp("src/musecpp2R.cpp")
 cat("\014")
-
+options(error = NULL)
 
 # PTS example
 m = PTSsetup(AirPassengers, u=NULL, model="ZZZ", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
 m = PTSestim(m)
 m = PTSvalidate(m)
 m = PTScomponents(m)
+
+
+m = PTS(AirPassengers, u=NULL, model="ZNN", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZND", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZNT", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZLN", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZLD", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZLT", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZDN", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZDD", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZDT", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZGN", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZGD", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
+m = PTS(AirPassengers, u=NULL, model="ZGT", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
 
 m = PTS(AirPassengers, u=NULL, model="zzz", verbose=TRUE, h=12, criterion = "aic", armaIdent = FALSE)
 
