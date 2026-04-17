@@ -126,10 +126,16 @@ MSOEsetup = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
         periods = frequency(y) / (1 : floor(frequency(y) / 2))
     } else if (is.ts(y) && any(is.na(periods))){
         periods = 1
+    } else if (is.ts(y) && any(is.infinite(periods))){
+        periods = 1
     } else if (!is.ts(y) && any(is.na(periods))){
         stop("Input \"periods\" should be supplied!!")
     }
     rhos = rep(1, length(periods))
+
+
+    print(periods)
+
     out = list(y = y,
                u = u,
                model = model,
