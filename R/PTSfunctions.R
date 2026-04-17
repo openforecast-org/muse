@@ -63,15 +63,7 @@
 #' m1 <- PTSsetup(log(AirPassengers))
 #' @rdname PTSsetup
 #' @export
-PTSsetup <- function(y, u = NULL, model="ZZZ", s=NULL, lambda=NULL, h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
-         # power
-         aux = tolower(substr(model, 1, 1))
-         if (aux == "z")
-                 lambda = 9999.9
-         else if (aux == "n")
-                 lambda = 1
-         else
-                 lambda = 0
+PTSsetup <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
          modelU = PTS2modelUC(model)
          out = list(
                 y = y,
@@ -81,7 +73,7 @@ PTSsetup <- function(y, u = NULL, model="ZZZ", s=NULL, lambda=NULL, h = 12, crit
                 h = h,
                 p0 = NA,
                 criterion = criterion,
-                lambda = lambda,
+                lambda = modelU$lambda,
                 verbose = verbose,
                 armaIdent = armaIdent,
                 armaOrders = c(0,0),
@@ -91,14 +83,14 @@ PTSsetup <- function(y, u = NULL, model="ZZZ", s=NULL, lambda=NULL, h = 12, crit
                 table = "",
                 p = NA,
                 v = NA,
-                modelUC = NA
+                modelUC = modelU$modelU
         )
         return(structure(out, class = "PTS"))
 }
-#' @title PTSmodel
-#' @description Estimates and forecasts PTS general univariate models
+#' @title PTSforecast
+#' @description Estimates, forecasts and smooth PTS general univariate models
 #'
-#' @details \code{PTSmodel} is a function for modelling and forecasting univariate
+#' @details \code{PTS} is a function for modelling and forecasting univariate
 #' time series according to Power-Trend-Seasonal (PTS).
 #' It sets up the model with a number of control variables that
 #' govern the way the rest of functions in the package work. It also estimates
@@ -135,16 +127,17 @@ PTSsetup <- function(y, u = NULL, model="ZZZ", s=NULL, lambda=NULL, h = 12, crit
 #'
 #' @template authors
 #'
-#' @seealso \code{\link{PTS}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
+#' @seealso \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
 #'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
 #'
 #' @examples
-#' # m1 <- PTSmodel(log(AirPassengers))
-#' @rdname PTSmodel
+#' # m1 <- PTS(log(AirPassengers))
+#' @rdname PTSforecast
 #' @export
-PTSmodel <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
-        m = PTSsetup(y, u, model, h, criterion, armaIdent, verbose)
-        return(m)
+PTSforecast <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
+    m = PTSsetup(y, u, model, s, h, criterion, armaIdent, verbose)
+    m = PTSestim(m)
+    return(m)
 }
 #' @title PTS
 #' @description Estimates, forecasts and smooth PTS general univariate models
@@ -193,8 +186,8 @@ PTSmodel <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaId
 #' # m1 <- PTS(log(AirPassengers))
 #' @rdname PTS
 #' @export
-PTS <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
-        m = PTSsetup(y, u, model, NULL, NULL, h, criterion, armaIdent, verbose)
+PTS <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
+        m = PTSsetup(y, u, model, s, h, criterion, armaIdent, verbose)
         m = PTSestim(m)
         m = PTSvalidate(m, verbose)
         m = PTScomponents(m)
@@ -230,9 +223,9 @@ PTS <- function(y, u = NULL, model="ZZZ", h = 12, criterion = "aic", armaIdent =
 #' @rdname PTSestim
 #' @export
 PTSestim <- function(m){
-        modelUC = PTS2modelUC(m$model, m$armaOrders)
+        # modelUC = PTS2modelUC(m$model, m$armaOrders)
         periods = m$s / (1 : floor(m$s / 2))
-        mUC = MSOEsetup(m$y, m$u, modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
+        mUC = MSOEsetup(m$y, m$u, m$modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
                       periods, m$verbose, FALSE, -9999.9, m$armaIdent, NULL,
                       "rw/llt/srw/td", "none/linear/equal",
                       "arma(0,0)")
@@ -358,15 +351,13 @@ modelUC2PTS <- function(modelUC, lambda){
         trend = substr(modelUC, 1, aux[1] - 1)
         seasonal = substr(modelUC, aux[1] + 1, aux[2] - 1)
         noise = substr(modelUC, aux[2] + 1, nchar(modelUC))
-        # noise
-        if (lambda == 0)
-                model = "Y"
-        else if (lambda == 1)
-                model = "N"
-        else
-                model = "Z"
-        # if (noise == "none")
-        #         model = "N"
+        # Power
+        ndec = 2
+        if (lambda == 0 || lambda == 1)
+            ndec = 0
+        if (abs(lambda) == 0.5)
+            ndec = 1
+        model = as.character(round(lambda, 2))
         # trend
         if (trend == "rw")
                 model = paste0(model, "N")
@@ -401,6 +392,8 @@ modelUC2PTS <- function(modelUC, lambda){
 #' @export
 PTS2modelUC <- function(model, armaOrders = c(0, 0)){
         modelU = ""
+        lambda = 1.0
+        modelOut = list(modelU="", lambda=1.0)
         n = nchar(model)
         # power
         # aux = tolower(substr(model, 1, 1))
@@ -428,7 +421,7 @@ PTS2modelUC <- function(model, armaOrders = c(0, 0)){
                 stop("ERROR: incorrect seasonal model!!")
 
         # trend
-        aux = tolower(substr(model, 2, n - 1))
+        aux = tolower(substr(model, n - 1, n - 1))
         if (aux == "z")
                 modelU = paste0("?/none", modelU)
         else if (aux == "n")
@@ -441,7 +434,17 @@ PTS2modelUC <- function(model, armaOrders = c(0, 0)){
                 modelU = paste0("td/none", modelU)
         else
                 stop("ERROR: incorrect trend model!!")
-        return(modelU)
+        modelOut$modelU = modelU
+        # Power
+        aux = tolower(substr(model, 1, n - 2))
+        num <- suppressWarnings(as.numeric(aux))
+        if (!is.na(num))
+                modelOut$lambda = num
+        else if (aux == "z")
+                modelOut$lambda = 9999.9
+        else
+                stop("ERROR: incorrect power model!!")
+        return(modelOut)
 }
 
 

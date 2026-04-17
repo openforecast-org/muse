@@ -605,7 +605,8 @@ double llik(vec& p, void* opt_data){
   // KF loop
   for (uword t = 0; t < n; t++){
     // Data missing
-    if (!is_finite(data->y.row(t))){
+    // if (!is_finite(data->y.row(t))){
+    if (!std::isfinite(data->y(t))) {
       steadyState = false;
       miss = true;
       nMiss += 1;
@@ -752,7 +753,8 @@ double llikAug(vec& p, void* opt_data){
     if (nu > 0){
       Xt(aux) = data->u.col(t).t();
     }
-    miss = !is_finite(data->y.row(t));
+    // miss = !is_finite(data->y.row(t));
+    miss = !std::isfinite(data->y(t));
     // Checking for missing
     if (miss){
       nMiss++;
@@ -888,7 +890,8 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
         Finft = data->Finf(t); // * data->innVariance;
         Kinft = data->Kinf.col(t);
       }
-      if (!is_finite(data->y.row(t))){
+      // if (!is_finite(data->y.row(t))){
+      if (!std::isfinite(data->y(t))){
         e.fill(0);
         D.fill(0);
         nMiss += 1;
@@ -1078,7 +1081,8 @@ void auxFilter(unsigned int smooth, SSinputs& data){
       }
     }
     // Data missing
-    if (!is_finite(data.y.row(t))){
+    // if (!is_finite(data.y.row(t))){
+    if (!std::isfinite(data.y(t))){
       steadyState = false;
       miss = true;
       nMiss++;
@@ -1183,7 +1187,8 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         Finft = data.Finf.row(t);
         Kinft = data.Kinf.col(t);
       }
-      if (is_finite(data.y.row(t))){
+      // if (is_finite(data.y.row(t))){
+      if (!std::isfinite(data.y(t))){
         miss = false;
         if (colapsed || Finft(0, 0) < 1e-8) {
           Lt = T - T * Kt * Z;
