@@ -132,10 +132,6 @@ MSOEsetup = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
         stop("Input \"periods\" should be supplied!!")
     }
     rhos = rep(1, length(periods))
-
-
-    print(periods)
-
     out = list(y = y,
                u = u,
                model = model,
