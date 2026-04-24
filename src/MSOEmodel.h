@@ -1326,7 +1326,7 @@ void BSMclass::ident(string show, bool VERBOSE){
     // Selecting harmonics
     uvec harmonics = regspace<uvec>(0, periods.n_elem - 1);
     uvec harmonics0 = harmonics;
-    if (inputSeasonal[0] != 'n' && inputSeasonal[0] != 'l' && !inputs.MSOE){
+    if (inputSeasonal[0] != 'n' && inputSeasonal[0] != 'l' && !inputs.MSOE && periods.n_elem > 1){
         vec betaHR;
         selectHarmonics(SSmodel::inputs.y, SSmodel::inputs.u, periods, harmonics, betaHR, isSeasonal);
         if (harmonics.n_rows == 0){
