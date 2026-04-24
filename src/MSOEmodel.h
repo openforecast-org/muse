@@ -382,6 +382,13 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
     // vec p(1);
     // p.fill(datum::nan);
     // Correcting inputs by user
+    double vary = var(y.elem(find_finite(y)));
+    if (vary == 0.0) {
+        u.reset();
+        model = "none/none/none/arma(0,0)";
+        outlier = 0.0;
+        lambda = 1.0;
+    }
     iniObs = findFirst(y, iniObs);
     lower(criterion);
     deblank(model);
