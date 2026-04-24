@@ -2,3 +2,5 @@
 ^\.Rproj\.user$
 main.R
 man-roxygen
+^\.positai$
+^\.claude$
