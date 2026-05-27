@@ -169,7 +169,7 @@ double testBoxCox(vec y, vec periods){
         bestLLIK = -1e10;
     vec cLLIK(1);
     // Box-Cox transformation
-    double aux = BoxCoxEstim(y, std::max(4.0, max(periods)));
+    double aux = BoxCoxEstim(y, std::max(2.0, max(periods)));
     cLLIK(0) = llikDecompose(log(y), periods, ind, typeDecompose) - sum(log(y(ind)));
     if (isnan(cLLIK(0)))
         cLLIK(0) = 1e8;

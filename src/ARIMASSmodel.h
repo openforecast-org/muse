@@ -98,7 +98,7 @@ void initMatricesArima(ARIMASS inputs, SSmatrix& model){
     if (inputs.ns > 1)
         model.T.diag(1) += 1;
     if (inputs.orders(1) + inputs.orders(4) > 0){
-        model.T.submat(inputs.maxArma, inputs.maxArma, model.T.n_rows - 1, inputs.maxArma) = -polyDd(span(1, polyDd.n_elem - 1));
+        model.T.submat(inputs.maxArma, inputs.maxArma, model.T.n_rows - 1, inputs.maxArma) = -polyDd.rows(1, polyDd.n_elem - 1);
         model.T(inputs.maxArma - 1, inputs.maxArma) = 0.0;
         model.T(inputs.maxArma, 0) = 1.0;
     }
@@ -130,26 +130,26 @@ void arimaMatrices(vec p, SSmatrix* model, void* userInputs){
     }
     if (inp->orders(3) > 0){
         ind = regspace<uvec>(inp->s, inp->s, inp->orders(3) * inp->s);
-        inp->ARS(ind) = p(span(np, np + inp->orders(3) - 1));
+        inp->ARS(ind) = p.rows(np, np + inp->orders(3) - 1);
         np += inp->orders(3);
     }
     if (inp->orders(2) > 0){
         ind = regspace<uvec>(np, np + inp->orders(2) - 1);
-        inp->MA(span(1, inp->orders(2))) = p(ind);
+        inp->MA.rows(1, inp->orders(2)) = p(ind);
         np += inp->orders(2);
     }
     if (inp->orders(5) > 0){
         ind = regspace<uvec>(inp->s, inp->s, inp->orders(5) * inp->s);
-        inp->MAS(ind) = p(span(np, np + inp->orders(5) - 1));
+        inp->MAS(ind) = p.rows(np, np + inp->orders(5) - 1);
         np += inp->orders(5);
     }
     ARpoly = conv(inp->AR, inp->ARS);
     MApoly = conv(inp->MA, inp->MAS);
     // SS matrices
     if (MApoly.n_elem > 1){
-        model->R(span(0, MApoly.n_elem - 1), 0) = MApoly;
+        model->R.submat(0, 0, MApoly.n_elem - 1, 0) = MApoly;
     }
     if (ARpoly.n_elem > 1){
-        model->T(span(0, ARpoly.n_elem - 2), 0) = -ARpoly(span(1, ARpoly.n_elem - 1));
+        model->T.submat(0, 0, ARpoly.n_elem - 2, 0) = -ARpoly.rows(1, ARpoly.n_elem - 1);
     }
 }

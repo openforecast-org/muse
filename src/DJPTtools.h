@@ -107,7 +107,7 @@ mat lag(vec y, T lags){
 
   for (int i = 0; i < m; i++){
     ii = as_scalar(lags.row(i));
-    lagY.col(i) = y(span(maxLag - ii, n - ii - 1));
+    lagY.col(i) = y.rows(maxLag - ii, n - ii - 1);
   }
   return lagY;
 }
@@ -139,13 +139,8 @@ uvec findChunk(uvec x, bool last){
 // Issuing errors
 void myError(const char* msg){
     vec p(1);
-    //if (R){
-      //Rf_error(msg);
-      //Rcerr << msg << endl;
-    //} else {
         printf("%s", msg);
         p = p(2) * 2;
-    //}
 }
 // Adjust vectors
 void adjustVector(vec& x, unsigned int n, double value){

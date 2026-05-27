@@ -7,7 +7,7 @@
 MSOEsetup(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1,
   outlier = 9999, tTest = FALSE, criterion = "aic", periods = NA,
   verbose = FALSE, stepwise = FALSE, p0 = -9999.9, arma = FALSE,
-  TVP = NULL, trendOptions = "rw/llt/srw/dt",
+  TVP = NULL, trendOptions = "rw/llt/srw/td",
   seasonalOptions = "none/linear/equal", irregularOptions = "arma(0,0)")
 }
 \arguments{

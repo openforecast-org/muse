@@ -2,28 +2,16 @@
  State Space systems class
  Needs Armadillo
 ***************************************/
-// #include <armadillo>
-// using namespace arma;
 /***************************************************
   * Data structures
 ****************************************************/
 // Model matrices
 struct SSmatrix{
-    // system matrices of a general State Space model
-    // y(t)   = Z a(t) + D   u(t) + C eps(t)
-    // a(t+1) = T a(t) + Gam u(t) + R eta(t)
-    // Var(eps(t)) = H;  Var(eta(t)) = Q; Cov(eta(t), eps(t)) = S
-    mat T, R, Q, Z, C, H, Gam, D, S;   // Gam and S not implemented
-    uword ns,               // number of states
-          ny;               // number of outputs
-    int   n;                // length of time series
-    uvec tvMatrices;        // tvp matrices {T, Gam, R, Q, Z, D, C, H, S}
-    bool tvp = false;       // system time varying
-    // mat delta;              // distance between observations for CT models
-    bool identityR = false,  // RQR = Q
-         identityC = false; // CHC = H
-         // constantRQR = false, // constant RQR
-         // constantCHC = false;  // constant CHC
+   // system matrices of a general State Space model
+   // y(t)   = Z a(t) + D   u(t) + C eps(t)
+   // a(t+1) = T a(t) + Gam u(t) + R eta(t)
+   // Var(eps(t)) = H;  Var(eta(t)) = Q; Cov(eta(t), eps(t)) = S
+   mat T, Gam, R, Q, Z, D, C, H, S;
 };
 // Model structure
 struct SSinputs{
@@ -68,7 +56,7 @@ struct SSinputs{
        Kinf,              // Kalman gain before colapsing
        PEnd,              // final P estimated
        rOut;              // Needed for outlier detection
-   cube NOut;             // Needed for outlier detection
+   cube NOut;             // Needed for outlier detection  
    int d_t = 0,           // colapsing observation
        nonStationaryTerms, // number of non stationary terms in state vector
        flag,              // output of optimization algorithm
@@ -93,8 +81,6 @@ class SSmodel{
     SSmodel(SSinputs, SSmatrix);
     // Destructor
     ~SSmodel();
-    // Evaluate llik
-    double evalLlik(vec);
     // Estimate by Maximum-Likelihood
     void estim();
     void estim(vec);
@@ -161,10 +147,6 @@ mat hessLlik(void*);
 void auxFilter(unsigned int, SSinputs&);
 // solution to lyapunto equation P = Phi * P * Phi' + Q
 mat dlyap(mat Phi, mat Q);
-// Check consistency of SS system matrices in SSmatrix
-bool checkSystem(SSmatrix&);
-// Set time varying matrices to time t
-void setT(uword, SSmatrix&, mat&, mat&, mat&, mat&, mat&, mat&, mat&, mat&, mat&, mat&, mat&);
 /****************************************************
  // SS implementations for univariate SS systems
  ****************************************************/
@@ -207,10 +189,6 @@ SSmodel::~SSmodel(){}
  //   cout << "End of SS system:" << endl;
  //   cout << "**************************" << endl;
  // }
-// Evaluateing llik
-double SSmodel::evalLlik(vec p){
-    return inputs.llikFUN(p, &inputs);
-}
 // Estimation by Maximum-Likelihood
 void SSmodel::estim(){
   SSmodel::estim(inputs.p0);
@@ -220,6 +198,7 @@ void SSmodel::estim(vec p){
   vec grad;
   mat iHess;
   this->inputs.p0 = p;
+  
   wall_clock timer;
   timer.tic();
   int flag = quasiNewton(inputs.llikFUN, gradLlik, p, &inputs, objFunValue, grad, iHess, inputs.verbose);
@@ -269,8 +248,8 @@ void SSmodel::estim(vec p){
 }
 // Forecasting system
 void SSmodel::forecast(){
-  // mat RQRt = inputs.system.R * inputs.system.Q * inputs.system.R.t(),
-  //     CHCt = inputs.system.C * inputs.system.H * inputs.system.C.t();
+  mat RQRt = inputs.system.R * inputs.system.Q * inputs.system.R.t(),
+      CHCt = inputs.system.C * inputs.system.H * inputs.system.C.t();
   int n = SSmodel::inputs.y.n_elem, k = SSmodel::inputs.u.n_rows;
   inputs.yFor.zeros(inputs.h);
   inputs.FFor.zeros(inputs.h);
@@ -281,39 +260,33 @@ void SSmodel::forecast(){
     inputs.yFor = SSmodel::inputs.yFit.tail_rows(SSmodel::inputs.h);
     inputs.FFor = SSmodel::inputs.F.tail_rows(SSmodel::inputs.h);
   } else {
-    mat T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt;
     // if (abs(inputs.innVariance - 1) > 1e-4){
       Pt = inputs.PEnd * inputs.innVariance;
     // } else {
     //   Pt = inputs.PEnd; // * inputs.innVariance;
     // }
     mat P0 = Pt;
-    // mat Z = inputs.system.Z.row(0);
+    mat Z = inputs.system.Z.row(0);
     uword t = inputs.y.n_elem;
     bool TVP = (inputs.system.Z.n_rows > 1);
     if (k > 0 && inputs.system.Z.n_rows == 1){
         int npar = inputs.betaAug.n_elem;
         inputs.system.D = inputs.betaAug.rows(npar - k, npar - 1).t();
     }
-    ////////////////
-    /// \brief setT
-    ///// Initiialising constant system matrices for t = 0
-    setT(0, inputs.system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-    /////////////////
-    for (uword i = 0; i < (uword)inputs.h; i++){
-      ////////////////
-      setT(t + i, inputs.system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-      /////////////////
-      // if (TVP)
-      //     Z = inputs.system.Z.row(t + i);
-      inputs.yFor(span(i)) = Z * at;
+    if (k == 0) {
+        inputs.system.D = {0};
+    }
+    for (int i = 0; i < inputs.h; i++){
+      if (TVP)
+          Z = inputs.system.Z.row(t + i);
+      inputs.yFor.row(i) = Z * at;
       if (k == 0){
-          inputs.yFor(span(i)) += inputs.system.D;
+          inputs.yFor.row(i) += inputs.system.D;
       } else if (!TVP) {
-          inputs.yFor(span(i)) += inputs.system.D * SSmodel::inputs.u.col(n + i);
+          inputs.yFor.row(i) += inputs.system.D * SSmodel::inputs.u.col(n + i);
       }
-      inputs.FFor(span(i)) = Z * Pt * Z.t() + CHCt;
-      KFprediction(false, true, T, RQRt, at, Pt, P0);
+      inputs.FFor.row(i) = Z * Pt * Z.t() + CHCt;
+      KFprediction(false, true, inputs.system.T, RQRt, at, Pt, P0);
     }
     // if (abs(inputs.innVariance - 1) < 1e-4){
     //   inputs.FFor *= inputs.innVariance;
@@ -398,7 +371,7 @@ void SSmodel::validate(bool estimateHess, double nPar){
     vec tBetas = betas / stdBetas;
     vec pValueBetas = 2 * (1- tCdf(tBetas, nn.n_elem - k));
     for (int i = 0; i < nu; i++){
-      snprintf(str, 70, "       %10.4f %10.4f %10.4f %10.4f %10.6f\n", betas(i),
+      snprintf(str, 70, "       %10.4f %10.4f %10.4f %10.4f %10.6f\n", betas(i), 
               stdBetas(i), tBetas(i), pValueBetas(i), datum::nan);
       inputs.table.push_back(str);
     }
@@ -464,7 +437,7 @@ void isStationary(mat& T, uvec& stat){
   cx_vec eigval(n);
   vec nons, nonstat;
   cx_mat V(n, n);
-  double tol = 0.98;
+  double tol = 0.99;
   nons.zeros(n);
   nonstat = nons;
   eig_gen(eigval, V, T);
@@ -484,9 +457,9 @@ void aP(vec& at, mat& Pt, vec& Kt, vec& vt, vec& Mt){
   Pt = Pt - Kt * Mt.t();
 }
 // Correction step in Kalman Filtering for every t
-void KFcorrection(bool miss, bool colapsed, bool steadyState, bool smooth,
+void KFcorrection(bool miss, bool colapsed, bool steadyState, bool smooth, 
                   SSinputs* data, mat CHCt,
-                  mat& Finft, vec& vt, double Dt, mat& Ft, mat& iFt, vec& at, mat& Pt,
+                  mat& Finft, vec& vt, double Dt, mat& Ft, mat& iFt, vec& at, mat& Pt, 
                   mat& Pinft, vec& Kt, uword t, vec& auxFinf, mat& auxKinf, mat Z){
   vec Mt, Minft, Kinft;
   mat KK;
@@ -554,29 +527,27 @@ double llik(vec& p, void* opt_data){
   // Running user function model
   data->userModel(p, &data->system, data->userInputs);
   double tolsta = 1e-19;
-  uword n,
-        ns = data->system.T.n_cols,
+  uword n, 
+        ns = data->system.T.n_rows, 
         nMiss = 0;
-  ///////////
-  mat T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt;
-  setT(0, data->system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-  ///////////
-  mat Pt,
-      Pinft,
-      Ft(1, 1),
-      Finft(1, 1),
-      iFt(1, 1),
+  mat RQRt = data->system.R * data->system.Q * data->system.R.t(), 
+      CHCt = data->system.C * data->system.H * data->system.C.t(), 
+      Pt, 
+      Pinft, 
+      Ft(1, 1), 
+      Finft(1, 1), 
+      iFt(1, 1), 
       oldPt,
-      llikValue(1, 1),
-      logF(1, 1),
-      v2F(1, 1),
+      llikValue(1, 1), 
+      logF(1, 1), 
+      v2F(1, 1), 
       auxKinf;
-  vec at,
-      Kt(ns),
-      vt(1),
+  vec at, 
+      Kt(ns), 
+      vt(1), 
       auxFinf;
-  bool colapsed = false,
-       steadyState = false,
+  bool colapsed = false, 
+       steadyState = false, 
        miss = false;
   data->innVariance = 1;
   // Initializing variables
@@ -586,8 +557,7 @@ double llik(vec& p, void* opt_data){
   n = data->y.n_rows;
   data->d_t = n;
   // Kfinit
-  // KFinit(data->system.T, RQRt, ns, at, Pt, Pinft);
-  KFinit(T, RQRt, ns, at, Pt, Pinft);
+  KFinit(data->system.T, RQRt, ns, at, Pt, Pinft);
   oldPt.zeros(ns, ns);
   data->nonStationaryTerms = sum(Pinft.diag());
   data->v = zeros(n);
@@ -598,10 +568,10 @@ double llik(vec& p, void* opt_data){
     auxFinf = data->v;
     auxKinf = data->K;
   }
-  // mat Z = data->system.Z.row(0);
-  // bool TVP = false;
-  // if (data->system.Z.n_rows > 1)
-  //     TVP = true;
+  mat Z = data->system.Z.row(0);
+  bool TVP = false;
+  if (data->system.Z.n_rows > 1)
+      TVP = true;
   // KF loop
   for (uword t = 0; t < n; t++){
     // Data missing
@@ -613,22 +583,17 @@ double llik(vec& p, void* opt_data){
     } else {
       miss = false;
     }
-    ////////////////
-    if (t > 0 && data->system.tvp){
-        setT(t, data->system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-    }
-    /////////////////
-    // if (TVP)
-    //     Z = Z = data->system.Z.row(t);
+    if (TVP)
+        Z = Z = data->system.Z.row(t);
     // Correction
     KFcorrection(miss, colapsed, steadyState, data->exact, data, CHCt,
-                 Finft, vt, D(0, 0), Ft, iFt, at, Pt, Pinft,
+                 Finft, vt, data->system.D(0, 0), Ft, iFt, at, Pt, Pinft,
                  Kt, t, auxFinf, auxKinf, Z);
     // llik calculation
     if (!miss && t < n)
       llikCompute(colapsed, Finft, vt, Ft, iFt, v2F, logF, llikValue);
     // Prediction
-    KFprediction(steadyState, colapsed, T, RQRt, at, Pt, Pinft);
+    KFprediction(steadyState, colapsed, data->system.T, RQRt, at, Pt, Pinft);
     // Storing final state and covariance for forecasting
    if (t == n - 1){
      data->PEnd = Pt;
@@ -668,12 +633,12 @@ double llik(vec& p, void* opt_data){
   }
   // Computing llik value
   int nTrue;
-  if (data->d_t < (int)(T.n_rows + 10)){
+  if (data->d_t < (int)(data->system.T.n_rows + 10)){
     // Colapsed KF
     nTrue = n - nMiss - 1 - data->d_t;
   } else {
     // KF did not colapsed
-    nTrue = n - nMiss - 1 - T.n_rows;
+    nTrue = n - nMiss - 1 - data->system.T.n_rows;
   }
   if (data->cLlik){         // Concentrated Likelihood
       data->innVariance = v2F(0, 0) / nTrue;
@@ -684,7 +649,7 @@ double llik(vec& p, void* opt_data){
   data->objFunValue = llikValue(0, 0);
   // System colapsed
   if ((uword)data->d_t < n){
-      data->v(span(0, data->d_t)).fill(datum::nan);
+      data->v.rows(0, data->d_t).fill(datum::nan);
   }
   return llikValue(0, 0);
 }
@@ -694,39 +659,37 @@ double llikAug(vec& p, void* opt_data){
   SSinputs* data = (SSinputs*)opt_data;
   // Running user function model (setting system matrices)
   data->userModel(p, &data->system, data->userInputs);
-  uword ns = data->system.T.n_rows,
-        nMiss = 0,
-        n = data->y.n_rows,
+  uword ns = data->system.T.n_rows, 
+        nMiss = 0, 
+        n = data->y.n_rows, 
         nu = data->u.n_rows,
         k = nu + ns;
   double tolsta = 1e-19;
-  ///////////
-  mat T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt;
-  setT(0, data->system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-  ///////////
-  mat Pt(ns, ns),
+  mat RQRt = data->system.R * data->system.Q * data->system.R.t(), 
+      CHCt = data->system.C * data->system.H * data->system.C.t(), 
+      Pt(ns, ns),
       oldPt(ns, ns),
-      Ft(1, 1),
+      Ft(1, 1), 
       FEnd(1, 1),
       llikValue(1, 1),
-      At(ns, k),
+      At(ns, k), 
       Sn(k, k),
       iSn(k, k),
       AtiSn(ns, k),
       VtiSn(1, k),
       PEndZ(ns ,1); //, W(ns, nu);
-  vec at(ns),
+  vec at(ns), 
       vt(1),
       vEnd(1),
-      sn(k),
-      beta(k),
-      Kt(ns),
-      iFt(1),
-      viFt(1),
-      logF(1),
-      v2F(1),
+      sn(k), 
+      beta(k), 
+      Kt(ns), 
+      iFt(1), 
+      viFt(1), 
+      logF(1), 
+      v2F(1), 
       snBeta(1);
-  rowvec Vt(k),
+  rowvec Vt(k), 
          Xt(k);
   bool miss = false,
        steadyState = false;
@@ -745,11 +708,6 @@ double llikAug(vec& p, void* opt_data){
   uvec aux = regspace<uvec>(ns, k - 1);
   // KF loop
   for (uword t = 0; t < n; t++){
-    ////////////////
-    if (t > 0 && data->system.tvp){
-        setT(t, data->system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-    }
-    /////////////////
     if (nu > 0){
       Xt(aux) = data->u.col(t).t();
     }
@@ -765,21 +723,21 @@ double llikAug(vec& p, void* opt_data){
     // Main calculations
     if (steadyState){
       if (!miss){
-        vt = data->y.row(t) - Z * at;
+        vt = data->y.row(t) - data->system.Z * at;
       }
     } else {
-      Ft = Z * Pt * Z.t() + CHCt;
+      Ft = data->system.Z * Pt * data->system.Z.t() + CHCt;
       iFt = 1 / Ft;
       if (!miss){
-        vt = data->y.row(t) - Z * at;
-        Kt = T * Pt * Z.t() * iFt;
+        vt = data->y.row(t) - data->system.Z * at;
+        Kt = data->system.T * Pt * data->system.Z.t() * iFt;
       }
-      Pt = T * Pt * T.t() + RQRt - Kt * Ft * Kt.t();
+      Pt = data->system.T * Pt * data->system.T.t() + RQRt - Kt * Ft * Kt.t();
     }
-    at = T * at + Kt * vt;
+    at = data->system.T * at + Kt * vt;
     // Augmented part
-    Vt = Xt - Z * At;
-    At = T * At + Kt * Vt; // + Wt;
+    Vt = Xt - data->system.Z * At;
+    At = data->system.T * At + Kt * Vt; // + Wt;
     if (!miss){
       viFt = vt * iFt;
       sn += Vt.t() * viFt;
@@ -826,8 +784,8 @@ vec differential(vec p){
 // Analytic and numeric gradient of log-likelihood
 vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
   int nPar = p.n_elem;
-  vec grad(nPar),
-      p0 = p,
+  vec grad(nPar), 
+      p0 = p, 
       inc;
   SSinputs* data = (SSinputs*)opt_data;
   nFuns = 0;
@@ -837,30 +795,30 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     return grad;
   }
   if (data->exact){  // Analytical derivative
-    int ns = data->system.T.n_rows,
-        n = data->y.n_elem,
-        cQ,
+    int ns = data->system.T.n_rows, 
+        n = data->y.n_elem, 
+        cQ, 
         nMiss = 0;
-    mat GammaQ(ns, ns),
-        Nt(ns, ns),
-        RR(ns, ns),
-        sysmatQ,
-        sysmatR,
+    mat GammaQ(ns, ns), 
+        Nt(ns, ns), 
+        RR(ns, ns), 
+        sysmatQ, 
+        sysmatR, 
         Z = data->system.Z,
-        Gamma(ns + 1, ns + 1),
-        Qt,
-        dQt,
-        dRQRt(ns, ns),
-        Inew(ns, ns),
+        Gamma(ns + 1, ns + 1), 
+        Qt, 
+        dQt, 
+        dRQRt(ns, ns), 
+        Inew(ns, ns), 
         Lt(ns, ns);
-    vec rt(ns),
-        vt(1),
-        Kt(ns),
-        GammaD(1),
+    vec rt(ns), 
+        vt(1), 
+        Kt(ns), 
+        GammaD(1), 
         iFt(1),
-        e(1),
-        D(1),
-        Kinft(ns),
+        e(1), 
+        D(1), 
+        Kinft(ns), 
         Z_Ft(ns);
     double Finft = 0.0;
     bool colapsed = true;
@@ -918,19 +876,19 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
       Nt = data->system.T.t() * Nt * data->system.T;
     }
     // Derivatives of RQRt and CHCt
-    sysmatQ(span(0, cQ - 1), span(0, cQ - 1)) = data->system.Q;
-    sysmatQ(span(cQ), span(cQ)) = data->system.H;
-    sysmatR(span(0, ns - 1), span(0, cQ - 1)) = data->system.R;
-    sysmatR(span(ns), span(cQ)) = data->system.C;
-    Gamma(span(0, ns - 1), span(0, ns - 1)) = GammaQ;
-    Gamma(span(ns), span(ns)) = GammaD;
+    sysmatQ.submat(0, 0, cQ - 1, cQ - 1) = data->system.Q;
+    sysmatQ.submat(cQ, cQ, cQ, cQ) = data->system.H;
+    sysmatR.submat(0, 0, ns - 1, cQ - 1) = data->system.R;
+    sysmatR.submat(ns, cQ, ns, cQ) = data->system.C;
+    Gamma.submat(0, 0, ns - 1, ns - 1) = GammaQ;
+    Gamma.submat(ns, ns, ns, ns) = GammaD;
     int nn = n - nMiss - data->d_t - 1;
     for (int i = 0; i < nPar; i++){
       p0 = p;
       p0.row(i) += inc(i);
       data->userModel(p0, &data->system, data->userInputs);
-      Qt(span(0, cQ - 1), span(0, cQ - 1)) = data->system.Q;
-      Qt(span(cQ), span(cQ)) = data->system.H;
+      Qt.submat(0, 0, cQ - 1, cQ - 1) = data->system.Q;
+      Qt.submat(cQ, cQ, cQ, cQ) = data->system.H;
       dQt= (Qt - sysmatQ) / inc(i);
       dRQRt = sysmatR * dQt * sysmatR.t();
       grad.row(i) = -trace(Gamma * dRQRt) / nn;
@@ -996,27 +954,25 @@ mat hessLlik(void* optData){
 void auxFilter(unsigned int smooth, SSinputs& data){
   // smooth (0: filter, 1: smooth, 2: disturb)
   // double tolsta = 0; //1e-7;
-  uword n,
+  uword n, 
         ns,
         nMiss = 0;
-  ///////////
-  mat T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt;
-  setT(0, data.system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-  ///////////
-  mat Pt,
-      Pinft,
-      Ft(1, 1),
-      Finft(1, 1),
+  mat RQRt, 
+      CHCt(1, 1), 
+      Pt, 
+      Pinft, 
+      Ft(1, 1), 
+      Finft(1, 1), 
       v2F(1, 1),
       iFt(1, 1); //, oldPt;  //, auxKinf;
-  vec at,
-      Kt,
+  vec at, 
+      Kt, 
       vt(1),
       data_F;  //, auxFinf;
-  bool colapsed = false,
-       steadyState = false,
+  bool colapsed = false, 
+       steadyState = false, 
        miss = false;
-  cube cP,
+  cube cP, 
        Pinf;
   // Initialising variables
   uword ny = data.y.n_elem;
@@ -1025,17 +981,17 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   data.y = join_vert(data.y, Nans);
   n = data.y.n_elem;
   data.d_t = n;
-  ns = T.n_cols;
-  // RQRt = data.system.R * data.system.Q * data.system.R.t();
-  // CHCt = data.system.C * data.system.H * data.system.C.t();
+  ns = data.system.T.n_rows;
+  RQRt = data.system.R * data.system.Q * data.system.R.t();
+  CHCt = data.system.C * data.system.H * data.system.C.t();
   // Inputs part
   rowvec Dt(n, fill::zeros);
-  if (k > 0 && Z.n_rows == 1){
+  if (k > 0 && data.system.Z.n_rows == 1){
     int nn = data.betaAug.n_rows;
-    D = data.betaAug.rows(nn - k, nn - 1).t();
-    Dt = D * data.u;
+    data.system.D = data.betaAug.rows(nn - k, nn - 1).t();
+    Dt = data.system.D * data.u;
   }
-  KFinit(T, RQRt, ns, at, Pt, Pinft);
+  KFinit(data.system.T, RQRt, ns, at, Pt, Pinft);
   data.v = zeros(n);
   data.a = zeros(ns, n);
   if  (smooth > 0){
@@ -1051,19 +1007,14 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   data.Kinf = zeros(ns, data.d_t + 1);
   v2F.fill(0);
   Kt.resize(ns);
-  // mat Z = data.system.Z.row(0);
-  // bool TVP = false;
-  // if (data.system.Z.n_rows > 1)
-  //     TVP = true;
+  mat Z = data.system.Z.row(0);
+  bool TVP = false;
+  if (data.system.Z.n_rows > 1)
+      TVP = true;
   // KF loop
   for (uword t = 0; t < n; t++){
-    ////////////////
-    if (t > 0 && data.system.tvp){
-        setT(t, data.system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-    }
-    /////////////////
-    // if (TVP)
-    //     Z = data.system.Z.row(t);
+    if (TVP)
+        Z = data.system.Z.row(t);
     if (!colapsed && smooth > 0){
       Pinf.slice(t) = Pinft;
     }
@@ -1081,7 +1032,6 @@ void auxFilter(unsigned int smooth, SSinputs& data){
       }
     }
     // Data missing
-    // if (!is_finite(data.y.row(t))){
     if (!std::isfinite(data.y(t))){
       steadyState = false;
       miss = true;
@@ -1110,7 +1060,7 @@ void auxFilter(unsigned int smooth, SSinputs& data){
       data.P.col(t) = Pt.diag();
     }
     // Prediction
-    KFprediction(steadyState, colapsed, T, RQRt, at, Pt, Pinft);
+    KFprediction(steadyState, colapsed, data.system.T, RQRt, at, Pt, Pinft);
     // Checking colapsed
     if (!colapsed && all(all(abs(Pinft) < 1e-6))){
         colapsed = true;
@@ -1125,31 +1075,27 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   // Smoothing loop
   data.F = data_F;   // For final normalization of innovations
   if (smooth > 0){
-    mat Nt(ns, ns),
-        Ninfti(ns, ns),
-        N2t(ns, ns),
+    mat Nt(ns, ns), 
+        Ninfti(ns, ns), 
+        N2t(ns, ns), 
         PPinf(ns, ns); //, RR(ns, ns), sysmatQ, sysmatR, Z = data->system.Z;
-    mat Inew(ns, ns),
-        Lt(ns, ns),
-        Linft(ns, ns),
-        LinftNt(ns, ns),
+    mat Inew(ns, ns), 
+        Lt(ns, ns), 
+        Linft(ns, ns), 
+        LinftNt(ns, ns), 
         Ninft(ns, ns);
-    vec rt(ns),
-        rinft(ns),
-        Kinft(ns),
-        Z_Ft(ns),
+    vec rt(ns), 
+        rinft(ns), 
+        Kinft(ns), 
+        Z_Ft(ns), 
         Z_Finft(ns); //, eta; //, vt(1), Kt(ns), Ft(1), GammaD(1);
-      mat QRt,
+      mat QRt, 
           Veta,
           pinvVeta;
     bool colapsed = true;
-    ///////////
-    // mat T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt;
-    setT(n - 1, data.system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-    ///////////
     if (smooth == 2){   // Disturbance
-      int rQ = Q.n_rows; //, cR = R.n_cols;
-      QRt = Q * R.t();
+      int rQ = data.system.Q.n_rows; //, cR = data.system.R.n_cols;
+      QRt = data.system.Q * data.system.R.t();
       data.eta.zeros(rQ, n - data.h);
       Veta.zeros(rQ, rQ);
     }
@@ -1169,13 +1115,8 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     // Main Loop
     int intN = n;
     for (int t = n - 1; t >= 0; t--){
-      ////////////////
-      if (t < (int)n - 1 && data.system.tvp){
-          setT(t, data.system, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-      }
-      /////////////////
-      // if (TVP)
-      //   Z = data.system.Z.row(t);
+      if (TVP)
+        Z = data.system.Z.row(t);
       if (t <= data.d_t){
         colapsed = false;
       }
@@ -1188,21 +1129,21 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         Kinft = data.Kinf.col(t);
       }
       // if (is_finite(data.y.row(t))){
-      if (!std::isfinite(data.y(t))){
+      if (std::isfinite(data.y(t))){
         miss = false;
         if (colapsed || Finft(0, 0) < 1e-8) {
-          Lt = T - T * Kt * Z;
+          Lt = data.system.T - data.system.T * Kt * Z;
           Z_Ft = Z.t() * iFt(0);
           rt = Z_Ft * vt + Lt.t() * rt;
           Nt = Z_Ft * Z + Lt.t() * Nt * Lt;
           if (!colapsed){
-              rinft = T.t() * rinft;
-              N2t = T.t() * N2t * T;
-              Ninft = T.t() * Ninft * Lt;
+              rinft = data.system.T.t() * rinft;
+              N2t = data.system.T.t() * N2t * data.system.T;
+              Ninft = data.system.T.t() * Ninft * Lt;
           }
         } else if (Finft(0, 0) >= 1e-8) {
-            Lt = T - T * Kinft * Z;
-            Linft = -T * Kt * Z;
+            Lt = data.system.T - data.system.T * Kinft * Z;
+            Linft = -data.system.T * Kt * Z;
             Z_Finft = Z.t() * iFt(0, 0);  //  / Finft(0, 0);
             rinft = Z_Finft * vt + Lt.t() * rinft + Linft.t() * rt;
             rt = Lt.t() * rt;
@@ -1221,7 +1162,7 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         Pinft = Pinf.slice(t);
         data.a.col(t) += Pinft * rinft;
       }
-      data.yFit.row(t) = Z * data.a.col(t) + Dt(t); // + D;
+      data.yFit.row(t) = Z * data.a.col(t) + Dt(t); // + data.system.D;
       Pt -= Pt * Nt * Pt;
       if (!colapsed){
         PPinf = Pinft * Ninft * Pt;
@@ -1231,7 +1172,7 @@ void auxFilter(unsigned int smooth, SSinputs& data){
       data.P.col(t) = Pt.diag();
       //Disturbance smoother
       if (smooth == 2 && t < intN - data.h){
-        Veta = Q - QRt * Nt * QRt.t();
+        Veta = data.system.Q - QRt * Nt * QRt.t();
         data.eta.col(t) = QRt * rt / sqrt(Veta.diag());
       }
       // Storing for outlier detection
@@ -1242,24 +1183,24 @@ void auxFilter(unsigned int smooth, SSinputs& data){
       }
       // Passing to rt(t-1) and Nt(t-1)
       if (t > 0 && miss){
-        rt = T.t() * rt;
-        Nt = T.t() * Nt * T;
+        rt = data.system.T.t() * rt;
+        Nt = data.system.T.t() * Nt * data.system.T;
         if (!colapsed){
-          rinft = T.t() * rinft;
-          Ninft = T.t() * Ninft * T;
-          N2t = T.t() * N2t * T;
+          rinft = data.system.T.t() * rinft;
+          Ninft = data.system.T.t() * Ninft * data.system.T;
+          N2t = data.system.T.t() * N2t * data.system.T;
         }
       }
     }
   }
   // Post-processing outputs
   int nTrue;
-  if (data.d_t < (int)(data.system.T.n_cols + 10)){
+  if (data.d_t < (int)(data.system.T.n_rows + 10)){
     // Colapsed KF
     nTrue = n - nMiss - 1 - data.d_t;
   } else {
     // KF did not colapse
-    nTrue = n - nMiss - 1 - data.system.T.n_cols;
+    nTrue = n - nMiss - 1 - data.system.T.n_rows;
   }
   double innVar = data.innVariance;
   if (data.cLlik){         // Concentrated Likelihood
@@ -1271,9 +1212,9 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   data.FFor *= innVar; // * scale;
   // Cleaning innovations
   if ((uword)data.d_t < n - 10){
-    data.v(span(0, data.d_t)).fill(datum::nan);
+    data.v.rows(0, data.d_t).fill(datum::nan);
   } else {
-    data.v(span(0, sum(ns) + 1)).fill(datum::nan);
+    data.v.rows(0, sum(ns) + 1).fill(datum::nan);
   }
   uvec ind = find_finite(data.v);
   if (ind.n_elem < 5){
@@ -1344,230 +1285,4 @@ mat dlyap(mat T, mat Q){
     }
     return real(U * P * U.t());
 }
-// Check consistency of system matrices in SSmatrix
-bool checkSystem(SSmatrix& sys){
-    bool errorExit = false;
-    sys.Gam = sys.S = 0.0;   // Not implemented
-    // Consistency of system matrices
-    if (sys.T.n_rows < 1){
-        printf("%s", "ERROR: Matrix T should not be empty!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (sys.R.n_rows < 1){
-        printf("%s", "ERROR: Matrix R should not be empty!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (sys.Q.n_rows < 1){
-        printf("%s", "ERROR: Matrix Q should not be empty!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (sys.Z.n_rows < 1){
-        printf("%s", "ERROR: Matrix Z should not be empty!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (sys.C.n_rows < 1){
-        printf("%s", "ERROR: Matrix C should not be empty!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (sys.H.n_rows < 1){
-        printf("%s", "ERROR: Matrix H should not be empty!!!\n");
-        errorExit = true;
-        return errorExit;
-    }
-    sys.ns = sys.T.n_cols;
-    sys.ny = 1;
-    sys.n = -1;
-    // if (sys.Gam.n_rows < 1){
-    //     sys.Gam.resize(sys.ns, 1);
-    //     sys.Gam.fill(0.0);
-    // }
-    if (sys.D.n_rows < 1){
-        sys.D.resize(sys.ny, 1);
-        sys.D.fill(0.0);
-    }
-    // if (sys.S.n_rows < 1){
-    //     sys.S.resize(sys.Q.n_cols, sys.H.n_cols);
-    //     sys.S.fill(0.0);
-    // }
-    mat T, R, Gam, D, S, Q, Z, C, H, RQRt, CHCt;
-    setT(0, sys, T, Gam, R, Q, Z, D, C, H, S, RQRt, CHCt);
-    if (T.n_rows != T.n_cols){
-        printf("%s", "ERROR: Matrix T should be square!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (Q.n_rows != Q.n_cols){
-        printf("%s", "ERROR: Matrix Q should be square!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (H.n_rows != H.n_cols){
-        printf("%s", "ERROR: Matrix H should be square!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (T.n_rows != R.n_rows){
-        printf("%s", "ERROR: Rows of T and R should be the same!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (R.n_cols != Q.n_rows){
-        printf("%s", "ERROR: Columns of R and rows of Q should be the same!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (Z.n_cols != T.n_rows){
-        printf("%s", "ERROR: Columns of Z and rows of T should be the same!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (Z.n_rows != C.n_rows){
-        printf("%s", "ERROR: Rows of Z and C should be the same!!!\n");
-        errorExit = true;
-        return errorExit;
-    } else if (C.n_cols != H.n_rows){
-        printf("%s", "ERROR: Columns of C and rows of H should be the same!!!\n");
-        errorExit = true;
-        return errorExit;
-    }
-    // Setting TVP properties of system
-    vec tvMatrices(9, fill::zeros);
-    int n = -1;
-    sys.n = -1;
-    if (sys.T.n_rows > sys.ns){
-        tvMatrices(0) = 1.0;
-        sys.n = sys.T.n_rows / sys.ns;
-        if (n == -1)
-            n = sys.n;
-        else if (n != sys.n){
-            printf("%s", "ERROR: Time varying matrices of different time dimension!!!\n");
-            errorExit = true;
-            return errorExit;
-        }
-    }
-    // if (sys.Gam.n_rows > sys.ns){
-    //     tvMatrices(1) = 1.0;
-    //     sys.n = sys.Gam.n_rows / sys.ns;
-    // }
-    if (sys.R.n_rows > sys.ns){
-        tvMatrices(2) = 1.0;
-        sys.n = sys.R.n_rows / sys.ns;
-        if (n == -1)
-            n = sys.n;
-        else if (n != sys.n){
-            printf("%s", "ERROR: Time varying matrices of different time dimension!!!\n");
-            errorExit = true;
-            return errorExit;
-        }
-    }
-    if (sys.Q.n_rows > sys.ns){
-        tvMatrices(3) = 1.0;
-        sys.n = sys.Q.n_rows / sys.R.n_cols;
-        if (n == -1)
-            n = sys.n;
-        else if (n != sys.n){
-            printf("%s", "ERROR: Time varying matrices of different time dimension!!!\n");
-            errorExit = true;
-            return errorExit;
-        }
-    }
-    if (sys.Z.n_rows > sys.ny){
-        tvMatrices(4) = 1.0;
-        sys.n = sys.Z.n_rows;
-        if (n == -1)
-            n = sys.n;
-        else if (n != sys.n){
-            printf("%s", "ERROR: Time varying matrices of different time dimension!!!\n");
-            errorExit = true;
-            return errorExit;
-        }
-    }
-    if (sys.D.n_rows > sys.ny){
-        tvMatrices(5) = 1.0;
-        sys.n = sys.D.n_rows;
-    }
-    if (sys.C.n_rows > sys.ny){
-        tvMatrices(6) = 1.0;
-        sys.n = sys.C.n_rows;
-        if (n == -1)
-            n = sys.n;
-        else if (n != sys.n){
-            printf("%s", "ERROR: Time varying matrices of different time dimension!!!\n");
-            errorExit = true;
-            return errorExit;
-        }
-    }
-    if (sys.H.n_rows > sys.ny){
-        tvMatrices(7) = 1.0;
-        sys.n = sys.H.n_rows / sys.C.n_cols;
-        if (n == -1)
-            n = sys.n;
-        else if (n != sys.n){
-            printf("%s", "ERROR: Time varying matrices of different time dimension!!!\n");
-            errorExit = true;
-            return errorExit;
-        }
-    }
-    // if (sys.S.n_rows > sys.ny){
-    //     tvMatrices(8) = 1.0;
-    //     sys.n = sys.S.n_rows;
-    // }
-    if (sum(tvMatrices > 0.0))
-        sys.tvp = true;
-    sys.tvMatrices = find(tvMatrices);
-    if (tvMatrices(2) == 0 && R.n_rows == R.n_cols && sum(sum((R - eye(R.n_cols, R.n_cols)))) == 0)
-        sys.identityR = true;
-    if (tvMatrices(6) == 0 && C.n_rows == C.n_cols && sum(sum((C - eye(C.n_cols, C.n_cols)))) == 0)
-        sys.identityC = true;
-    // if (sys.identityR && tvMatrices(3) == 0)
-    //     sys.constantRQR = true;
-    // if (sys.identityC && tvMatrices(7) == 0)
-    //     sys.constantCHC = true;
-    return errorExit;
-}
-// Set time varying matrices to time t
-void setT(uword t, SSmatrix& sys, mat& T, mat& Gam, mat& R, mat& Q, mat& Z, mat& D, mat& C, mat& H, mat& S, mat& RQRt, mat& CHCt){
-    uword i0 = t * sys.ns, i1 = (t + 1) * sys.ns - 1;
-    if (t == 0){
-        T = sys.T.rows(i0, i1);
-        // Gam = sys.Gam.rows(i0, i1);
-        R = sys.R.rows(i0, i1);
-        i1 = (t + 1) * sys.R.n_cols - 1;
-        Q = sys.Q.rows(i0, i1);
-        Z = sys.Z.row(t);
-        D = sys.D.row(t);
-        C = sys.C.row(t);
-        i1 = (t + 1) * sys.C.n_cols - 1;
-        H = sys.H.rows(i0, i1);
-        // S = sys.S.row(t);
-    } else if (sys.tvp){
-        for (uword i = 0; i < sys.tvMatrices.n_elem; i++){
-            if (sys.tvMatrices(i) == 0)
-                T = sys.T.rows(i0, i1);
-            // else if (sys.tvMatrices(i) == 1)
-            //    Gam = sys.Gam.rows(ind);
-            else if (sys.tvMatrices(i) == 2)
-                R = sys.R.rows(i0, i1);
-            else if (sys.tvMatrices(i) == 3){
-                i0 = t * sys.R.n_cols;
-                i1 = (t + 1) * sys.R.n_cols - 1;
-                Q = sys.Q.rows(i0, i1);
-            }
-            else if (sys.tvMatrices(i) == 4)
-                Z = sys.Z.row(t);
-            else if (sys.tvMatrices(i) == 5)
-                D = sys.D.row(t);
-            else if (sys.tvMatrices(i) == 6)
-                C = sys.C.row(t);
-            else if (sys.tvMatrices(i) == 7){
-                i0 = t * sys.C.n_cols;
-                i1 = (t + 1) * sys.C.n_cols - 1;
-                H = sys.H.rows(i0, i1);
-            }
-            // else if (sys.tvMatrices(i) == 8)
-            //     S = sys.S.rows(ind);
-        }
-    }
-    if (!sys.identityR)
-        RQRt = R * Q * R.t();
-    else
-        RQRt = Q;
-    if (!sys.identityC)
-        CHCt = C * H * C.t();
-    else
-        CHCt = H;
-}
+

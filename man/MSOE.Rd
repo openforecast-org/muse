@@ -4,70 +4,7 @@
 \alias{MSOE}
 \title{MSOE}
 \usage{
-MSOE(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1,
-  outlier = 9999, tTest = FALSE, criterion = "aic", periods = NA,
-  verbose = FALSE, stepwise = FALSE, p0 = -9999.9, arma = TRUE,
-  TVP = NULL, trendOptions = "rw/llt/srw/dt",
-  seasonalOptions = "none/linear/equal", irregularOptions = "arma(0,0)")
-}
-\arguments{
-\item{y}{a time series to forecast (it may be either a numerical vector or
-a time series object). This is the only input required. If a vector, the additional
-input \code{periods} should be supplied compulsorily (see below).}
-
-\item{u}{a matrix of external regressors included only in the observation equation.
-(it may be either a numerical vector or a time series object). If the output wanted
-to be forecast, matrix \code{u} should contain future values for inputs.}
-
-\item{model}{the model to estimate. It is a single string indicating the type of
-model for each component. It allows two formats "trend/seasonal/irregular" or
-"trend/cycle/seasonal/irregular". The possibilities available for each component are:
-\itemize{
-\item Trend: ? / none / rw / irw / llt / dt / td;
-
-\item Seasonal: ? / none / equal / different;
-
-\item Irregular: ? / none / arma(0, 0) / arma(p, q) - with p and q integer positive orders;
-
-\item Cycles: ? / none / combination of positive or negative numbers. Positive numbers fix
-the period of the cycle while negative values estimate the period taking as initial
-condition the absolute value of the period supplied. Several cycles with positive or negative values are possible
-and if a question mark is included, the model test for the existence of the cycles
-specified. The following are valid examples with different meanings: 48, 48?, -48, -48?,
-48+60, -48+60, -48-60, 48-60, 48+60?, -48+60?, -48-60?, 48-60?.
-}}
-
-\item{h}{forecast horizon. If the model includes inputs h is not used, the lenght of u is used instead.}
-
-\item{lambda}{Box-Cox transformation lambda, NULL for automatic estimation}
-
-\item{outlier}{critical level of outlier tests. If NA it does not carry out any
-outlier detection (default). A positive value indicates the critical minimum
-t test for outlier detection in any model during identification. Three types of outliers are
-identified, namely Additive Outliers (AO), Level Shifts (LS) and Slope Change (SC).}
-
-\item{tTest}{augmented Dickey Fuller test for unit roots used in stepwise algorithm (TRUE / FALSE).
-The number of models to search for is reduced, depending on the result of this test.}
-
-\item{criterion}{information criterion for identification ("aic", "bic" or "aicc").}
-
-\item{periods}{vector of fundamental period and harmonics required.}
-
-\item{verbose}{intermediate results shown about progress of estimation (TRUE / FALSE).}
-
-\item{stepwise}{stepwise identification procedure (TRUE / FALSE).}
-
-\item{p0}{initial parameter vector for optimisation search.}
-
-\item{arma}{check for arma models for irregular components (TRUE / FALSE).}
-
-\item{TVP}{vector of zeros and ones to indicate TVP parameters.}
-
-\item{trendOptions}{trend models to select amongst (e.g., "rw/llt").}
-
-\item{seasonalOptions}{seasonal models to select amongst (e.g., "none/differentt").}
-
-\item{irregularOptions}{irregular models to select amongst (e.g., "none/arma(0,1)").}
+MSOE(sys)
 }
 \value{
 An object of class \code{MSOE}. It is a list with fields including all the inputs and
