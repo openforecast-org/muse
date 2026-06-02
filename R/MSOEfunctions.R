@@ -101,8 +101,8 @@
 #' m1 <- MSOEsetup(y, model = "?/?/?/?")
 #' m1 <- MSOEsetup(y, model = "llt/?/equal/?", outlier = 4)
 #' }
-#' @rdname MSOEsetup
-#' @export
+#' @keywords internal
+#' @noRd
 MSOEsetup = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, outlier = 9999, tTest = FALSE, criterion = "aic",
                    periods = NA, verbose = FALSE, stepwise = FALSE, p0 = -9999.9, arma = FALSE,
                    TVP = NULL, trendOptions = "rw/llt/srw/td", seasonalOptions = "none/linear/equal", irregularOptions = "arma(0,0)"){
@@ -261,8 +261,8 @@ MSOEsetup = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
 #' m1 <- MSOE(y)
 #' m1 <- MSOE(y, model = "llt/different/arma(0,0)")
 #' }
-#' @rdname MSOE
-#' @export
+#' @keywords internal
+#' @noRd
 MSOE = function(sys) { #y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, outlier = 9999, tTest = FALSE, criterion = "aic",
               # periods = NA, verbose = FALSE, stepwise = FALSE, p0 = -9999.9, arma = TRUE,
               # TVP = NULL, trendOptions = "rw/llt/srw/td", seasonalOptions = "none/linear/equal", irregularOptions = "arma(0,0)"){
@@ -452,8 +452,8 @@ MSOE = function(sys) { #y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1,
 #' # m1 <- MSOEsetup(log(AirPassengers))
 #' # m1 <- MSOEestim(m1)
 #' }
-#' @rdname MSOEestim
-#' @export
+#' @keywords internal
+#' @noRd
 MSOEestim = function(sys){
     # sys$table = NA
     # sys$hidden$constPar = NA

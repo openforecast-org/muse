@@ -19,8 +19,7 @@ Depends:
     greybox,
     smooth
 Imports:
-    generics (>= 0.1.2),
-    zoo
+    generics (>= 0.1.2)
 LinkingTo: Rcpp, RcppArmadillo (>= 0.8.100.0.0)
 Suggests:
     testthat (>= 3.0.0)
