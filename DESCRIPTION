@@ -24,7 +24,7 @@ LinkingTo: Rcpp, RcppArmadillo (>= 0.8.100.0.0)
 Suggests:
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
-RoxygenNote: 7.3.3
 Encoding: UTF-8
 Roxygen: list(old_usage = TRUE)
 ByteCompile: true
+Config/roxygen2/version: 8.0.0

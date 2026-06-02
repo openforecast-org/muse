@@ -272,6 +272,10 @@ MSOE = function(sys) {
         sys$model = "error"
         return(sys);
     }
+    # MSOE used to leave sys$model as the user's "?" template; copy the
+    # resolved model string back from C++ so downstream code (PTS, pts)
+    # sees the actual fitted model.
+    sys$model = output$model
     if (is.ts(sys$y)){
         fY = frequency(sys$y)
         sY = start(sys$y, frequency = fY)
@@ -297,6 +301,9 @@ MSOE = function(sys) {
         sys$v = output$v
     }
     sys$covp = output$covp
+    sys$criteria = as.numeric(output$criteria)
+    if (length(sys$criteria) == 4L)
+        names(sys$criteria) = c("logLik", "AIC", "BIC", "AICc")
     sys$p = as.vector(output$coef)
     nPar = length(sys$p)
     rownames(sys$covp) = output$parNames[1 : dim(sys$covp)[1]]
