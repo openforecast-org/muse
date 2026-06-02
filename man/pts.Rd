@@ -14,8 +14,8 @@ auto.pts(y, ...)
 \arguments{
 \item{y}{univariate time series (numeric vector or \code{ts}).}
 
-\item{model}{3-letter PTS specification string. The three positions encode
-Power / Trend / Seasonal:
+\item{model}{3-letter PTS specification string.  The three positions
+encode Power / Trend / Seasonal:
 \itemize{
   \item Power: \code{Z} to estimate Box-Cox \eqn{\lambda}, or a numeric
     value (e.g. \code{"0"}, \code{"0.5"}, \code{"1"}).
@@ -51,7 +51,7 @@ An object of class \code{c("pts", "smooth")} with components:
 \itemize{
   \item \code{y, u, model, modelUC, lags, lambda} -- inputs / spec
   \item \code{p, p0, covp, parNames, nParam} -- parameters
-  \item \code{fitted, residuals, comp} -- in-sample
+  \item \code{fitted, residuals, comp} -- in-sample fit
   \item \code{yFor, yForV} -- cached forecast (if \code{h > 0})
   \item \code{logLik, IC} -- likelihood + AIC/BIC/AICc
   \item \code{table} -- printable validation table
@@ -60,8 +60,8 @@ An object of class \code{c("pts", "smooth")} with components:
 }
 \description{
 Estimates a PTS (Power / Trend / Seasonal) state-space model
-for a univariate time series. This is the user-facing entry point of the
-\code{muse} package and mirrors the calling convention used elsewhere in
+for a univariate time series.  This is the user-facing entry point of the
+\pkg{muse} package and mirrors the calling convention used elsewhere in
 the \pkg{smooth} family: \code{pts()} estimates the model, and
 \code{\link{forecast.pts}} produces forecasts from the fitted object
 without re-estimating.

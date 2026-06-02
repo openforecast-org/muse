@@ -102,28 +102,15 @@ predict.pts <- function(object, newdata = NULL, ...){
 forecast.pts <- function(object, h = 10, level = 0.95, ...){
     if (!is.numeric(h) || length(h) != 1 || h < 1)
         stop("`h` must be a positive integer.", call. = FALSE)
-    if (is.null(object$modelUC_))
-        stop("pts object has no internal MSOE state; cannot forecast.",
+    if (is.null(object$forecast_args))
+        stop("pts object has no cached forecast inputs; cannot forecast.",
              call. = FALSE)
-    sys <- object$modelUC_
-    out <- UCompC("forecastOnly", sys$y, sys$u, sys$model, as.integer(h),
-                  sys$lambda, sys$outlier, sys$tTest, sys$criterion,
-                  sys$periods, sys$rhos, sys$verbose, sys$stepwise,
-                  sys$p, sys$arma, sys$TVP, sys$hidden$seas,
-                  sys$trendOptions, sys$seasonalOptions, sys$irregularOptions)
+    args   <- object$forecast_args
+    args$h <- as.integer(h)
+    out    <- .pts_call_uc("forecastOnly", args)
 
-    yFor  <- as.numeric(out$yFor)
-    yForV <- as.numeric(out$yForV)
-
-    # Wrap as a ts that starts at the first out-of-sample observation.
-    if (is.ts(object$y)){
-        fy <- stats::frequency(object$y)
-        sy <- stats::start(object$y, frequency = fy)
-        aux <- stats::ts(rep(NA_real_, length(object$y) + 1L), start = sy,
-                         frequency = fy)
-        yFor  <- stats::ts(yFor,  start = stats::end(aux), frequency = fy)
-        yForV <- stats::ts(yForV, start = stats::end(aux), frequency = fy)
-    }
+    yFor  <- .pts_ts_forecast(as.numeric(out$yFor),  object$y)
+    yForV <- .pts_ts_forecast(as.numeric(out$yForV), object$y)
 
     z   <- stats::qnorm(1 - (1 - level) / 2)
     se  <- sqrt(yForV)

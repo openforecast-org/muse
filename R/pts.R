@@ -1,15 +1,15 @@
 #' @title pts: Power / Trend / Seasonal state-space model
 #'
 #' @description Estimates a PTS (Power / Trend / Seasonal) state-space model
-#' for a univariate time series. This is the user-facing entry point of the
-#' \code{muse} package and mirrors the calling convention used elsewhere in
+#' for a univariate time series.  This is the user-facing entry point of the
+#' \pkg{muse} package and mirrors the calling convention used elsewhere in
 #' the \pkg{smooth} family: \code{pts()} estimates the model, and
 #' \code{\link{forecast.pts}} produces forecasts from the fitted object
 #' without re-estimating.
 #'
 #' @param y univariate time series (numeric vector or \code{ts}).
-#' @param model 3-letter PTS specification string. The three positions encode
-#' Power / Trend / Seasonal:
+#' @param model 3-letter PTS specification string.  The three positions
+#' encode Power / Trend / Seasonal:
 #' \itemize{
 #'   \item Power: \code{Z} to estimate Box-Cox \eqn{\lambda}, or a numeric
 #'     value (e.g. \code{"0"}, \code{"0.5"}, \code{"1"}).
@@ -37,7 +37,7 @@
 #' \itemize{
 #'   \item \code{y, u, model, modelUC, lags, lambda} -- inputs / spec
 #'   \item \code{p, p0, covp, parNames, nParam} -- parameters
-#'   \item \code{fitted, residuals, comp} -- in-sample
+#'   \item \code{fitted, residuals, comp} -- in-sample fit
 #'   \item \code{yFor, yForV} -- cached forecast (if \code{h > 0})
 #'   \item \code{logLik, IC} -- likelihood + AIC/BIC/AICc
 #'   \item \code{table} -- printable validation table
@@ -51,7 +51,7 @@
 pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
                 holdout = FALSE, criterion = c("aic", "bic", "aicc"),
                 armaIdent = FALSE, verbose = FALSE, u = NULL){
-    cl <- match.call()
+    cl  <- match.call()
     tic <- proc.time()
     criterion <- match.arg(criterion)
     if (!is.numeric(h) || length(h) != 1 || h < 0)
@@ -71,41 +71,39 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
         }
     }
 
-    # PTS() requires h >= 1; ask for at least one forecast point even if the
-    # user wants none, and drop it from the public slots below.
+    # The C++ engine always wants h >= 1; ask for one forecast point even
+    # when the user asked for none, and drop the resulting cache below.
     h_fit <- max(as.integer(h), 1L)
-    m <- PTS(y, u = u, model = model, s = lags, h = h_fit,
-             criterion = criterion, armaIdent = armaIdent, verbose = verbose)
+
+    res <- .pts_fit(y = y, u = u, model = model, lags = lags, h = h_fit,
+                    criterion = criterion, armaIdent = armaIdent,
+                    verbose = verbose)
 
     out <- list(
         y         = y,
         u         = u,
-        model     = m$model,
-        modelUC   = m$modelUC$model,
-        lags      = m$s,
-        lambda    = m$lambda,
-        p         = m$p,
-        p0        = m$p0,
-        covp      = m$modelUC$covp,
-        parNames  = names(m$p),
-        nParam    = length(m$p),
-        comp      = m$comp,
-        fitted    = if (is.matrix(m$comp)) m$comp[, "Fit"]   else NA,
-        residuals = if (is.matrix(m$comp)) m$comp[, "Error"] else NA,
-        yFor      = if (h > 0) m$yFor  else NULL,
-        yForV     = if (h > 0) m$yForV else NULL,
-        logLik    = if (length(m$modelUC$criteria) >= 1) m$modelUC$criteria[1] else NA_real_,
-        IC        = if (length(m$modelUC$criteria) >= 4)
-                        stats::setNames(m$modelUC$criteria[2:4], c("AIC", "BIC", "AICc"))
-                    else NA_real_,
-        table     = m$table,
-        modelUC_  = m$modelUC,
+        model     = uc_to_pts(res$modelUC, res$lambda),
+        modelUC   = res$modelUC,
+        lags      = lags,
+        lambda    = res$lambda,
+        p         = res$p,
+        p0        = res$p0,
+        covp      = res$covp,
+        parNames  = names(res$p),
+        nParam    = length(res$p),
+        comp      = res$comp,
+        fitted    = if (is.matrix(res$comp)) res$comp[, "Fit"]   else NA,
+        residuals = if (is.matrix(res$comp)) res$comp[, "Error"] else NA,
+        yFor      = if (h > 0) res$yFor  else NULL,
+        yForV     = if (h > 0) res$yForV else NULL,
+        logLik    = res$logLik,
+        IC        = res$IC,
+        table     = res$table,
+        forecast_args = res$forecast_args,
         call      = cl,
         timeElapsed = proc.time() - tic
     )
-    if (!is.null(held))
-        out$holdout <- held
-
+    if (!is.null(held)) out$holdout <- held
     class(out) <- c("pts", "smooth")
     out
 }
