@@ -56,8 +56,7 @@
 #' Standard methods applicable to PTS objects are print, summary, plot,
 #' fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
 #'
-#' @seealso \code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},
-#'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+#' @seealso \code{\link{PTS}}, \code{\link{PTSforecast}}
 #'
 #' @examples
 #' m1 <- PTSsetup(log(AirPassengers))
@@ -127,8 +126,7 @@ PTSsetup <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion
 #'
 #' @template authors
 #'
-#' @seealso \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
-#'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+#' @seealso \code{\link{PTS}}, \code{\link{PTSsetup}}
 #'
 #' @examples
 #' # m1 <- PTS(log(AirPassengers))
@@ -203,8 +201,7 @@ PTSforecast <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criter
 #'
 #' @template authors
 #'
-#' @seealso \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
-#'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+#' @seealso \code{\link{PTSforecast}}, \code{\link{PTSsetup}}
 #'
 #' @examples
 #' # m1 <- PTS(log(AirPassengers))

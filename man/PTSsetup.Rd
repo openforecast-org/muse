@@ -77,8 +77,7 @@ See help of \code{PTS}.
 m1 <- PTSsetup(log(AirPassengers))
 }
 \seealso{
-\code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},
-         \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+\code{\link{PTS}}, \code{\link{PTSforecast}}
 }
 \author{
 Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}

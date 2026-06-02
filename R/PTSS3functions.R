@@ -23,8 +23,7 @@ size = function(y){
 #'
 #' @author Diego J. Pedregal
 #'
-#' @seealso \code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},
-#'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+#' @seealso \code{\link{PTS}}, \code{\link{PTSforecast}}
 #'
 #' @examples
 #' # m1 <- PTSmodel(log(AirPassengers))
@@ -48,8 +47,7 @@ print.PTS = function(x, ...){
 #'
 #' @author Diego J. Pedregal
 #'
-#' @seealso \code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},
-#'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+#' @seealso \code{\link{PTS}}, \code{\link{PTSforecast}}
 #'
 #' @examples
 #' # m1 <- PTSmodel(log(AirPassengers))
@@ -69,8 +67,7 @@ summary.PTS = function(object, ...){
 #'
 #' @author Diego J. Pedregal
 #'
-#' @seealso \code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},
-#'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+#' @seealso \code{\link{PTS}}, \code{\link{PTSforecast}}
 #'
 #' @examples
 #' # m1 <- PTS(log(AirPassengers))
@@ -98,8 +95,7 @@ plot.PTS = function(x, ...){
 #'
 #' @author Diego J. Pedregal
 #'
-#' @seealso \code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},
-#'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+#' @seealso \code{\link{PTS}}, \code{\link{PTSforecast}}
 #'
 #' @examples
 #' # m1 <- PTSmodel(log(AirPassengers))
@@ -122,8 +118,7 @@ fitted.PTS = function(object, ...){
 #'
 #' @author Diego J. Pedregal
 #'
-#' @seealso \code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},
-#'          \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+#' @seealso \code{\link{PTS}}, \code{\link{PTSforecast}}
 #'
 #' @examples
 #' # m1 <- PTSmodel(log(AirPassengers))

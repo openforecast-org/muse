@@ -78,8 +78,7 @@ fitted, residuals, logLik, AIC, BIC, coef, predict, tsdiag.
 # m1 <- PTS(log(AirPassengers))
 }
 \seealso{
-\code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
-         \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+\code{\link{PTS}}, \code{\link{PTSsetup}}
 }
 \author{
 Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}

@@ -263,41 +263,10 @@ MSOEsetup = function(y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, ou
 #' }
 #' @keywords internal
 #' @noRd
-MSOE = function(sys) { #y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1, outlier = 9999, tTest = FALSE, criterion = "aic",
-              # periods = NA, verbose = FALSE, stepwise = FALSE, p0 = -9999.9, arma = TRUE,
-              # TVP = NULL, trendOptions = "rw/llt/srw/td", seasonalOptions = "none/linear/equal", irregularOptions = "arma(0,0)"){
-    # if (is.ts(sys$y)){
-    #     y = as.numeric(sys$y)
-    # } else {
-    #     y = sys$y
-    # }
-    # if (is.ts(sys$u)){
-    #     u = as.numeric(sys$u)
-    # } else {
-    #     u = sys$u
-    # }
-    # nu = dim(u)[2]
-    # kInitial = dim(u)[1]
-    # if (nu == 2){
-    #     nu = length(sys$y) + sys$h
-    #     kInitial = 0
-    # }
-    # sys = MSOEsetup(y, u, model, h, lambda, outlier, tTest, criterion,
-    #                 periods, verbose, stepwise, p0, arma,
-    #                 TVP, trendOptions, seasonalOptions, irregularOptions)
-    # output = MSOEc("estimate", y, u, sys$model, sys$periods, sys$rhos,
-    #                 sys$h, sys$tTest, sys$criterion, sys$hidden$truePar, rubbish2, rubbish, sys$verbose,
-    #                 sys$stepwise, sys$hidden$estimOk, sys$p0, sys$v, sys$yFitV,
-    #                 sys$hidden$nonStationaryTerms, rubbish3, sys$hidden$harmonics,
-    #                 as.vector(sys$criteria), sys$hidden$cycleLimits,
-    #                 cbind(sys$hidden$beta, sys$hidden$betaV), sys$hidden$typeOutliers,
-    #                 sys$TVP, sys$trendOptions, sys$seasonalOptions, sys$irregularOptions)
+MSOE = function(sys) {
     output = UCompC("all", sys$y, sys$u, sys$model, sys$h, sys$lambda, sys$outlier, sys$tTest,
                     sys$criterion, sys$periods, sys$rhos, sys$verbose, sys$stepwise, sys$p0, sys$arma, sys$TVP,
                     sys$hidden$seas, sys$trendOptions, sys$seasonalOptions, sys$irregularOptions)
-    # output = UCompC("estimate", SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas, SEXP outliers, SEXP tTests,
-    #        SEXP criterions, SEXP periodss, SEXP rhoss, SEXP verboses, SEXP stepwises, SEXP p0s, SEXP armas, SEXP TVPs,
-    #        SEXP seass, SEXP trendOptionss, SEXP seasonalOptionss, SEXP irregularOptionss){
     sys$lambda = output$lambda
     if (output$model == "error"){
         sys$model = "error"
@@ -327,37 +296,12 @@ MSOE = function(sys) { #y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1,
     } else {
         sys$v = output$v
     }
-    # if (VERBOSE){
-    #     cat(output$table)
-    # }
     sys$covp = output$covp
     sys$p = as.vector(output$coef)
-    # Parameter names from table
     nPar = length(sys$p)
-    # parNames = rep("", nPar)
-    # rowM = 2
-    # hyphen = 1
-    # i = 1
-    # while (hyphen < 4){
-    #     lineI = sys$table[rowM]
-    #     if (substr(lineI, 1, 1) == "-"){
-    #         hyphen = hyphen + 1
-    #     }
-    #     if (hyphen > 2 && substr(lineI, 1, 1) != "-"){
-    #         parNames[i] = substr(lineI, 1, gregexpr(pattern =':', lineI))
-    #         i = i + 1
-    #     }
-    #     rowM = rowM + 1
-    # }
-    # rownames(sys$covp) = parNames[1 : dim(sys$covp)[1]]
-    # colnames(sys$covp) = parNames[1 : dim(sys$covp)[1]]
-    # names(sys$p) = parNames[1 : nPar]
     rownames(sys$covp) = output$parNames[1 : dim(sys$covp)[1]]
     colnames(sys$covp) = output$parNames[1 : dim(sys$covp)[1]]
     names(sys$p) = output$parNames[1 : nPar]
-    # components
-    # sys$verbose = VERBOSE
-    # Convert to R list
     sys$comp = output$comp
     sys$compV = output$compV
     m = output$m  # + nCycles
@@ -388,13 +332,6 @@ MSOE = function(sys) { #y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1,
     names = strsplit(output$compNames, "/")
     colnames(sys$comp) = names[[1]]
     colnames(sys$compV) = names[[1]]
-    # m = MSOEestim(m)
-    # if (m$model == "error")
-    #     return(m)
-    # m = MSOEvalidate(m, verbose)
-    # # m = MSOEdisturb(m)
-    # m = MSOEsmooth(m)
-    # m = MSOEcomponents(m)
     return(sys)
 }
 #' @title MSOEestim
@@ -455,43 +392,9 @@ MSOE = function(sys) { #y, u = NULL, model = "?/none/?/?", h = 9999, lambda = 1,
 #' @keywords internal
 #' @noRd
 MSOEestim = function(sys){
-    # sys$table = NA
-    # sys$hidden$constPar = NA
-    # # Estimation
-    # rubbish = c(sys$hidden$d_t, sys$hidden$innVariance, sys$hidden$objFunValue, TRUE,
-    #             sys$outlier, sys$arma, sys$iter, sys$hidden$seas, sys$lambda,
-    #             sys$hidden$MSOE, sys$hidden$PTSnames)
-    # rubbish2 = cbind(sys$grad, sys$hidden$constPar, sys$hidden$typePar)
-    # rubbish3 = cbind(sys$hidden$ns, sys$hidden$nPar)
-    # if (is.ts(sys$y)){
-    #     y = as.numeric(sys$y)
-    # } else {
-    #     y = sys$y
-    # }
-    # if (is.ts(sys$u)){
-    #     u = as.numeric(sys$u)
-    # } else {
-    #     u = sys$u
-    # }
-    # nu = dim(u)[2]
-    # kInitial = dim(u)[1]
-    # if (nu == 2){
-    #     nu = length(sys$y) + sys$h
-    #     kInitial = 0
-    # }
-    # output = MSOEc("estimate", y, u, sys$model, sys$periods, sys$rhos,
-    #                 sys$h, sys$tTest, sys$criterion, sys$hidden$truePar, rubbish2, rubbish, sys$verbose,
-    #                 sys$stepwise, sys$hidden$estimOk, sys$p0, sys$v, sys$yFitV,
-    #                 sys$hidden$nonStationaryTerms, rubbish3, sys$hidden$harmonics,
-    #                 as.vector(sys$criteria), sys$hidden$cycleLimits,
-    #                 cbind(sys$hidden$beta, sys$hidden$betaV), sys$hidden$typeOutliers,
-    #                 sys$TVP, sys$trendOptions, sys$seasonalOptions, sys$irregularOptions)
     output = UCompC("estimate", sys$y, sys$u, sys$model, sys$h, sys$lambda, sys$outlier, sys$tTest,
                     sys$criterion, sys$periods, sys$rhos, sys$verbose, sys$stepwise, sys$p0, sys$arma, sys$TVP,
                     sys$hidden$seas, sys$trendOptions, sys$seasonalOptions, sys$irregularOptions)
-        # output = UCompC("estimate", SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas, SEXP outliers, SEXP tTests,
-    #        SEXP criterions, SEXP periodss, SEXP rhoss, SEXP verboses, SEXP stepwises, SEXP p0s, SEXP armas, SEXP TVPs,
-    #        SEXP seass, SEXP trendOptionss, SEXP seasonalOptionss, SEXP irregularOptionss){
     sys$lambda = output$lambda
     if (output$model == "error"){
         sys$model = "error"
@@ -511,49 +414,6 @@ MSOEestim = function(sys){
             sys$yForV = output$yForV
         }
     }
-    # # Convert to R list
-    # sys$hidden$truePar = output$p[, 1]
-    # sys$p0 = output$p0
-    # if (grepl("?", sys$model, fixed = TRUE)){
-    #     sys$model = output$model
-    # }
-    # n = length(sys$hidden$truePar)
-    # rubbish2 = matrix(output$rubbish2, n, 3)
-    # sys$grad = rubbish2[, 1]
-    # sys$hidden$constPar = rubbish2[, 2]
-    # sys$hidden$typePar = rubbish2[, 3]
-    # sys$hidden$cycleLimits = matrix(output$cycleLimits,
-    #                                 length(output$cycleLimits) / 2, 2)
-    # sys$hidden$d_t = output$rubbish[1]
-    # sys$hidden$innVariance = output$rubbish[2]
-    # sys$hidden$objFunValue = output$rubbish[3]
-    # sys$iter = output$rubbish[6]
-    # sys$h = output$rubbish[7]
-    # sys$lambda = output$rubbish[8]
-    # betas = matrix(output$betas, length(output$betas) / 2, 2)
-    # sys$hidden$beta = betas[, 1]
-    # sys$hidden$betaV = betas[, 2]
-    # sys$periods = output$periods
-    # sys$rhos = output$rhos
-    # sys$hidden$estimOk = output$estimOk
-    # sys$hidden$nonStationaryTerms = output$nonStationaryTerms
-    # rubbish3 = matrix(output$rubbish3, 7, 2)
-    # sys$hidden$ns = rubbish3[, 1]
-    # sys$hidden$nPar = rubbish3[, 2]
-    # sys$hidden$harmonics = output$harmonics
-    # criteria = output$criteria;
-    # sys$criteria = matrix(criteria, 1, 4)
-    # colnames(sys$criteria) = c("LLIK", "AIC", "BIC", "AICc")
-    # sys$u = output$u
-    # if (!is.na(sys$outlier) && !is.null(u)){
-    #     nu = length(sys$y) + sys$h;
-    #     k = length(output$u) / nu
-    #     nOut = k - kInitial
-    #     if (nOut > 0){
-    #         sys$u = matrix(output$u, k, nu)
-    #         sys$hidden$typeOutliers = output$typeOutliers
-    #     }
-    # }
     return(sys)
 }
 

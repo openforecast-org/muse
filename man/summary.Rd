@@ -22,8 +22,7 @@ See help of \code{PTS}.
 # summary(m1)
 }
 \seealso{
-\code{\link{PTS}}, \code{\link{PTSmodel}}, \code{\link{PTSvalidate}},
-         \code{\link{PTScomponents}}, \code{\link{PTSestim}}
+\code{\link{PTS}}, \code{\link{PTSforecast}}
 }
 \author{
 Diego J. Pedregal
