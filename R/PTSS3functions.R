@@ -31,11 +31,11 @@ size = function(y){
 #' @rdname print
 #' @export
 print.PTS = function(x, ...){
-    if (length(x$table) == 0){
-        x = PTSvalidate(x)
-    } else {
-        cat(x$table)
+    if (length(x$table) == 0 || !nzchar(x$table)){
+        stop("PTS object has no validation table; estimate the model with PTS() first.",
+             call. = FALSE)
     }
+    cat(x$table)
 }
 #' @title summary.PTS
 #' @description Prints an PTS object on screen
@@ -76,7 +76,8 @@ summary.PTS = function(object, ...){
 #' @export
 plot.PTS = function(x, ...){
     if (length(x$comp) < 2){
-        x = PTScomponents(x)
+        stop("PTS object has no components; estimate the model with PTS() first.",
+             call. = FALSE)
     }
     if (is.ts(x$comp)){
         plot(x$comp, main = "Time Series Decomposition")
@@ -104,9 +105,10 @@ plot.PTS = function(x, ...){
 #' @export
 fitted.PTS = function(object, ...){
     if (length(object$comp) < 2){
-        object = PTScomponents(object)
+        stop("PTS object has no components; estimate the model with PTS() first.",
+             call. = FALSE)
     }
-    return(object$com[, 2])
+    return(object$comp[, 2])
 }
 #' @title residuals.PTS
 #' @description Residuals of PTS object
@@ -127,9 +129,10 @@ fitted.PTS = function(object, ...){
 #' @export
 residuals.PTS = function(object, ...){
     if (length(object$comp) < 2){
-        object = PTScomponents(object)
+        stop("PTS object has no components; estimate the model with PTS() first.",
+             call. = FALSE)
     }
-    return(object$com[, 1])
+    return(object$comp[, 1])
 }
 
 

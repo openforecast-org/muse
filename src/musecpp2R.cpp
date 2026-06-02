@@ -60,19 +60,11 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas,
     if (sum(TVP) > 0)
         outlier = 0;
     // End of pre-processing
-    // if (command == "estimate"){
     // Missing at beginning
     inputsSS.y = y.rows(iniObs, y.n_elem - 1);
-    // } else {
-    //         inputsSS.y = y;
-    // }
-    // mat uIni;
-    // if (iniObs > 0 && u.n_rows > 0 && command == "estimate"){
     if (u.n_rows > 0) {
         // Missing at beginning
         inputsSS.u = u.cols(iniObs, u.n_cols - 1);
-        // inputsSS.u = u.cols(iniObs, y.n_elem - 1);
-        // uIni = u.cols(0, iniObs - 1);
     } else {
         inputsSS.u= u;
     }
@@ -101,13 +93,11 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas,
         lambda = testBoxCox(y, periods);
     inputsBSM.lambda = lambda;
     inputsSS.y = BoxCox(inputsSS.y, inputsBSM.lambda);
-    // y = BoxCox(y, inputsBSM.lambda);
     // Building model
     BSMclass sysBSM = BSMclass(inputsSS, inputsBSM);
     // Commands
     SSinputs inputs;
     BSMmodel inputs2;
-    // if (command == "estimate"){
     sysBSM.estim(inputsSS.verbose);
     sysBSM.forecast();
     sysBSM.parLabels();
@@ -115,7 +105,6 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas,
     if (iniObs > 0){
         inputs = sysBSM.SSmodel::getInputs();
         inputs2 = sysBSM.getInputs();
-        // inputs.y = y;
         inputs.y = inputsSS.y;
         inputs.u = u;
         sysBSM.SSmodel::setInputs(inputs);
@@ -129,22 +118,6 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas,
         modelCorrect(model, cycle, inputsBSM.cycle0, periods, rhos);
         inputs2.model= model1, inputs2.cycle= cycle, inputs2.cycle0= cycle0;
         inputs2.periods = periods, inputs2.rhos = rhos;
-        // sysBSM.setInputs(inputs2);
-        // Estimating period of cycles (lines 3101 BSMmodel)
-        // int nRhos = sum(inputs2.typePar == 1);
-        // uword pos = inputs2.nPar(0) + nRhos;
-        // uvec ind, ind1;
-        // vec pInd;
-        // int nPerEstim = sum(inputs2.typePar == 2);
-        // if (nPerEstim > 0){
-        //     ind = regspace<uvec>(pos, 1, pos + nPerEstim - 1);
-        //     pos += nPerEstim;
-        //     ind1 = find(inputs2.periods < 0);
-        //     pInd = inputs.p(ind);
-        //     constrain(pInd, inputs2.cycleLimits.rows(ind1));
-        //     periods(ind1) = pInd;
-        //     inputs2.periods = periods;
-        // }
         sysBSM.setInputs(inputs2);
     }
     // Values to return
@@ -178,8 +151,6 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas,
         output("coef") = inputs.coef;
     }
     if (command == "filter" || command == "smooth" || command == "disturb" || command == "all"){
-        // sysBSM.initMatricesBsm(inputs2.periods, inputs2.rhos, inputs2.trend, inputs2.cycle, inputs2.seasonal, inputs2.irregular);
-        // sysBSM.setSystemMatrices();
         if (command != "all")
             sysBSM.validate(false);
         if (command == "filter"){
@@ -222,8 +193,6 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas,
         output("stateNames") = statesN;
     }
     if (command == "components" || command == "all"){
-        // sysBSM.initMatricesBsm(inputs2.periods, inputs2.rhos, inputs2.trend, inputs2.cycle, inputs2.seasonal, inputs2.irregular);
-        // sysBSM.setSystemMatrices();
         sysBSM.components();
         inputs2 = sysBSM.getInputs();
         string compNames = inputs2.compNames;
@@ -231,7 +200,6 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas,
         if (iniObs > 0){
             inputs = sysBSM.SSmodel::getInputs();
             uvec missing = find_nonfinite(inputs.y.rows(0, iniObs));
-            //vec ytrun = inputs.y.rows(0, iniObs);
             mat P = inputs2.compV.cols(0, iniObs);
             sysBSM.interpolate(iniObs);
             sysBSM.components();
@@ -249,8 +217,6 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas,
                 compNames.find("ARMA") != string::npos)
                 inputs2.comp.submat(rowI, missing).fill(datum::nan);
         }
-        // Values to return
-        //inputs2 = sysBSM.getInputs();
         // Converting back to R
         output("comp") = inputs2.comp;
         output("compV") = inputs2.compV;

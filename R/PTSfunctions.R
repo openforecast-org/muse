@@ -134,12 +134,7 @@ PTSsetup <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion
 #' @export
 PTSforecast <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
     m = PTSsetup(y, u, model, s, h, criterion, armaIdent, verbose)
-    # modelUC = PTS2modelUC(m$model, m$armaOrders)
     periods = m$s / (1 : floor(m$s / 2))
-    # mUC = MSOEmodel(m$y, m$u, m$modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
-    #                 periods, m$verbose, FALSE, -9999.9, m$armaIdent, NULL,
-    #                 "rw/llt/srw/td", "none/linear/equal",
-    #                 "arma(0,0)")
     if (frequency(y) == 1)
         m$lambda = 1
     mUC = MSOEsetup(m$y, m$u, m$modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
@@ -209,12 +204,7 @@ PTSforecast <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criter
 #' @export
 PTS <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
     m = PTSsetup(y, u, model, s, h, criterion, armaIdent, verbose)
-    # modelUC = PTS2modelUC(m$model, m$armaOrders)
     periods = m$s / (1 : floor(m$s / 2))
-    # mUC = MSOEmodel(m$y, m$u, m$modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
-    #                 periods, m$verbose, FALSE, -9999.9, m$armaIdent, NULL,
-    #                 "rw/llt/srw/td", "none/linear/equal",
-    #                 "arma(0,0)")
     mUC = MSOEsetup(m$y, m$u, m$modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
                     periods, m$verbose, FALSE, -9999.9, m$armaIdent, NULL,
                     "rw/llt/srw/td", "none/linear/equal",
@@ -232,16 +222,10 @@ PTS <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion = "a
     m$yForV = mUC$yForV
     m$p = mUC$p
     m$modelUC = mUC
-    # validation
-    # m$verbose = FALSE
-    # verbose = FALSE
-    # m$modelUC = MSOEvalidate(m$modelUC, verbose)
     m$table = m$modelUC$table
     m$v = m$modelUC$v
     if (m$verbose)
         cat(m$table)
-    # components
-    # m$modelUC = MSOEcomponents(m$modelUC)
     names = colnames(m$modelUC$comp)
     nComp = length(names)
     ind = c(1, which(names == "Seasonal"), which(names == "Slope"))
@@ -320,8 +304,6 @@ modelUC2PTS <- function(modelUC, lambda){
                 model = paste0(model, "N")
         else if (seasonal == "equal")
                 model = paste0(model, "T")
-        # else if (seasonal == "different")
-        #         model = paste0(model, "D")
         else if (seasonal == "linear")
                 model = paste0(model, "D")
         return(model)
@@ -343,14 +325,6 @@ PTS2modelUC <- function(model, armaOrders = c(0, 0)){
         lambda = 1.0
         modelOut = list(modelU="", lambda=1.0)
         n = nchar(model)
-        # power
-        # aux = tolower(substr(model, 1, 1))
-        # if (aux == "z")
-        #         modelU = "/?"
-        # else if (aux == "n")
-        #         modelU = paste0("/none")
-        # else
-        #         stop("ERROR: incorrect power model!!")
         # noise model
         modelU = paste0("/arma(", armaOrders[1], ",", armaOrders[2], ")")
         # seasonal
@@ -363,8 +337,6 @@ PTS2modelUC <- function(model, armaOrders = c(0, 0)){
                 modelU = paste0("/linear", modelU)
         else if (aux == "t")
                 modelU = paste0("/equal", modelU)
-        # else if (aux == "d")
-        #         modelU = paste0("/different", modelU)
         else
                 stop("ERROR: incorrect seasonal model!!")
 

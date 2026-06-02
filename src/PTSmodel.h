@@ -12,13 +12,6 @@
 // #include <armadillo>
 // using namespace arma;
 // using namespace std;
-// #include "DJPTtools.h"
-// #include "optim.h"
-// #include "stats.h"
-// #include "boxcox.h"
-// #include "SSpace.h"
-// #include "ARIMASSmodel.h"
-// #include "ARMAmodel.h"
 #include <iostream>
 #include <math.h>
 #include <string.h>
@@ -30,7 +23,6 @@ using namespace std;
 #include "stats.h"
 #include "boxcox.h"
 #include "SSpace.h"
-#include "ARIMASSmodel.h"
 #include "ARMAmodel.h"
 
 
