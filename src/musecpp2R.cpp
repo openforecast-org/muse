@@ -1,246 +1,97 @@
+// musecpp2R.cpp - thin R binding for the muse engine.
+//
+// This file is the *only* place in the package that knows about Rcpp.  It
+// turns SEXP arguments into a MuseInputs struct, calls runMuseCommand(),
+// and packs the resulting MuseOutputs struct into an Rcpp::List.  All the
+// dispatch logic lives in musecore.h and is Rcpp-free, so a Python binding
+// (pybind11 / nanobind) can reuse runMuseCommand() unchanged.
+
 // [[Rcpp::depends(RcppArmadillo)]]
 #include <RcppArmadillo.h>
 using namespace arma;
-using namespace std;
 using namespace Rcpp;
-#include "PTSmodel.h"
+using std::string;
+#include "musecore.h"
 
 // [[Rcpp::export]]
-SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas, SEXP outliers, SEXP tTests,
-            SEXP criterions, SEXP periodss, SEXP rhoss, SEXP verboses, SEXP stepwises, SEXP p0s, SEXP armas, SEXP TVPs,
-            SEXP seass, SEXP trendOptionss, SEXP seasonalOptionss, SEXP irregularOptionss){
-    string command = CHAR(STRING_ELT(commands, 0));
-    NumericVector yr(ys);
+SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
+            SEXP lambdas, SEXP outliers, SEXP tTests, SEXP criterions,
+            SEXP periodss, SEXP rhoss, SEXP verboses, SEXP stepwises,
+            SEXP p0s, SEXP armas, SEXP TVPs, SEXP seass,
+            SEXP trendOptionss, SEXP seasonalOptionss,
+            SEXP irregularOptionss){
+
+    // --- Marshall SEXP -> MuseInputs (no engine logic in this file) ---
+    MuseInputs in;
+    NumericVector yr(ys), periodsr(periodss), rhosr(rhoss), p0r(p0s), TVPr(TVPs);
     NumericMatrix ur(us);
-    string model = CHAR(STRING_ELT(models, 0));
-    int h = as<int>(hs);
-    double lambda = as<double>(lambdas);
-    double outlier = as<double>(outliers);
-    bool tTest = as<bool>(tTests);
-    string criterion = CHAR(STRING_ELT(criterions, 0));
-    NumericVector periodsr(periodss);
-    NumericVector rhosr(rhoss);
-    bool verbose = as<bool>(verboses);
-    bool stepwise = as<bool>(stepwises);
-    NumericVector p0r(p0s);
-    bool arma = as<bool>(armas);
-    NumericVector TVPr(TVPs);
-    double seas = as<double>(seass);
-    string trendOptions = CHAR(STRING_ELT(trendOptionss, 0));
-    string seasonalOptions = CHAR(STRING_ELT(seasonalOptionss, 0));
-    string irregularOptions = CHAR(STRING_ELT(irregularOptionss, 0));
 
-    vec y(yr.begin(), yr.size(), false);
-    mat u(ur.begin(), ur.nrow(), ur.ncol(), false);
-    vec periods(periodsr.begin(), periodsr.size(), false);
-    vec rhos(rhosr.begin(), rhosr.size(), false);
-    vec p0(p0r.begin(), p0r.size(), false);
-    vec TVP(TVPr.begin(), TVPr.size(), false);
+    in.command          = CHAR(STRING_ELT(commands, 0));
+    in.y                = vec(yr.begin(),       yr.size(),      false);
+    in.u                = mat(ur.begin(),       ur.nrow(), ur.ncol(), false);
+    in.model            = CHAR(STRING_ELT(models, 0));
+    in.h                = as<int>(hs);
+    in.lambda           = as<double>(lambdas);
+    in.outlier          = as<double>(outliers);
+    in.tTest            = as<bool>(tTests);
+    in.criterion        = CHAR(STRING_ELT(criterions, 0));
+    in.periods          = vec(periodsr.begin(), periodsr.size(), false);
+    in.rhos             = vec(rhosr.begin(),    rhosr.size(),    false);
+    in.verbose          = as<bool>(verboses);
+    in.stepwise         = as<bool>(stepwises);
+    in.p0               = vec(p0r.begin(),      p0r.size(),      false);
+    in.armaFlag         = as<bool>(armas);
+    in.TVP              = vec(TVPr.begin(),     TVPr.size(),     false);
+    in.seas             = as<double>(seass);
+    in.trendOptions     = CHAR(STRING_ELT(trendOptionss, 0));
+    in.seasonalOptions  = CHAR(STRING_ELT(seasonalOptionss, 0));
+    in.irregularOptions = CHAR(STRING_ELT(irregularOptionss, 0));
 
-    // Correcting dimensions of u (k x n)
-    size_t k = u.n_rows;
-    size_t n = u.n_cols;
-    if (k > n){
-        u = u.t();
-    }
-    if (k == 1 && n == 2){
-        u.resize(0);
-    }
-    int iniObs = periods.n_elem * 2 + 2;
-    // Setting inputs
-    SSinputs inputsSS;
-    BSMmodel inputsBSM;
-    if (TVP.n_elem == 1 && TVP(0) == -9999.9)
-        TVP.reset();
-    // Pre-processing
-    bool errorExit = preProcess(y, u, model, h, outlier, criterion, periods, p0, iniObs,
-                                trendOptions, seasonalOptions, irregularOptions, TVP, lambda);
-    if (errorExit)
+    // --- Run the engine ---
+    MuseOutputs out;
+    runMuseCommand(in, out);
+
+    if (out.isError)
         return List::create(Named("model") = "error");
-    if (sum(TVP) > 0)
-        outlier = 0;
-    // End of pre-processing
-    // Missing at beginning
-    inputsSS.y = y.rows(iniObs, y.n_elem - 1);
-    if (u.n_rows > 0) {
-        // Missing at beginning
-        inputsSS.u = u.cols(iniObs, u.n_cols - 1);
-    } else {
-        inputsSS.u= u;
+
+    // --- Pack MuseOutputs -> Rcpp::List ---
+    List output = List::create(
+        Named("model")    = out.model,
+        Named("yFor")     = out.yFor,
+        Named("h")        = out.h,
+        Named("yForV")    = out.yForV,
+        Named("estimOk")  = out.estimOk,
+        Named("lambda")   = out.lambda,
+        Named("periods")  = out.periods,
+        Named("rhos")     = out.rhos,
+        Named("p")        = out.p,
+        Named("p0")       = out.p0Return,
+        Named("parNames") = out.parNames,
+        Named("ns")       = out.ns,
+        Named("criteria") = out.criteria);
+
+    if (out.hasValidate){
+        output("table") = out.table;
+        output("v")     = out.v;
+        output("covp")  = out.covp;
+        output("coef")  = out.coef;
     }
-    inputsBSM.model = model;
-    inputsBSM.periods = periods;
-    inputsBSM.rhos = rhos;
-    inputsSS.h = h;
-    inputsBSM.tTest = tTest;
-    inputsBSM.criterion = criterion;
-    //if (TVP(0) == -9999.99)
-    //    TVP = {};
-    inputsBSM.TVP = TVP;
-    inputsBSM.MSOE = false;
-    inputsBSM.PTSnames = true;
-    inputsBSM.trendOptions = trendOptions;
-    inputsBSM.seasonalOptions = seasonalOptions;
-    inputsBSM.irregularOptions = irregularOptions;
-    // For forecastOnly we want initParBsm() (called from setModel() in the
-    // BSMclass constructor) to take the default-init branch instead of trying
-    // to re-transform the user's natural-scale parameters: that path crashes
-    // when the irregular variance is < 1e-6 or chokes on zero variances.
-    // Stash the user params and feed the constructor a sentinel; the actual
-    // values get pushed in via sysBSM.setEstimatedParams(userParams) below.
-    vec userParams;
-    if (command == "forecastOnly"){
-        userParams = p0;
-        inputsSS.p0 = vec({-9999.9});
-    } else {
-        inputsSS.p0 = p0;
+    if (out.hasFilter){
+        output("a")          = out.a;
+        output("P")          = out.P;
+        output("v")          = out.v;
+        output("ns")         = out.ns;
+        output("yFitV")      = out.yFitV;
+        output("yFit")       = out.yFit;
+        output("eps")        = out.eps;
+        output("eta")        = out.eta;
+        output("stateNames") = out.stateNamesStr;
     }
-    inputsSS.outlier = outlier;
-    inputsSS.verbose = verbose;
-    inputsBSM.stepwise = stepwise;
-    inputsBSM.arma = arma;
-    inputsBSM.seas = seas;
-    // BoxCox transformation
-    if (lambda == 9999.9)
-        lambda = testBoxCox(y, periods);
-    inputsBSM.lambda = lambda;
-    inputsSS.y = BoxCox(inputsSS.y, inputsBSM.lambda);
-    // Building model
-    BSMclass sysBSM = BSMclass(inputsSS, inputsBSM);
-    // Commands
-    SSinputs inputs;
-    BSMmodel inputs2;
-    if (command == "forecastOnly"){
-        // Reuse a previously-estimated parameter vector instead of running
-        // the optimiser. userParams was stashed above before the sentinel
-        // p0 was substituted for the constructor.
-        sysBSM.setEstimatedParams(userParams);
-    } else {
-        sysBSM.estim(inputsSS.verbose);
-    }
-    sysBSM.forecast();
-    sysBSM.parLabels();
-    // Missing at beginning
-    if (iniObs > 0){
-        inputs = sysBSM.SSmodel::getInputs();
-        inputs2 = sysBSM.getInputs();
-        inputs.y = inputsSS.y;
-        inputs.u = u;
-        sysBSM.SSmodel::setInputs(inputs);
-        sysBSM.setInputs(inputs2);
-    }
-    inputs = sysBSM.SSmodel::getInputs();
-    inputs2 = sysBSM.getInputs();
-    if (inputs2.cycle[0] != 'n' && inputs2.cycle != "?"){
-        string model1 = inputs2.model, cycle = inputs2.cycle, cycle0 = inputs2.cycle0;
-        vec periods = inputs2.periods, rhos = inputs2.rhos;
-        modelCorrect(model, cycle, inputsBSM.cycle0, periods, rhos);
-        inputs2.model= model1, inputs2.cycle= cycle, inputs2.cycle0= cycle0;
-        inputs2.periods = periods, inputs2.rhos = rhos;
-        sysBSM.setInputs(inputs2);
-    }
-    // Values to return
-    inputs = sysBSM.SSmodel::getInputs();
-    inputs2 = sysBSM.getInputs();
-    if (!inputs2.succeed) {
-        return List::create(Named("model") = "error");
-    }
-    // Converting back to R
-    List output = List::create(Named("model") = inputs2.model,
-                               Named("yFor") = inputs.yFor,
-                               Named("h") = inputs.h,
-                               Named("yForV") = inputs.FFor,
-                               Named("estimOk") = inputs.estimOk,
-                               Named("lambda") = inputs2.lambda,
-                               Named("periods") = inputs2.periods,
-                               Named("rhos") = inputs2.rhos,
-                               Named("p") = inputs.p,
-                               Named("p0") = inputs2.p0Return,
-                               Named("parNames") = inputs2.parNames,
-                               Named("ns") = sum(inputs2.ns),
-                               Named("criteria") = inputs.criteria);
-    if (command == "validate" || command == "all") {
-        sysBSM.validate(false);
-        // Values to return
-        inputs = sysBSM.SSmodel::getInputs();
-        inputs2 = sysBSM.getInputs();
-        output("table") = inputs.table;
-        output("v") = inputs.v;
-        output("covp") = inputs.covp;
-        output("coef") = inputs.coef;
-    }
-    if (command == "filter" || command == "smooth" || command == "disturb" || command == "all"){
-        if (command != "all")
-            sysBSM.validate(false);
-        if (command == "filter"){
-            sysBSM.filter();
-        } else if (command == "smooth") {
-            sysBSM.smooth(false);
-        } else if (command == "disturb") {
-            sysBSM.disturb();
-        }
-        inputs = sysBSM.SSmodel::getInputs();
-        inputs2 = sysBSM.getInputs();
-        string statesN = stateNames(inputs2);
-        if (command == "disturb"){
-            uvec missing = find_nonfinite(inputs.y);
-            inputs.eta.cols(missing).fill(datum::nan);
-            inputs2.eps(missing).fill(datum::nan);
-        }
-        // Nans at very beginning
-        if (iniObs > 0 && command != "disturb"){
-            uvec missing = find_nonfinite(inputs.y.rows(0, iniObs));
-            mat P = inputs.P.cols(0, iniObs);
-            sysBSM.interpolate(iniObs);
-            if (command == "filter"){
-                sysBSM.filter();
-            } else if (command == "smooth"){
-                sysBSM.smooth(false);
-            }
-            inputs = sysBSM.SSmodel::getInputs();
-            inputs.P.cols(0, iniObs) = P;
-            inputs.v(missing).fill(datum::nan);
-        }
-        output("a") = inputs.a;
-        output("P") = inputs.P;
-        output("v") = inputs.v;
-        output("ns") = sum(inputs2.ns);
-        output("yFitV") = inputs.F;
-        output("yFit") = inputs.yFit;
-        output("eps") = inputs2.eps;
-        output("eta") = inputs.eta;
-        output("stateNames") = statesN;
-    }
-    if (command == "components" || command == "all"){
-        sysBSM.components();
-        inputs2 = sysBSM.getInputs();
-        string compNames = inputs2.compNames;
-        // Nans at very beginning
-        if (iniObs > 0){
-            inputs = sysBSM.SSmodel::getInputs();
-            uvec missing = find_nonfinite(inputs.y.rows(0, iniObs));
-            mat P = inputs2.compV.cols(0, iniObs);
-            sysBSM.interpolate(iniObs);
-            sysBSM.components();
-            inputs2 = sysBSM.getInputs();
-            inputs2.compV.cols(0, iniObs) = P;
-            // Setting irregular to nan
-            uvec rowI(1); rowI(0) = 0;
-            if (compNames.find("Level") != string::npos)
-                rowI++;
-            if (compNames.find("Slope") != string::npos)
-                rowI++;
-            if (compNames.find("Seasonal") != string::npos)
-                rowI++;
-            if (compNames.find("Irr") != string::npos ||
-                compNames.find("ARMA") != string::npos)
-                inputs2.comp.submat(rowI, missing).fill(datum::nan);
-        }
-        // Converting back to R
-        output("comp") = inputs2.comp;
-        output("compV") = inputs2.compV;
-        output("m") = inputs2.comp.n_rows;
-        output("compNames") = compNames;
+    if (out.hasComponents){
+        output("comp")      = out.comp;
+        output("compV")     = out.compV;
+        output("m")         = out.m;
+        output("compNames") = out.compNames;
     }
     return output;
 }
