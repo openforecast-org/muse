@@ -1318,6 +1318,19 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
         inputs.arma = inputsArma;
 }
 // Identification
+// ident: choose a UC model when one or more of trend/cycle/seasonal/
+// irregular were left as "?".  ~344 lines.  Outline:
+//
+//   1. Setup / copy inputs, suppress outliers during identification.
+//   2. Trend ADF test (when stepwise + tTest are on).
+//   3. Seasonal / harmonics selection.
+//   4. Verbose header (only printed when show=="head"|"both").
+//   5. Build the candidate model list (runAll vs stepwise branches).
+//   6. estimUCs(...) -> picks the best of the candidates.
+//   7. Outlier re-estimation pass (if outlier detection was requested).
+//
+// A future split would lift sections 2-3 into stepwiseChecks(),
+// section 5 into buildCandidates(), and section 7 into rerunWithOutliers().
 void BSMclass::ident(string show, bool VERBOSE){
         bool verboseCopy = SSmodel::inputs.verbose;
         SSmodel::inputs.verbose = VERBOSE;
@@ -1663,6 +1676,20 @@ void BSMclass::ident(string show, bool VERBOSE){
         SSmodel::inputs.verbose = verboseCopy;
 }
 // Outlier detection a la Harvey and Koopman
+// estimOutlier: identify additive outliers / level shifts / slope changes
+// and re-estimate after each one is inserted.  ~223 lines.  Outline:
+//
+//   1. Setup: starting params, save originals.
+//   2. Run a baseline estim() with no outliers as the reference fit.
+//   3. Iterative detection loop:
+//        a. Standardise innovations, find peaks above the threshold.
+//        b. For each peak, fit AO / LS / SC dummy and pick the best type.
+//        c. Insert the chosen dummy into u, re-estimate, update criteria.
+//        d. Stop when no peak survives the threshold.
+//   4. Final clean-up (sort outliers, restore verbose, etc.).
+//
+// Natural extraction points: detectOutliers() for the peak-finding pass
+// and applyOutlier() for the per-peak fit-and-insert step.
 void BSMclass::estimOutlier(vec p0, bool VERBOSE){
         bool verboseCopy = SSmodel::inputs.verbose;
         mat uCopy = SSmodel::inputs.u;
@@ -2247,7 +2274,23 @@ void BSMclass::parLabels(){
                 inputs.parNames.push_back("Const");
         }
 }
-// Validation of BSM models
+// validate: build the printable parameter / diagnostics table on a fitted
+// model and stash it in SSmodel::inputs.table.  ~169 lines.  Outline:
+//
+//   1. Run SSmodel::validate() (computes residual statistics) and parCov()
+//      (parameter covariance from the Hessian).
+//   2. Compute p / stdP, joining the BSM params with the betas if there
+//      are external regressors.
+//   3. Insert the table header (model spec, Box-Cox lambda, periods,
+//      footnote markers for concentrated/constrained parameters).
+//   4. Compute t-stats, p-values, gradient column; mark constrained rows
+//      with stars / suppress invalid stats.
+//   5. Emit one formatted row per parameter into SSmodel::inputs.table.
+//   6. Store the final coefficient vector in SSmodel::inputs.coef.
+//   7. Optionally print the whole table.
+//
+// Section 5 (the format loop) is the largest, ~70 lines, and is the most
+// obvious candidate for extraction into writeParamRows(...).
 void BSMclass::validate(bool showTable){
         // SSpace validate
         SSmodel::validate(false, sum(inputs.nPar));
@@ -2473,9 +2516,29 @@ void BSMclass::disturb(){
                 SSmodel::inputs.eta = SSmodel::inputs.eta.rows(arma::span(0, inputs.ns(0) - 1));
         }
 }
-// Gauss-Newton Minimum searcher
-// First with numerical gradient function and second with
-//                gradient supplied by user
+// quasiNewtonBSM: BFGS-style optimiser with concentrated-likelihood
+// support and adaptive switching of the concentrated-out parameter.
+// ~241 lines.  Outline:
+//
+//   1. Initial setup: detect cLlik, zero the concentrated position, do an
+//      initial objFun / gradFun evaluation at xNew.
+//   2. Main BFGS loop:
+//        a. Compute search direction d = -iHess * grad (mask constrained
+//           positions).
+//        b. Line search with backtracking + Armijo.
+//        c. Translate xNew between concentrated and "true-variance" space
+//           when cLlik is active (the xUncon rescaling at line 2550-ish).
+//        d. Detect zero variances; mark them in constPar.
+//        e. Switch the concentrated-out parameter if a different variance
+//           now dominates (the largestVar check).
+//        f. Re-evaluate the gradient at the new x.
+//        g. BFGS Hessian update.
+//        h. Convergence / nan-handling / new-try restart.
+//   3. Store flag, iter, pTransform on SSmodel::inputs.
+//
+// Section 2c (xUncon transformation) and 2e (concentrated-param swap) are
+// the two pieces most worth extracting into helpers; both have clear
+// mathematical contracts.
 int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> objFun,
                              std::function <vec (vec& x, void* inputsFake, double obj, int& nFuns)> gradFun,
                              vec& xNew, void* inputsFake, double& objNew, vec& gradNew, mat& iHess,
@@ -2929,7 +2992,32 @@ void BSMclass::initMatricesBsm(vec periods, vec rhos, string trend, string cycle
         }
 }
 // Initializing parameters of BSM model
+// initParBsm: build the initial parameter vector (SSmodel::inputs.p0) and
+// the parameter-type tags (inputs.typePar) that the optimiser needs.
+//
+// The function is long (~785 lines) because it covers every model family
+// in one place; the section markers below group code by what kind of
+// parameter is being initialised:
+//
+//   1. Bookkeeping        - detect whether the user supplied p0, size the
+//                           vector, reset typePar.
+//   2. Trend params       - RW / LLT / DT / IRW / drift initial values.
+//   3. Cycle params       - rhos, periods, variances.
+//   4. ARMA params        - initial conditions + invertibility / stationarity
+//                           guards if the user supplied them.
+//   5. Inputs / TVP       - external regressor and time-varying-parameter
+//                           starting values.
+//   6. Pure-ARMA const    - constant term for pureARMA models.
+//   7. Concentrated var   - pick which variance is concentrated out.
+//   8. User-p0 conversion - if the user supplied natural-scale values,
+//                           transform them into the optimiser's space.
+//
+// Extracting these sections into separate methods is a desirable future
+// refactor but is non-trivial because they thread shared local state
+// (p0, aux, aux1, periods, ...) and a covariance-style integration test
+// would be needed first.
 void BSMclass::initParBsm(){
+        // ---- Section 1: bookkeeping ----------------------------------
         int nTrue = sum(inputs.nPar);
         bool userP0 = true;
         uvec indNaN = find_nonfinite(SSmodel::inputs.p0);
@@ -2940,7 +3028,7 @@ void BSMclass::initParBsm(){
         uvec aux, aux1;
         vec p0 = SSmodel::inputs.p0;
         inputs.typePar = zeros(nTrue);
-        // Trends
+        // ---- Section 2: trend params ---------------------------------
         SSmodel::inputs.p0.fill(-1.15);
         if (inputs.nPar(0) == 3){           // DT trend
                 SSmodel::inputs.p0(0) = 2;                 // alpha
@@ -2954,7 +3042,7 @@ void BSMclass::initParBsm(){
                 else
                         SSmodel::inputs.p0(0) = -1.5;              // slope
         }
-        // Cycles
+        // ---- Section 3: cycle params (rhos, periods, variances) -----
         if (inputs.nPar(1) > 0){
                 // Cycle inputs.rhos
                 int nRhos = sum(inputs.rhos < 0), pos;
@@ -2975,7 +3063,7 @@ void BSMclass::initParBsm(){
                 pos += nRhos;
                 aux = regspace<uvec>(pos, 1, inputs.nPar(0) + inputs.nPar(1) - 1);
         }
-        // ARMA models
+        // ---- Section 4: ARMA params (incl. invertibility checks) ----
         vec periods = inputs.periods(find(inputs.rhos > 0));
         if (periods.n_rows == 0){
                 aux = 0.0;
@@ -3055,7 +3143,7 @@ void BSMclass::initParBsm(){
                         SSmodel::inputs.p0(aux) = beta0aux;
                 }
         }
-        // inputs
+        // ---- Section 5: inputs / TVP starting values -----------------
         int nu = SSmodel::inputs.u.n_rows;
         if (sum(inputs.TVP) > 0){
             //////////**************
@@ -3069,14 +3157,14 @@ void BSMclass::initParBsm(){
                 SSmodel::inputs.system.D = SSmodel::inputs.betaAug.rows(ns - nu, ns - 1);
             }
         }
-        // Pure ARMA
+        // ---- Section 6: pure-ARMA constant term ----------------------
         if (inputs.pureARMA){
             // setting value for constant
             SSmodel::inputs.system.D = nanMean(SSmodel::inputs.y);
             SSmodel::inputs.p0(nTrue - 1) = SSmodel::inputs.system.D(0, 0);
             inputs.typePar(nTrue - 1) = 5;
         }
-        // Choosing initial concentrated variance
+        // ---- Section 7: choose concentrated-out variance ------------
         inputs.constPar = zeros(nTrue);
         if (SSmodel::inputs.cLlik){
                 if (inputs.nPar(3) > 0){         // arma(0,0) or arma(p,q)
@@ -3087,7 +3175,7 @@ void BSMclass::initParBsm(){
                 }
                 SSmodel::inputs.p0(find(inputs.constPar)).fill(0);
         }
-        // User supplied initial values (NA)
+        // ---- Section 8: convert user-supplied natural-scale p0 ------
         if (userP0){
                 // type of parameter (0: variance;
                 //        -1: damped of trend;
