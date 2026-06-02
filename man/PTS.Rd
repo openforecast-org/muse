@@ -4,8 +4,8 @@
 \alias{PTS}
 \title{PTS}
 \usage{
-PTS(y, u = NULL, model = "ZZZ", h = 12, criterion = "aic",
-  armaIdent = FALSE, verbose = FALSE)
+PTS(y, u = NULL, model = "ZZZ", s = frequency(y), h = 12,
+  criterion = "aic", armaIdent = FALSE, verbose = FALSE)
 }
 \arguments{
 \item{y}{a time series to forecast (it may be either a numerical vector or
@@ -25,6 +25,8 @@ model for each component with one or two letters:
 \item Seasonal: z / None / Discrete / Trigonommetric
 
 }}
+
+\item{s}{seasonal period of time series (1 for annual, 4 for quarterly, ...)}
 
 \item{h}{forecast horizon. If the model includes inputs h is not used, the lenght of u is used instead.}
 

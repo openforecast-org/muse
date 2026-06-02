@@ -95,7 +95,7 @@ void pacfToAr(vec& PAR){
   vec par0 = PAR;
   for (unsigned int i = 0; i < PAR.n_elem - 1; i++){
     PAR(i + 1) = par0(i + 1);
-    PAR(span(0, i)) = (PAR(span(0, i)) - PAR(i + 1) * flipud(PAR(span(0, i))));
+    PAR.rows(0, i) = (PAR.rows(0, i) - PAR(i + 1) * flipud(PAR.rows(0, i)));
   }
 }
 // Returns the PACF from the parameters of an AR model
@@ -106,7 +106,7 @@ void arToPacf(vec& PAR){
   int j;
   for (int i = PAR.n_elem - 1; i > 0; i--){
     j = i - 1;
-    PAR(span(0, j)) = (PAR(span(0, j)) + PAR(i) * flipud(PAR(span(0, j))))
+    PAR.rows(0, j) = (PAR.rows(0, j) + PAR(i) * flipud(PAR.rows(0, j)))
       / (1 - PAR(i) * PAR(i));
   }
 }
@@ -149,20 +149,20 @@ void armaMatrices(vec p, SSmatrix* model, void* userInputs){
   vec ARpoly, MApoly; //, aux, uno(1);
   // AR and MA stationary polys
   if (inp->ar > 0){
-    ARpoly = p(span(1, inp->ar));
+    ARpoly = p.rows(1, inp->ar);
     polyStationary(ARpoly);
   }
   if (inp->ma > 0){
-    MApoly = p(span(inp->ar + 1, inp->ar + inp->ma));
+    MApoly = p.rows(inp->ar + 1, inp->ar + inp->ma);
     polyStationary(MApoly);
   }
   // SS matrices
   model->Q(0, 0) = exp(2 * p(0));
   if (inp->ma > 0){
-    model->R(span(1, inp->ma), 0) = MApoly;
+    model->R.submat(1, 0, inp->ma, 0) = MApoly;
   }
   if (inp->ar > 0)
-    model->T(span(0, inp->ar - 1), 0) = -ARpoly;
+    model->T.submat(0, 0, inp->ar - 1, 0) = -ARpoly;
 }
 // Filling changing matrices with true parameters
 void armaMatricesTrue(vec p, SSmatrix* model, void* userInputs){
@@ -170,18 +170,18 @@ void armaMatricesTrue(vec p, SSmatrix* model, void* userInputs){
   vec ARpoly, MApoly; //, aux, uno(1);
   // AR and MA stationary polys
   if (inp->ar > 0){
-    ARpoly = p(span(1, inp->ar));
+    ARpoly = p.rows(1, inp->ar);
     //polyStationary(ARpoly);
   }
   if (inp->ma > 0){
-    MApoly = p(span(inp->ar + 1, inp->ar + inp->ma));
+    MApoly = p.rows(inp->ar + 1, inp->ar + inp->ma);
     //polyStationary(MApoly);
   }
   // SS matrices
   model->Q(0, 0) = p(0);
   if (inp->ma > 0){
-    model->R(span(1, inp->ma), 0) = MApoly;
+    model->R.submat(1, 0, inp->ma, 0) = MApoly;
   }
   if (inp->ar > 0)
-    model->T(span(0, inp->ar - 1), 0) = -ARpoly;
+    model->T.submat(0, 0, inp->ar - 1, 0) = -ARpoly;
 }

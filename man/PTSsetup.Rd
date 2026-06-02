@@ -4,7 +4,7 @@
 \alias{PTSsetup}
 \title{PTSsetup}
 \usage{
-PTSsetup(y, u = NULL, model = "ZZZ", s = NULL, lambda = NULL, h = 12,
+PTSsetup(y, u = NULL, model = "ZZZ", s = frequency(y), h = 12,
   criterion = "aic", armaIdent = FALSE, verbose = FALSE)
 }
 \arguments{
@@ -28,8 +28,6 @@ model for each component with one or two letters:
 
 \item{s}{seasonal period of time series (1 for annual, 4 for quarterly, ...)}
 
-\item{lambda}{Box-Cox lambda parameter (NULL: estimate)}
-
 \item{h}{forecast horizon. If the model includes inputs h is not used, the lenght of u is used instead.}
 
 \item{criterion}{information criterion for identification ("aic", "bic" or "aicc").}
@@ -37,6 +35,8 @@ model for each component with one or two letters:
 \item{armaIdent}{check for arma models for error component (TRUE / FALSE).}
 
 \item{verbose}{intermediate estimation output (TRUE / FALSE)}
+
+\item{lambda}{Box-Cox lambda parameter (NULL: estimate)}
 }
 \value{
 An object of class \code{PTS}. It is a list with fields including all the inputs and

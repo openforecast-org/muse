@@ -5,11 +5,7 @@ ctllSim <- function(states, noiseEta, noiseEpsilon, logValue) {
     .Call('_muse_ctllSim', PACKAGE = 'muse', states, noiseEta, noiseEpsilon, logValue)
 }
 
-MSOEc <- function(commands, ys, us, models, periodss, rhoss, hs, tTests, criterions, ps, rubbish2s, rubbishs, verboses, stepwises, estimOks, p0s, vs, yFitVs, nonStationaryTermss, rubbish3s, harmonicss, criterias, cycleLimitss, betass, typeOutlierss, TVPs, trendOptionss, seasonalOptionss, irregularOptionss) {
-    .Call('_muse_MSOEc', PACKAGE = 'muse', commands, ys, us, models, periodss, rhoss, hs, tTests, criterions, ps, rubbish2s, rubbishs, verboses, stepwises, estimOks, p0s, vs, yFitVs, nonStationaryTermss, rubbish3s, harmonicss, criterias, cycleLimitss, betass, typeOutlierss, TVPs, trendOptionss, seasonalOptionss, irregularOptionss)
-}
-
-INTLEVELc <- function(command, y, us, h, obsEq, verbose, p0s, logTransform) {
-    .Call('_muse_INTLEVELc', PACKAGE = 'muse', command, y, us, h, obsEq, verbose, p0s, logTransform)
+UCompC <- function(commands, ys, us, models, hs, lambdas, outliers, tTests, criterions, periodss, rhoss, verboses, stepwises, p0s, armas, TVPs, seass, trendOptionss, seasonalOptionss, irregularOptionss) {
+    .Call('_muse_UCompC', PACKAGE = 'muse', commands, ys, us, models, hs, lambdas, outliers, tTests, criterions, periodss, rhoss, verboses, stepwises, p0s, armas, TVPs, seass, trendOptionss, seasonalOptionss, irregularOptionss)
 }
 

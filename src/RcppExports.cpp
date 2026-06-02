@@ -25,9 +25,9 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// MSOEc
-SEXP MSOEc(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP periodss, SEXP rhoss, SEXP hs, SEXP tTests, SEXP criterions, SEXP ps, SEXP rubbish2s, SEXP rubbishs, SEXP verboses, SEXP stepwises, SEXP estimOks, SEXP p0s, SEXP vs, SEXP yFitVs, SEXP nonStationaryTermss, SEXP rubbish3s, SEXP harmonicss, SEXP criterias, SEXP cycleLimitss, SEXP betass, SEXP typeOutlierss, SEXP TVPs, SEXP trendOptionss, SEXP seasonalOptionss, SEXP irregularOptionss);
-RcppExport SEXP _muse_MSOEc(SEXP commandsSEXP, SEXP ysSEXP, SEXP usSEXP, SEXP modelsSEXP, SEXP periodssSEXP, SEXP rhossSEXP, SEXP hsSEXP, SEXP tTestsSEXP, SEXP criterionsSEXP, SEXP psSEXP, SEXP rubbish2sSEXP, SEXP rubbishsSEXP, SEXP verbosesSEXP, SEXP stepwisesSEXP, SEXP estimOksSEXP, SEXP p0sSEXP, SEXP vsSEXP, SEXP yFitVsSEXP, SEXP nonStationaryTermssSEXP, SEXP rubbish3sSEXP, SEXP harmonicssSEXP, SEXP criteriasSEXP, SEXP cycleLimitssSEXP, SEXP betassSEXP, SEXP typeOutlierssSEXP, SEXP TVPsSEXP, SEXP trendOptionssSEXP, SEXP seasonalOptionssSEXP, SEXP irregularOptionssSEXP) {
+// UCompC
+SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas, SEXP outliers, SEXP tTests, SEXP criterions, SEXP periodss, SEXP rhoss, SEXP verboses, SEXP stepwises, SEXP p0s, SEXP armas, SEXP TVPs, SEXP seass, SEXP trendOptionss, SEXP seasonalOptionss, SEXP irregularOptionss);
+RcppExport SEXP _muse_UCompC(SEXP commandsSEXP, SEXP ysSEXP, SEXP usSEXP, SEXP modelsSEXP, SEXP hsSEXP, SEXP lambdasSEXP, SEXP outliersSEXP, SEXP tTestsSEXP, SEXP criterionsSEXP, SEXP periodssSEXP, SEXP rhossSEXP, SEXP verbosesSEXP, SEXP stepwisesSEXP, SEXP p0sSEXP, SEXP armasSEXP, SEXP TVPsSEXP, SEXP seassSEXP, SEXP trendOptionssSEXP, SEXP seasonalOptionssSEXP, SEXP irregularOptionssSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -35,58 +35,30 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< SEXP >::type ys(ysSEXP);
     Rcpp::traits::input_parameter< SEXP >::type us(usSEXP);
     Rcpp::traits::input_parameter< SEXP >::type models(modelsSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type periodss(periodssSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type rhoss(rhossSEXP);
     Rcpp::traits::input_parameter< SEXP >::type hs(hsSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type lambdas(lambdasSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type outliers(outliersSEXP);
     Rcpp::traits::input_parameter< SEXP >::type tTests(tTestsSEXP);
     Rcpp::traits::input_parameter< SEXP >::type criterions(criterionsSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type ps(psSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type rubbish2s(rubbish2sSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type rubbishs(rubbishsSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type periodss(periodssSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type rhoss(rhossSEXP);
     Rcpp::traits::input_parameter< SEXP >::type verboses(verbosesSEXP);
     Rcpp::traits::input_parameter< SEXP >::type stepwises(stepwisesSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type estimOks(estimOksSEXP);
     Rcpp::traits::input_parameter< SEXP >::type p0s(p0sSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type vs(vsSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type yFitVs(yFitVsSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type nonStationaryTermss(nonStationaryTermssSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type rubbish3s(rubbish3sSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type harmonicss(harmonicssSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type criterias(criteriasSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type cycleLimitss(cycleLimitssSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type betass(betassSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type typeOutlierss(typeOutlierssSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type armas(armasSEXP);
     Rcpp::traits::input_parameter< SEXP >::type TVPs(TVPsSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type seass(seassSEXP);
     Rcpp::traits::input_parameter< SEXP >::type trendOptionss(trendOptionssSEXP);
     Rcpp::traits::input_parameter< SEXP >::type seasonalOptionss(seasonalOptionssSEXP);
     Rcpp::traits::input_parameter< SEXP >::type irregularOptionss(irregularOptionssSEXP);
-    rcpp_result_gen = Rcpp::wrap(MSOEc(commands, ys, us, models, periodss, rhoss, hs, tTests, criterions, ps, rubbish2s, rubbishs, verboses, stepwises, estimOks, p0s, vs, yFitVs, nonStationaryTermss, rubbish3s, harmonicss, criterias, cycleLimitss, betass, typeOutlierss, TVPs, trendOptionss, seasonalOptionss, irregularOptionss));
-    return rcpp_result_gen;
-END_RCPP
-}
-// INTLEVELc
-SEXP INTLEVELc(char command, arma::vec y, SEXP us, int h, std::string obsEq, bool verbose, SEXP p0s, bool logTransform);
-RcppExport SEXP _muse_INTLEVELc(SEXP commandSEXP, SEXP ySEXP, SEXP usSEXP, SEXP hSEXP, SEXP obsEqSEXP, SEXP verboseSEXP, SEXP p0sSEXP, SEXP logTransformSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< char >::type command(commandSEXP);
-    Rcpp::traits::input_parameter< arma::vec >::type y(ySEXP);
-    Rcpp::traits::input_parameter< SEXP >::type us(usSEXP);
-    Rcpp::traits::input_parameter< int >::type h(hSEXP);
-    Rcpp::traits::input_parameter< std::string >::type obsEq(obsEqSEXP);
-    Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type p0s(p0sSEXP);
-    Rcpp::traits::input_parameter< bool >::type logTransform(logTransformSEXP);
-    rcpp_result_gen = Rcpp::wrap(INTLEVELc(command, y, us, h, obsEq, verbose, p0s, logTransform));
+    rcpp_result_gen = Rcpp::wrap(UCompC(commands, ys, us, models, hs, lambdas, outliers, tTests, criterions, periodss, rhoss, verboses, stepwises, p0s, armas, TVPs, seass, trendOptionss, seasonalOptionss, irregularOptionss));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
     {"_muse_ctllSim", (DL_FUNC) &_muse_ctllSim, 4},
-    {"_muse_MSOEc", (DL_FUNC) &_muse_MSOEc, 29},
-    {"_muse_INTLEVELc", (DL_FUNC) &_muse_INTLEVELc, 8},
+    {"_muse_UCompC", (DL_FUNC) &_muse_UCompC, 20},
     {NULL, NULL, 0}
 };
 

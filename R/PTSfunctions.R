@@ -136,7 +136,31 @@ PTSsetup <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion
 #' @export
 PTSforecast <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
     m = PTSsetup(y, u, model, s, h, criterion, armaIdent, verbose)
-    m = PTSestim(m)
+    # modelUC = PTS2modelUC(m$model, m$armaOrders)
+    periods = m$s / (1 : floor(m$s / 2))
+    # mUC = MSOEmodel(m$y, m$u, m$modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
+    #                 periods, m$verbose, FALSE, -9999.9, m$armaIdent, NULL,
+    #                 "rw/llt/srw/td", "none/linear/equal",
+    #                 "arma(0,0)")
+    if (frequency(y) == 1)
+        m$lambda = 1
+    mUC = MSOEsetup(m$y, m$u, m$modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
+                    periods, m$verbose, FALSE, -9999.9, m$armaIdent, NULL,
+                    "rw/llt/srw/td", "none/linear/equal",
+                    "none/arma(0,0)")
+    mUC$hidden$MSOE = FALSE
+    mUC$hidden$PTSnames = TRUE
+    mUC = MSOEestim(mUC)
+    if (mUC$model == "error")
+        return(m)
+    m$armaOrders = modelUC2arma(mUC$model)
+    m$model = modelUC2PTS(mUC$model, mUC$lambda)
+    m$p0 = mUC$p0
+    m$lambda = mUC$lambda
+    m$yFor = mUC$yFor
+    m$yForV = mUC$yForV
+    m$p = mUC$p
+    m$modelUC = mUC
     return(m)
 }
 #' @title PTS
@@ -187,126 +211,53 @@ PTSforecast <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criter
 #' @rdname PTS
 #' @export
 PTS <- function(y, u = NULL, model="ZZZ", s=frequency(y), h = 12, criterion = "aic", armaIdent = FALSE, verbose = FALSE){
-        m = PTSsetup(y, u, model, s, h, criterion, armaIdent, verbose)
-        m = PTSestim(m)
-        m = PTSvalidate(m, verbose)
-        m = PTScomponents(m)
+    m = PTSsetup(y, u, model, s, h, criterion, armaIdent, verbose)
+    # modelUC = PTS2modelUC(m$model, m$armaOrders)
+    periods = m$s / (1 : floor(m$s / 2))
+    # mUC = MSOEmodel(m$y, m$u, m$modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
+    #                 periods, m$verbose, FALSE, -9999.9, m$armaIdent, NULL,
+    #                 "rw/llt/srw/td", "none/linear/equal",
+    #                 "arma(0,0)")
+    mUC = MSOEsetup(m$y, m$u, m$modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
+                    periods, m$verbose, FALSE, -9999.9, m$armaIdent, NULL,
+                    "rw/llt/srw/td", "none/linear/equal",
+                    "arma(0,0)")
+    mUC$hidden$MSOE = FALSE
+    mUC$hidden$PTSnames = TRUE
+    mUC = MSOE(mUC)
+    if (mUC$model == "error")
         return(m)
+    m$armaOrders = modelUC2arma(mUC$model)
+    m$model = modelUC2PTS(mUC$model, mUC$lambda)
+    m$p0 = mUC$p0
+    m$lambda = mUC$lambda
+    m$yFor = mUC$yFor
+    m$yForV = mUC$yForV
+    m$p = mUC$p
+    m$modelUC = mUC
+    # validation
+    # m$verbose = FALSE
+    # verbose = FALSE
+    # m$modelUC = MSOEvalidate(m$modelUC, verbose)
+    m$table = m$modelUC$table
+    m$v = m$modelUC$v
+    if (m$verbose)
+        cat(m$table)
+    # components
+    # m$modelUC = MSOEcomponents(m$modelUC)
+    names = colnames(m$modelUC$comp)
+    nComp = length(names)
+    ind = c(1, which(names == "Seasonal"), which(names == "Slope"))
+    pos = max(ind) + any(names == "Irregular")
+    if (pos > length(names)){
+        ind = c(ind, (pos + 1) : length(names))
+    }
+    m$comp = cbind(m$modelUC$v, m$modelUC$comp[, 1], m$modelUC$comp[, ind])
+    m$comp[, 2] = rowSums(m$comp[, 3 : ncol(m$comp)])
+    colnames(m$comp) = c("Error", "Fit", names[ind])
+    return(m)
 }
-#' @title PTSestim
-#' @description Estimates and forecasts PTS models
-#'
-#' @details \code{PTSestim} estimates and forecasts a time series using an
-#' a PTS model
-#'
-#' @param m an object of type \code{PTS} created with \code{PTSmodel}
-#'
-#' @return The same input object with the appropriate fields
-#' filled in, in particular:
-#' \itemize{
-#' \item p0:       Initial values for parameter search
-#' \item p:        Estimated parameters
-#' \item lambda:   Estimated Box-Cox lambda parameter
-#' \item v:        Estimated innovations (white noise in correctly specified models)
-#' \item yFor:     Forecasted values of output
-#' \item yForV:    Variance of forecasted values of output
-#' }
-#'
-#' @template authors
-#'
-#' @seealso \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSvalidate}},
-#'          \code{\link{PTScomponents}}, \code{\link{PTS}}
-#'
-#' @examples
-#' m1 <- PTSsetup(log(AirPassengers))
-#' m1 <- PTSestim(m1)
-#' @rdname PTSestim
-#' @export
-PTSestim <- function(m){
-        # modelUC = PTS2modelUC(m$model, m$armaOrders)
-        periods = m$s / (1 : floor(m$s / 2))
-        mUC = MSOEsetup(m$y, m$u, m$modelUC, m$h, m$lambda, 0, FALSE, m$criterion,
-                      periods, m$verbose, FALSE, -9999.9, m$armaIdent, NULL,
-                      "rw/llt/srw/td", "none/linear/equal",
-                      "arma(0,0)")
-        mUC$hidden$MSOE = TRUE
-        mUC$hidden$PTSnames = TRUE
-        mUC = MSOEestim(mUC)
-        if (mUC$model == "error")
-                return(m)
-        m$armaOrders = modelUC2arma(mUC$model)
-        m$model = modelUC2PTS(mUC$model, mUC$lambda)
-        m$p0 = mUC$p0
-        m$lambda = mUC$lambda
-        m$yFor = mUC$yFor
-        m$yForV = mUC$yForV
-        m$p = mUC$p
-        m$modelUC = mUC
-        return(m)
-}
-#' @title PTSvalidate
-#' @description Shows a table of estimation and diagnostics results for PTS models
-#'
-#' @param m an object of type \code{PTS} created with \code{PTSmodel}
-#' @param verbose verbose mode TRUE/FALSE
-#'
-#' @return The same input object with the appropriate fields
-#' filled in, in particular:
-#' \itemize{
-#' \item table: Estimation and validation table
-#' }
-#'
-#' @template authors
-#'
-#' @seealso \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSestim}},
-#'          \code{\link{PTScomponents}}, \code{\link{PTS}}
-#'
-#' @examples
-#' # m1 <- PTSmodel(log(AirPassengers))
-#' # m1 <- PTSvalidate(m1)
-#' @rdname PTSvalidate
-#' @export
-PTSvalidate <- function(m, verbose = TRUE){
-        m$modelUC = MSOEvalidate(m$modelUC, verbose)
-        m$table = m$modelUC$table
-        m$v = m$modelUC$v
-        return(m)
-}
-#' @title PTScomponents
-#' @description Estimates components of PTS models
-#'
-#' @param m an object of type \code{PTS} created with \code{PTSmodel}
-#'
-#' @return The same input object with the appropriate fields
-#' filled in, in particular:
-#' \itemize{
-#' \item comp:  Estimated components in matrix form
-#' }
-#'
-#' @template authors
-#'
-#' @seealso \code{\link{PTSmodel}}, \code{\link{PTSsetup}}, \code{\link{PTSestim}},
-#'          \code{\link{PTSvalidate}}, \code{\link{PTS}}
-#'
-#' @examples
-#' # m1 <- PTS(log(AirPassengers))
-#' # m1 <- PTScomponents(m1)
-#' @rdname PTScomponents
-#' @export
-PTScomponents <- function(m){
-        m$modelUC = MSOEcomponents(m$modelUC)
-        names = colnames(m$modelUC$comp)
-        nComp = length(names)
-        ind = c(1, which(names == "Seasonal"), which(names == "Slope"))
-        pos = max(ind) + any(names == "Irregular")
-        if (pos > length(names)){
-                ind = c(ind, (pos + 1) : length(names))
-        }
-        m$comp = cbind(m$modelUC$v, m$modelUC$comp[, 1], m$modelUC$comp[, ind])
-        m$comp[, 2] = rowSums(m$comp[, 3 : ncol(m$comp)])
-        colnames(m$comp) = c("Error", "Fit", names[ind])
-        return(m)
-}
+
 #' @title modelUC2arma
 #' @description Extracts arma part of modelUC model
 #'
@@ -446,5 +397,3 @@ PTS2modelUC <- function(model, armaOrders = c(0, 0)){
                 stop("ERROR: incorrect power model!!")
         return(modelOut)
 }
-
-
