@@ -82,7 +82,19 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas,
     inputsBSM.trendOptions = trendOptions;
     inputsBSM.seasonalOptions = seasonalOptions;
     inputsBSM.irregularOptions = irregularOptions;
-    inputsSS.p0 = p0;
+    // For forecastOnly we want initParBsm() (called from setModel() in the
+    // BSMclass constructor) to take the default-init branch instead of trying
+    // to re-transform the user's natural-scale parameters: that path crashes
+    // when the irregular variance is < 1e-6 or chokes on zero variances.
+    // Stash the user params and feed the constructor a sentinel; the actual
+    // values get pushed in via sysBSM.setEstimatedParams(userParams) below.
+    vec userParams;
+    if (command == "forecastOnly"){
+        userParams = p0;
+        inputsSS.p0 = vec({-9999.9});
+    } else {
+        inputsSS.p0 = p0;
+    }
     inputsSS.outlier = outlier;
     inputsSS.verbose = verbose;
     inputsBSM.stepwise = stepwise;
@@ -98,7 +110,14 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas,
     // Commands
     SSinputs inputs;
     BSMmodel inputs2;
-    sysBSM.estim(inputsSS.verbose);
+    if (command == "forecastOnly"){
+        // Reuse a previously-estimated parameter vector instead of running
+        // the optimiser. userParams was stashed above before the sentinel
+        // p0 was substituted for the constructor.
+        sysBSM.setEstimatedParams(userParams);
+    } else {
+        sysBSM.estim(inputsSS.verbose);
+    }
     sysBSM.forecast();
     sysBSM.parLabels();
     // Missing at beginning

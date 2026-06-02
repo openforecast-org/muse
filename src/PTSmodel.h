@@ -109,6 +109,9 @@ public:
         //Estimation
         void estim(bool);
         void estim(vec, bool);
+        // Plug in a previously-estimated parameter vector and warm up the
+        // filter so forecast() can run without re-optimisation.
+        void setEstimatedParams(vec);
         // Identification
         void ident(string, bool);
         // Outlier detection
@@ -1166,6 +1169,39 @@ void BSMclass::estim(vec p, bool VERBOSE){
         SSmodel::inputs.v.reset();
         inputs.harmonics = regspace<uvec>(0, inputs.periods.n_elem - 1);
         SSmodel::inputs.verbose = verboseCopy;
+}
+// Forecast-only path: skip optimisation and run one Kalman pass with the
+// user-supplied (natural-scale) parameters so that aEnd / PEnd are
+// populated.  A subsequent forecast() then projects forward without
+// invoking the optimiser.
+//
+// We use bsmMatricesTrue (which takes absolute variances directly) and
+// disable cLlik, so that:
+//   * the system matrices are built in absolute scale;
+//   * innVariance stays at 1 (line 552 of SSpace.h);
+//   * forecast()'s  Pt = PEnd * 1  and  CHCt = H  are both in absolute
+//     scale and match what the normal estim()+forecast() path produces.
+//
+// The caller must pass p0 in the constructor as a no-op sentinel
+// (e.g. -9999.9) so that initParBsm() takes the default-init branch and
+// does not try to re-transform user values (which would crash on zero
+// variances or on irregular variances < 1e-6).  The actual user-supplied
+// parameters are then handed to this method.
+void BSMclass::setEstimatedParams(vec userParams){
+        SSmodel::inputs.userModel  = bsmMatricesTrue;
+        SSmodel::inputs.cLlik      = false;
+        SSmodel::inputs.userInputs = &inputs;
+        SSmodel::inputs.p   = userParams;
+        SSmodel::inputs.p0  = userParams;
+        if (SSmodel::inputs.augmented){
+                SSmodel::inputs.llikFUN = llikAug;
+        } else {
+                SSmodel::inputs.llikFUN = llik;
+        }
+        // One llik call: bsmMatricesTrue builds the system from p in
+        // absolute scale, KF populates aEnd / PEnd as a side effect.
+        SSmodel::inputs.llikFUN(SSmodel::inputs.p, &(SSmodel::inputs));
+        SSmodel::inputs.estimOk = "Q-Newton: Skipped (forecast-only).\n";
 }
 /*
  // Forecast
