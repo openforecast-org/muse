@@ -22,6 +22,7 @@ using namespace std;
 #include "optim.h"
 #include "stats.h"
 #include "boxcox.h"
+#include "bcnorm.h"
 #include "SSpace.h"
 #include "ARMAmodel.h"
 
@@ -1122,19 +1123,65 @@ void BSMclass::estim(vec p, bool VERBOSE){
                         nTrue = nNan2pi - 1 - SSmodel::inputs.system.T.n_rows;
                 }
         }
-        double LLIK, AIC, BIC, AICc;
+        double LLIK, AIC, BIC, AICc, BICc;
         // Exception when function is nan
         if (flag > 6){
                 objFunValue = datum::nan;
         }
-        LLIK = -0.5 * (log(2*datum::pi) * nNan2pi + nTrue * objFunValue);
-        infoCriteria(LLIK, p.n_elem - SSmodel::inputs.cLlik + SSmodel::inputs.u.n_rows + SSmodel::inputs.nonStationaryTerms,
-                     nNan2pi, AIC, BIC, AICc);
-        vec criteria(4);
+        // ----------------------------------------------------------------
+        // LLIK on the ORIGINAL response scale, replacing the previous
+        // hand-rolled Gaussian formula
+        //     LLIK_BC = -0.5 * (n*log(2*pi) + nTrue * objFunValue)
+        // which lived on the Box-Cox-transformed scale and therefore was
+        // not comparable across different lambdas.
+        //
+        // Two paths:
+        // (a) Standard KF (`SSmodel::inputs.v` populated, length = n):
+        //     evaluate bcnormLogDensity element-wise with
+        //       mu_BC = y_BC - v   (= one-step predictor Z * a_{t|t-1})
+        //       sigma = sqrt(innVariance)
+        //     and sum.  This matches greybox's dbcnorm-based likelihood
+        //     for distribution = "dbcnorm" (alm.R:641-643).
+        // (b) Augmented KF / xreg path (v is empty at this point):
+        //     keep the engine's exact concentrated KF likelihood on the
+        //     BC scale and add the Box-Cox Jacobian
+        //       (lambda - 1) * sum(log y_orig)
+        //     analytically.  Mathematically equivalent.
+        if (!std::isfinite(objFunValue)){
+                LLIK = datum::nan;
+        } else if (SSmodel::inputs.v.n_elem == SSmodel::inputs.y.n_elem){
+                vec y_orig   = invBoxCox(SSmodel::inputs.y, inputs.lambda);
+                vec mu_bc    = SSmodel::inputs.y - SSmodel::inputs.v;
+                double sigma = std::sqrt(SSmodel::inputs.innVariance);
+                vec ll_vec   = bcnormLogDensity(y_orig, mu_bc, sigma, inputs.lambda);
+                uvec finite  = find_finite(ll_vec);
+                LLIK = finite.n_elem > 0 ? accu(ll_vec.elem(finite)) : datum::nan;
+        } else {
+                double LLIK_BC = -0.5 * (log(2*datum::pi) * nNan2pi + nTrue * objFunValue);
+                double jac     = 0.0;
+                if (inputs.lambda <= 0.98){
+                        vec  y_orig = invBoxCox(SSmodel::inputs.y, inputs.lambda);
+                        uvec ok     = find(y_orig > 0);
+                        if (ok.n_elem > 0)
+                                jac = (inputs.lambda - 1.0) * accu(log(y_orig.elem(ok)));
+                }
+                LLIK = LLIK_BC + jac;
+        }
+        // k follows R's nparam(m) convention (matches adam / nparam.pts):
+        // count the optimised parameters not concentrated out (p.n_elem -
+        // cLlik) plus outlier dummies.  The previous "+ nonStationaryTerms"
+        // term -- the Harvey-style diffuse initial state DoF -- has been
+        // dropped so the engine's criteria(1..4) line up exactly with what
+        // stats::AIC / greybox::AICc / BICc report on the R side from the
+        // same LLIK.
+        infoCriteria(LLIK, p.n_elem - SSmodel::inputs.cLlik + SSmodel::inputs.u.n_rows,
+                     nNan2pi, AIC, BIC, AICc, BICc);
+        vec criteria(5);
         criteria(0) = LLIK;
         criteria(1) = AIC;
         criteria(2) = BIC;
         criteria(3) = AICc;
+        criteria(4) = BICc;
         SSmodel::inputs.criteria = criteria;
         if (flag == 1) {
                 SSmodel::inputs.estimOk = "Q-Newton: Gradient convergence\n";
@@ -1249,7 +1296,8 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
         double curCrit,
         AIC,
         BIC,
-        AICc;
+        AICc,
+        BICc;
         SSinputs bestSS = SSmodel::inputs;
         BSMmodel bestBSM = inputs;
         if (isnan(oldMinCrit)){
@@ -1284,20 +1332,21 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                 estim(SSmodel::inputs.verbose);
                 inputs.periods = PERIODS;
                 inputs.rhos = RHOS;
-                AIC = SSmodel::inputs.criteria(1);
-                BIC = SSmodel::inputs.criteria(2);
+                AIC  = SSmodel::inputs.criteria(1);
+                BIC  = SSmodel::inputs.criteria(2);
                 AICc = SSmodel::inputs.criteria(3);
+                BICc = SSmodel::inputs.criteria(4);
                 // Avoid selecting a model with problems
                 if (AIC == -datum::inf || AIC == datum::inf){
-                        AIC = BIC = AICc = datum::nan;
+                        AIC = BIC = AICc = BICc = datum::nan;
                 }
                 if (VERBOSE){
                         string MODEL = allUCModels[i];
                         if (inputs.PTSnames){
                                 MODEL = UC2PTS(allUCModels[i], inputs.lambda);
-                                printf(" %*s: %13.4f %13.4f %13.4f\n", wide, MODEL.c_str(), AIC, BIC, AICc);
+                                printf(" %*s: %13.4f %13.4f %13.4f %13.4f\n", wide, MODEL.c_str(), AIC, BIC, AICc, BICc);
                         } else {
-                                printf(" %*s: %8.4f %8.4f %8.4f\n", wide, MODEL.c_str(), AIC, BIC, AICc);
+                                printf(" %*s: %8.4f %8.4f %8.4f %8.4f\n", wide, MODEL.c_str(), AIC, BIC, AICc, BICc);
                         }
                 }
                 if (inputs.criterion == "aic"){
@@ -1424,7 +1473,7 @@ void BSMclass::ident(string show, bool VERBOSE){
         // UC identification
         double minCrit; // = 1e12, minCrit1;
         if (VERBOSE && (show == "head" || show == "both")){
-                printf("------------------------------------------------------------\n");
+                printf("---------------------------------------------------------------------------\n");
                 if (SSmodel::inputs.outlier < 0){
                         printf(" Identification started WITH outlier detection\n");
                 } else {
@@ -1433,12 +1482,12 @@ void BSMclass::ident(string show, bool VERBOSE){
                         else
                                 printf(" Identification started WITHOUT outlier detection\n");
                 }
-                printf("------------------------------------------------------------\n");
+                printf("---------------------------------------------------------------------------\n");
                 if (inputs.PTSnames)
-                        printf("    Model            AIC           BIC          AICc\n");
+                        printf("    Model            AIC           BIC          AICc          BICc\n");
                 else
-                        printf("          Model                       AIC      BIC     AICc\n");
-                printf("------------------------------------------------------------\n");
+                        printf("          Model                       AIC      BIC     AICc     BICc\n");
+                printf("---------------------------------------------------------------------------\n");
         }
         // Finding models to identify
         vector<string> allUCModels;
@@ -1648,9 +1697,9 @@ void BSMclass::ident(string show, bool VERBOSE){
         }
         if (VERBOSE && (show == "tail" || show == "both")){
                 double nSeconds = timer.toc();
-                printf("------------------------------------------------------------\n");
+                printf("---------------------------------------------------------------------------\n");
                 printf("  Identification time: %10.5f seconds\n", nSeconds);
-                printf("------------------------------------------------------------\n");
+                printf("---------------------------------------------------------------------------\n");
         }
         // Final estimation (genunine with nans in case of missing data)
         //if (inputs.missing.n_elem > 0){

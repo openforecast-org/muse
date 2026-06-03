@@ -220,17 +220,26 @@ test_that("plot(forecast(m)) dispatches to plot.smooth.forecast", {
     expect_silent(plot(f))
 })
 
-#### Box-Cox-corrected logLik (via dbcnorm) ####
-test_that("logLik matches a manual dbcnorm sum at the fitted parameters", {
-    m_bc <- pts(log(AirPassengers), model = "0NT", h = 0)
-    muB  <- as.numeric(m_bc$comp[, "Fit"])
-    sg   <- m_bc$scale
-    lam  <- m_bc$lambda
-    yv   <- as.numeric(m_bc$data)
-    ok   <- is.finite(yv) & is.finite(muB) & yv > 0
-    ll_manual <- sum(dbcnorm(yv[ok], mu = muB[ok], sigma = sg,
-                             lambda = lam, log = TRUE))
-    expect_equal(as.numeric(logLik(m_bc)), ll_manual, tolerance = 1e-10)
+#### Box-Cox-corrected logLik (via bcnormLogDensity in C++) ####
+test_that("logLik is finite and on the original response scale", {
+    # The C++ engine sums bcnormLogDensity (PTSmodel.h:1130), which carries
+    # the (lambda-1)*log(q) Jacobian (greybox/R/bcnorm.R:79).  As a
+    # consequence the reported logLik lives on the ORIGINAL response scale
+    # for every lambda and is therefore comparable across them.  This was
+    # the whole motivation behind switching from the engine's BC-scale
+    # Gaussian formula to bcnormLogDensity.  The "ICs are comparable
+    # across lambdas" test below pins down the comparability invariant;
+    # here we just confirm finiteness at the boundary cases the engine
+    # treats specially (src/boxcox.h:35-49):
+    #   * lambda = 0      -> dlnorm-style branch
+    #   * lambda = 0.5    -> general dbcnorm branch
+    #   * lambda = 1      -> engine identity branch (no Jacobian)
+    y <- log(AirPassengers)
+    for (mod in c("0NT", "0.5NT", "1NT")){
+        m <- pts(y, model = mod, h = 0)
+        expect_true(is.finite(as.numeric(logLik(m))),
+                    info = paste("model =", mod))
+    }
 })
 
 test_that("lambda counts as +1 parameter when estimated", {

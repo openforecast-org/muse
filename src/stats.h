@@ -34,7 +34,7 @@ void selectARMA(vec, double, int, string, vec&);
 // Estimation of ARMA model by Least Squares (Hannan-Rissanen)
 void linearARMA(vec&, vec, vec&, vec&);
 // Information criteria
-void infoCriteria(double, int, int, double&, double&, double&);
+void infoCriteria(double, int, int, double&, double&, double&, double&);
 // Gaussianity Bera-Jarque
 void beraj(vec&, double&, double&);
 // Heteroskedasticity ratio of variances
@@ -405,13 +405,24 @@ void linearARMA(vec& y, vec orders, vec& beta, vec& stdBeta){
     beta.rows(0, orders(0) - 1) = -beta.rows(0, orders(0) - 1);
 }
 // Information criteria
-void infoCriteria(double llik, int k, int n, double& AIC, double& BIC, double&AICc){
-  AIC = -2 * (llik - k) / n;
-  BIC = (-2 * llik + k * log(n)) / n;
-  if (n - k - 1 > 0)
-      AICc = (AIC * n + (2 * k * (1 + k)) / (n - k - 1)) / n;
-  else
+// Standard information criteria (stats::AIC / stats::BIC convention; the
+// /n scaling the engine used to apply has been dropped so the values match
+// what AIC.smooth / BICc.smooth report on the R side).
+//   AIC  = -2 ll + 2 k
+//   BIC  = -2 ll + k log(n)
+//   AICc = AIC + 2 k (k+1) / (n - k - 1)               (Hurvich-Tsai)
+//   BICc = -2 ll + (k log(n) n) / (n - k - 1)          (Tran's correction)
+void infoCriteria(double llik, int k, int n,
+                  double& AIC, double& BIC, double& AICc, double& BICc){
+  AIC = -2.0 * llik + 2.0 * k;
+  BIC = -2.0 * llik + k * std::log((double) n);
+  if (n - k - 1 > 0){
+      AICc = AIC + 2.0 * k * (k + 1.0) / (n - k - 1.0);
+      BICc = -2.0 * llik + (k * std::log((double) n) * n) / (n - k - 1.0);
+  } else {
       AICc = datum::nan;
+      BICc = datum::nan;
+  }
 }
 // Gaussianity Bera-Jarque
 void beraj(vec& y, double& bj, double& pbj){

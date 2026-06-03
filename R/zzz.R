@@ -8,7 +8,7 @@
 generics::forecast
 
 #' @importFrom greybox actuals errorType nparam extractScale extractSigma
-#' @importFrom greybox AICc BICc pointLik outlierdummy measures dbcnorm
+#' @importFrom greybox AICc BICc pointLik outlierdummy measures
 #' @importFrom smooth modelType modelName lags orders pls
 #' @importFrom stats sigma confint simulate update rstandard rstudent qnorm pnorm dnorm sd
 NULL

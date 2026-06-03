@@ -1,23 +1,30 @@
-// bcnorm.h — C++ analogue of greybox::dbcnorm (greybox/R/bcnorm.R:71-89).
+// bcnorm.h — C++ analogue of greybox::dbcnorm (greybox/R/bcnorm.R:71-89),
+// aligned with the engine's BoxCox thresholds (src/boxcox.h:35-49) so the
+// caller doesn't need to special-case lambda == 1.
 //
-// dbcnormLogDensity returns the log of the Box-Cox normal density at every
-// element of q.  Same formula as the R version:
-//   * lambda == 0:  density = dlnorm(q, meanlog = mu, sdlog = sigma)
-//   * lambda == 1:  density = dnorm (q, mean = mu + 1, sd = sigma)
-//   * otherwise:    density = q^(lambda-1) * 1/(sqrt(2 pi) sigma)
-//                            * exp(-((q^lambda - 1)/lambda - mu)^2 / (2 sigma^2))
-//                   density = 0 for q <= 0.
+// bcnormLogDensity returns the log-density of the Box-Cox-normal distribution
+// at every element of q, using the same three branches the engine itself
+// applies for BoxCox:
+//   * |lambda| < 0.02  (engine treats as log)
+//        log f(q) = -log(q) - log(sigma) - 0.5 log(2 pi)
+//                   - 0.5 * ((log q - mu) / sigma)^2
+//       (= dlnorm(q, meanlog = mu, sdlog = sigma, log = TRUE))
+//   * lambda > 0.98    (engine treats as identity, NOT formal Box-Cox lambda=1)
+//        log f(q) = -log(sigma) - 0.5 log(2 pi)
+//                   - 0.5 * ((q - mu) / sigma)^2
+//       (= dnorm(q, mean = mu, sd = sigma, log = TRUE))
+//   * otherwise (Box-Cox proper)
+//        log f(q) = (lambda - 1) * log(q) - log(sigma) - 0.5 log(2 pi)
+//                   - 0.5 * (((q^lambda - 1)/lambda - mu) / sigma)^2
 //
-// The leading q^(lambda-1) factor (or implicitly 1/q for lambda = 0) IS the
-// Box-Cox Jacobian, so the returned log-density is on the ORIGINAL response
-// scale: summing over observations gives a log-likelihood comparable across
-// lambdas.
+// The first term (lambda - 1) * log(q) is the Box-Cox Jacobian; summing this
+// log-density over the in-sample observations gives the joint log-likelihood
+// on the ORIGINAL response scale (comparable across lambdas and to
+// dbcnorm-based likelihoods elsewhere in the ecosystem).
 //
-// Not currently wired into estimation -- the engine still runs Gaussian MLE
-// on the BC-transformed data.  This header is here as the C++ analogue of
-// the R-side dbcnorm() call, so a future Python wrapper or alternative
-// estimation path can compute the same BC-corrected log-likelihood from C++
-// alone without re-implementing the formula.
+// Used by the BSMclass estimation path in src/PTSmodel.h to compute the
+// reported LLIK on the original response scale, replacing the previous
+// hand-rolled Gaussian formula that lived on the BC scale.
 
 #ifndef MUSE_BCNORM_H
 #define MUSE_BCNORM_H
@@ -37,8 +44,9 @@ inline arma::vec bcnormLogDensity(const arma::vec& q,
     vec out(n);
     const double LN_SQRT_2PI = 0.5 * std::log(2.0 * M_PI);
 
-    if (std::abs(lambda) < 1e-12){
-        // lambda == 0: dlnorm(q, meanlog = mu, sdlog = sigma)
+    if (std::abs(lambda) < 0.02){
+        // Engine's log/lognormal branch (matches src/boxcox.h:40).
+        // dlnorm(q, meanlog = mu, sdlog = sigma)
         for (uword i = 0; i < n; ++i){
             if (q(i) <= 0.0 || !std::isfinite(q(i)) || !std::isfinite(mu(i))){
                 out(i) = -datum::inf;
@@ -48,13 +56,15 @@ inline arma::vec bcnormLogDensity(const arma::vec& q,
                 out(i) = -lq - std::log(sigma) - LN_SQRT_2PI - 0.5 * z * z;
             }
         }
-    } else if (std::abs(lambda - 1.0) < 1e-12){
-        // lambda == 1: dnorm(q, mean = mu + 1, sd = sigma)
+    } else if (lambda > 0.98){
+        // Engine's identity branch (matches src/boxcox.h:35).
+        // dnorm(q, mean = mu, sd = sigma) -- NO mu + 1 shift, since the
+        // engine never transformed y in this band.
         for (uword i = 0; i < n; ++i){
             if (!std::isfinite(q(i)) || !std::isfinite(mu(i))){
                 out(i) = -datum::inf;
             } else {
-                const double z = (q(i) - (mu(i) + 1.0)) / sigma;
+                const double z = (q(i) - mu(i)) / sigma;
                 out(i) = -std::log(sigma) - LN_SQRT_2PI - 0.5 * z * z;
             }
         }

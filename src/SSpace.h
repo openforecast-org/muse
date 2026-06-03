@@ -205,15 +205,16 @@ void SSmodel::estim(vec p){
   // Information criteria
   uvec indNan = find_nonfinite(inputs.y);
   int nNan = inputs.y.n_elem - indNan.n_elem;
-  double LLIK, AIC, BIC, AICc;
+  double LLIK, AIC, BIC, AICc, BICc;
   LLIK = -0.5 * nNan * (log(2*datum::pi) + objFunValue);
   infoCriteria(LLIK, p.n_elem + inputs.nonStationaryTerms, nNan,
-               AIC, BIC, AICc);
-  vec criteria(4);
+               AIC, BIC, AICc, BICc);
+  vec criteria(5);
   criteria(0) = LLIK;
   criteria(1) = AIC;
   criteria(2) = BIC;
   criteria(3) = AICc;
+  criteria(4) = BICc;
   this->inputs.criteria = criteria;
   if (!isfinite(objFunValue))
       flag = 0;
