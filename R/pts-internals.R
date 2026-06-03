@@ -53,79 +53,95 @@
            if (is.null(args$seed)) 0L else as.integer(args$seed))
 }
 
-# .pts_yindex: the time index of y, mirroring adam's `yIndex` construction
-# at smooth/R/adam.R:519-531.  Returns a numeric / POSIXct / Date vector
-# depending on the class of y.
-.pts_yindex <- function(y){
-    idx <- try(stats::time(y), silent = TRUE)
-    if (!inherits(idx, "try-error") && length(idx) > 0) return(idx)
-    seq_along(y)
+# .pts_resolve_class: mirror adam's input-class resolution at
+# smooth/R/adamGeneral.R:32-168.  Returns a list with:
+#   yIndex     - the time index of y (numeric / Date / POSIXct vector,
+#                length == length(y)), with try(time(y)) + fallbacks.
+#   yClasses   - the resolved input-class vector; bare numeric / integer
+#                gets promoted to "ts" (default) or "zoo" if yIndex is
+#                Date / POSIXct (matches adamGeneral.R:160-168).
+#   yFrequency - frequency(y), used by the ts wrappers.
+#   step       - inter-observation step, used to extrapolate OOS indices
+#                for zoo / Date / POSIXct inputs.
+.pts_resolve_class <- function(y){
+    yIndex <- try(stats::time(y), silent = TRUE)
+    if (inherits(yIndex, "try-error") || length(yIndex) == 0){
+        yIndex <- seq_along(y)
+    }
+    yClasses <- class(y)
+    if (all(yClasses %in% c("integer", "numeric", "matrix"))){
+        if (any(class(yIndex) %in% c("POSIXct", "Date"))){
+            yClasses <- "zoo"
+        } else {
+            yClasses <- "ts"
+        }
+    }
+    yFrequency <- stats::frequency(y)
+    step <- if (length(yIndex) >= 2)
+                as.numeric(stats::median(diff(as.numeric(yIndex))))
+            else 1
+    list(yIndex = yIndex, yClasses = yClasses,
+         yFrequency = yFrequency, step = step)
 }
 
-# .pts_step: the inter-observation step inferred from yIndex; used to
-# extrapolate forecast timestamps when y is zoo / Date / POSIXct.
-.pts_step <- function(yIndex){
+# .pts_yindex / .pts_step are thin back-compat wrappers around the
+# resolver, kept so .pts_call_uc users don't have to thread the whole
+# resolved list through every call site.
+.pts_yindex <- function(y) .pts_resolve_class(y)$yIndex
+.pts_step   <- function(yIndex){
     if (length(yIndex) < 2) return(1)
     as.numeric(stats::median(diff(as.numeric(yIndex))))
 }
 
-# .pts_wrap_oos: wrap an out-of-sample numeric vector with the same time
-# class as y.  Mirrors adam's pattern (smooth/R/adam.R:541-572):
-#   * zoo input -> zoo(values, order.by = yIndex_oos)
-#   * ts input  -> ts(values, start = yIndex[n] + step, frequency = freq(y))
-#   * other     -> bare numeric
+# .pts_wrap_oos: wrap an out-of-sample vector.  Adam's pattern (the line
+# numbers below cite smooth/R/adam.R):
+#   * yClasses contains "ts"  -> ts(values, start = yIndex[n] + step,
+#                                  frequency = yFrequency)  (line 567)
+#   * otherwise               -> zoo(values, order.by = oosIdx)  (line 545)
 .pts_wrap_oos <- function(values, y){
     if (length(values) == 0) return(values)
-    yClasses <- class(y)
-    if (any(yClasses == "zoo")){
-        yIndex <- .pts_yindex(y)
-        step   <- .pts_step(yIndex)
-        h      <- length(values)
-        oosIdx <- utils::tail(yIndex, 1) + step * seq_len(h)
-        return(zoo::zoo(as.numeric(values), order.by = oosIdx))
+    r <- .pts_resolve_class(y)
+    if (any(r$yClasses == "ts")){
+        startOos <- utils::tail(as.numeric(r$yIndex), 1) + r$step
+        return(stats::ts(as.numeric(values), start = startOos,
+                         frequency = r$yFrequency))
     }
-    if (is.ts(y)){
-        fy  <- stats::frequency(y)
-        sy  <- stats::start(y, frequency = fy)
-        aux <- stats::ts(rep(NA_real_, length(y) + 1L), start = sy, frequency = fy)
-        return(stats::ts(as.numeric(values), start = stats::end(aux), frequency = fy))
-    }
-    as.numeric(values)
+    oosIdx <- utils::tail(r$yIndex, 1) + r$step * seq_along(values)
+    zoo::zoo(as.numeric(values), order.by = oosIdx)
 }
 
-# Back-compat alias kept for forecast.pts and .pts_fit until they are
-# updated; both now delegate to .pts_wrap_oos.
-.pts_ts_forecast <- .pts_wrap_oos
-
-# .pts_wrap_in: wrap an in-sample vector / matrix with the same time class
-# as y.  Mirrors adam's pattern (smooth/R/adam.R:535-560).
+# .pts_wrap_in: wrap an in-sample vector / matrix.  Adam's pattern
+# (smooth/R/adam.R):
+#   * yClasses contains "ts" -> ts(values, start = yStart + pad/freq,
+#                                  frequency = yFrequency)        (line 559)
+#   * otherwise              -> zoo(values, order.by = yIndex slice) (line 536)
+# `pad` skips that many leading observations of y (used by the innovations
+# wrapper, which shifts later than y when the engine drops warm-up rows).
 .pts_wrap_in <- function(values, y, pad = 0L){
     if (length(values) == 0) return(values)
-    yClasses <- class(y)
-    if (any(yClasses == "zoo")){
-        yIndex <- .pts_yindex(y)
-        n      <- if (is.null(dim(values))) length(values) else nrow(values)
-        start  <- length(y) - n + 1L + pad
-        ord    <- yIndex[start:(start + n - 1L)]
-        if (is.null(dim(values)))
-            return(zoo::zoo(as.numeric(values), order.by = ord))
-        return(zoo::zoo(unclass(values), order.by = ord))
-    }
-    if (is.ts(y)){
-        fy <- stats::frequency(y)
-        sy <- stats::start(y, frequency = fy)
+    r <- .pts_resolve_class(y)
+    if (any(r$yClasses == "ts")){
+        sy <- if (is.ts(y)) stats::start(y, frequency = r$yFrequency)
+              else          as.numeric(r$yIndex)[1L]
         if (pad > 0L){
-            aux <- stats::ts(rep(NA_real_, pad + 1L), start = sy, frequency = fy)
-            return(stats::ts(values, start = stats::end(aux), frequency = fy))
+            aux <- stats::ts(rep(NA_real_, pad + 1L), start = sy,
+                             frequency = r$yFrequency)
+            return(stats::ts(values, start = stats::end(aux),
+                             frequency = r$yFrequency))
         }
-        return(stats::ts(values, start = sy, frequency = fy))
+        return(stats::ts(values, start = sy, frequency = r$yFrequency))
     }
-    values
+    n     <- if (is.null(dim(values))) length(values) else nrow(values)
+    start <- pad + 1L
+    ord   <- r$yIndex[start:(start + n - 1L)]
+    if (is.null(dim(values)))
+        return(zoo::zoo(as.numeric(values), order.by = ord))
+    zoo::zoo(unclass(values), order.by = ord)
 }
 
-# .pts_ts_innov: wrap the innovations vector. Innovations are shorter than
-# y by (length(y) - length(v)), so the wrapper starts (length(y) - length(v))
-# steps later than y.
+# .pts_ts_innov: wrap the innovations vector.  Innovations are shorter
+# than y by (length(y) - length(v)); the wrapper shifts that many steps
+# later than y.
 .pts_ts_innov <- function(values, y){
     if (length(values) == 0) return(values)
     pad <- length(y) - length(values)
@@ -133,43 +149,36 @@
 }
 
 # .pts_ts_comp: wrap the C++ component matrix (m x n stored column-major)
-# as an (n+h) x m ts/zoo matrix anchored at start(y).
+# as an (n+h) x m ts/zoo matrix anchored at start(y).  Same dispatch as
+# above; OOS rows get extrapolated indices for the zoo branch.
 .pts_ts_comp <- function(raw, m, y, h){
     n <- length(raw) / m
     M <- t(matrix(raw, m, n))
-    yClasses <- class(y)
-    if (any(yClasses == "zoo")){
-        yIndex <- .pts_yindex(y)
-        step   <- .pts_step(yIndex)
-        nObs   <- length(y)
-        idx    <- c(yIndex[seq_len(min(n, nObs))],
-                    utils::tail(yIndex, 1) + step * seq_len(max(0L, n - nObs)))
-        return(zoo::zoo(M, order.by = idx))
+    r <- .pts_resolve_class(y)
+    if (any(r$yClasses == "ts")){
+        sy <- if (is.ts(y)) stats::start(y, frequency = r$yFrequency)
+              else          as.numeric(r$yIndex)[1L]
+        return(stats::ts(M, start = sy, frequency = r$yFrequency))
     }
-    if (is.ts(y)){
-        fy <- stats::frequency(y)
-        M  <- stats::ts(M, start = stats::start(y, frequency = fy), frequency = fy)
-    }
-    M
+    nObs <- length(y)
+    idx  <- c(r$yIndex[seq_len(min(n, nObs))],
+              utils::tail(r$yIndex, 1) + r$step * seq_len(max(0L, n - nObs)))
+    zoo::zoo(M, order.by = idx)
 }
 
 # .pts_wrap_states: wrap a state matrix (nrow = nobs + 1) anchoring row 1
-# at the period BEFORE y starts (adam convention; smooth/R/adam.R:574).
+# at the period BEFORE y starts.  Adam's convention at adam.R:574 (ts
+# branch) and adam.R:554 (zoo branch).
 .pts_wrap_states <- function(M, y){
-    yClasses <- class(y)
-    if (any(yClasses == "zoo")){
-        yIndex <- .pts_yindex(y)
-        step   <- .pts_step(yIndex)
-        nObs   <- length(y)
-        ord    <- c(yIndex[1L] - step, yIndex[seq_len(nObs)])
-        return(zoo::zoo(unclass(M), order.by = ord))
+    r <- .pts_resolve_class(y)
+    if (any(r$yClasses == "ts")){
+        t0 <- if (is.ts(y)) stats::time(y)[1L] - 1 / r$yFrequency
+              else          as.numeric(r$yIndex)[1L] - r$step
+        return(stats::ts(unclass(M), start = t0, frequency = r$yFrequency))
     }
-    if (is.ts(y)){
-        fy <- stats::frequency(y)
-        t0 <- stats::time(y)[1L] - 1 / fy
-        return(stats::ts(unclass(M), start = t0, frequency = fy))
-    }
-    M
+    nObs <- length(y)
+    ord  <- c(r$yIndex[1L] - r$step, r$yIndex[seq_len(nObs)])
+    zoo::zoo(unclass(M), order.by = ord)
 }
 
 # .inv_box_cox: inverse Box-Cox transform.  Thresholds must match exactly
@@ -269,13 +278,15 @@
     residuals <- truncToNs(residuals)
 
     # MLE scale for the Gaussian (default) distribution.  Matches the
-    # dnorm branch of smooth's scaler() at adam.R:1777:
+    # dnorm branch of smooth's scaler() at adam.R:1777 verbatim:
     #   scale = sqrt( sum(errors^2) / obsInSample )
-    # We use sum(na.rm=TRUE) so the leading filter-warmup NaNs are
-    # ignored in the numerator, and length(y) as obsInSample.
-    resVec  <- as.numeric(residuals)
-    sumSq   <- sum(resVec[is.finite(resVec)] ^ 2)
-    scale   <- if (length(y) > 0) sqrt(sumSq / length(y)) else NA_real_
+    # obsInSample is the in-sample (training) length; leading filter-warmup
+    # NaNs are dropped from the numerator (sum() is na.rm-equivalent on the
+    # already-filtered finite vector).
+    obsInSample <- length(y)
+    resVec      <- as.numeric(residuals)
+    sumSq       <- sum(resVec[is.finite(resVec)] ^ 2)
+    scale       <- if (obsInSample > 0) sqrt(sumSq / obsInSample) else NA_real_
 
     # Internal lags = the harmonic periods used inside the C++ engine; the
     # user will introduce a vector-valued `lags` argument later, at which

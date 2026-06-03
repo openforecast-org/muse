@@ -5,14 +5,15 @@
 # the validation table's diagnostics already assume.
 
 # sigma.pts -- mirrors sigma.adam (smooth/R/adam.R:6398-6431) for dnorm:
-#   sigma = sqrt( sum(residuals^2, na.rm=TRUE) / (nobs - nparam) )
-# Uses degrees of freedom (n - k) rather than the (n - 1) of stats::sd,
-# and does not subtract mean(residuals) (so it is consistent with adam's
-# log-likelihood-based loss).
+#   sigma = sqrt( sum(residuals^2, na.rm=TRUE) / (obsInSample - nparam) )
+# The denominator is obsInSample (the in-sample / training length, i.e.
+# nobs(object, all = FALSE)), NOT obsAll.  Uses df = obsInSample - k and
+# does not subtract mean(residuals).
 #' @export
 sigma.pts <- function(object, ...){
-    df <- nobs(object) - nparam(object)
-    if (df <= 0) df <- nobs(object)
+    obsInSample <- nobs(object, all = FALSE)
+    df          <- obsInSample - nparam(object)
+    if (df <= 0) df <- obsInSample
     sqrt(sum(residuals(object) ^ 2, na.rm = TRUE) / df)
 }
 

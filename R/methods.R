@@ -69,7 +69,13 @@ vcov.pts <- function(object, ...) object$covp
 
 #' @rdname pts-methods
 #' @export
-nobs.pts <- function(object, ...) sum(!is.na(object$data))
+nobs.pts <- function(object, all = FALSE, ...){
+    # Adam-style: nobs(object, all = FALSE) -> obsInSample (training only).
+    #             nobs(object, all = TRUE)  -> obsAll      (incl. holdout).
+    # Matches the dispatch at smooth/R/adam.R:7035.
+    obsInSample <- sum(!is.na(object$data))
+    if (isTRUE(all)) obsInSample + length(object$holdout) else obsInSample
+}
 
 #' @rdname pts-methods
 #' @export
@@ -110,8 +116,8 @@ forecast.pts <- function(object, h = 10, level = 0.95, ...){
     #   lower_orig = invBoxCox(yFor_bc - z*se),  upper_orig = invBoxCox(yFor_bc + z*se)
     # This preserves coverage and gives asymmetric intervals on the
     # original scale whenever lambda != 1.
-    yFor_bc <- .pts_ts_forecast(as.numeric(out$yFor),  object$data)
-    yForV   <- .pts_ts_forecast(as.numeric(out$yForV), object$data)
+    yFor_bc <- .pts_wrap_oos(as.numeric(out$yFor),  object$data)
+    yForV   <- .pts_wrap_oos(as.numeric(out$yForV), object$data)
     z       <- stats::qnorm(1 - (1 - level) / 2)
     se      <- sqrt(yForV)
     lambda  <- args$lambda

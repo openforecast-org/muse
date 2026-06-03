@@ -114,7 +114,9 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
 
     out <- list(
         ## --- inputs / spec ---
-        data       = y,
+        # data: same wrapping convention as adam (.pts_wrap_in handles the
+        # yClasses promotion + ts/zoo branch at adam.R:4489-4499).
+        data       = .pts_wrap_in(y, y),
         model      = uc_to_pts(res$modelUC, res$lambda),
         modelUC    = res$modelUC,       # pts-specific UC string
         lags       = lags,
