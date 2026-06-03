@@ -48,7 +48,9 @@
            args$outlier, args$tTest, args$criterion, args$periods, args$rhos,
            args$verbose, args$stepwise, args$p, args$arma, args$TVP,
            args$seas, args$trendOptions, args$seasonalOptions,
-           args$irregularOptions)
+           args$irregularOptions,
+           if (is.null(args$nsim)) 1L else as.integer(args$nsim),
+           if (is.null(args$seed)) 0L else as.integer(args$seed))
 }
 
 # .pts_ts_forecast: wrap a forecast vector as a ts object whose first

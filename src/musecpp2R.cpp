@@ -19,7 +19,8 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
             SEXP periodss, SEXP rhoss, SEXP verboses, SEXP stepwises,
             SEXP p0s, SEXP armas, SEXP TVPs, SEXP seass,
             SEXP trendOptionss, SEXP seasonalOptionss,
-            SEXP irregularOptionss){
+            SEXP irregularOptionss,
+            SEXP nsims, SEXP seeds){
 
     // --- Marshall SEXP -> MuseInputs (no engine logic in this file) ---
     MuseInputs in;
@@ -46,6 +47,8 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
     in.trendOptions     = CHAR(STRING_ELT(trendOptionss, 0));
     in.seasonalOptions  = CHAR(STRING_ELT(seasonalOptionss, 0));
     in.irregularOptions = CHAR(STRING_ELT(irregularOptionss, 0));
+    in.nsim             = as<int>(nsims);
+    in.seed             = static_cast<unsigned>(as<int>(seeds));
 
     // --- Run the engine ---
     MuseOutputs out;
@@ -92,6 +95,9 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
         output("compV")     = out.compV;
         output("m")         = out.m;
         output("compNames") = out.compNames;
+    }
+    if (out.hasSimulate){
+        output("simPaths") = out.simPaths;   // h x nsim, original-scale
     }
     return output;
 }

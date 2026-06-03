@@ -42,6 +42,9 @@ struct MuseInputs {
     std::string  trendOptions;
     std::string  seasonalOptions;
     std::string  irregularOptions;
+    // simulate-only inputs (ignored by other commands)
+    int          nsim = 1;
+    unsigned     seed = 0;       // 0 -> let Armadillo seed from clock
 };
 
 struct MuseOutputs {
@@ -86,6 +89,10 @@ struct MuseOutputs {
     arma::mat               compV;
     int                     m = 0;
     std::string             compNames;
+
+    // simulate
+    bool                    hasSimulate = false;
+    arma::mat               simPaths;    // h x nsim, on the original (post-invBoxCox) scale
 };
 
 // runMuseCommand: end-to-end dispatch. Mirrors what the old UCompC body
@@ -143,11 +150,12 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     inputsBSM.seasonalOptions  = in.seasonalOptions;
     inputsBSM.irregularOptions = in.irregularOptions;
 
-    // forecastOnly: hide the user params from initParBsm (which would crash
-    // on zero / tiny variances), stash them, push them in via
+    // forecastOnly / simulate: hide the user params from initParBsm (which
+    // would crash on zero / tiny variances), stash them, push them in via
     // setEstimatedParams after construction.
+    const bool skipEstim = (command == "forecastOnly" || command == "simulate");
     vec userParams;
-    if (command == "forecastOnly"){
+    if (skipEstim){
         userParams   = in.p0;
         inputsSS.p0  = vec({-9999.9});
     } else {
@@ -165,7 +173,7 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     inputsSS.y       = BoxCox(inputsSS.y, inputsBSM.lambda);
 
     BSMclass sysBSM(inputsSS, inputsBSM);
-    if (command == "forecastOnly"){
+    if (skipEstim){
         sysBSM.setEstimatedParams(userParams);
     } else {
         sysBSM.estim(inputsSS.verbose);
@@ -295,6 +303,47 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         out.compV     = inputs2.compV;
         out.m         = static_cast<int>(inputs2.comp.n_rows);
         out.compNames = compNames;
+    }
+
+    // -- simulate --
+    // Forward-simulate sample paths from the fitted state-space model.
+    // setEstimatedParams() above already populated the system matrices and
+    // the terminal state aEnd via a single llik pass.  We propagate
+    //   a_{t+1} = T a_t + R eta_t        eta ~ N(0, Q)
+    //   y_t    = Z a_t + eps_t           eps ~ N(0, H)
+    // and apply invBoxCox(., lambda) on the way out so the R wrapper sees
+    // original-scale paths.  Q is treated as diagonal (BSM components are
+    // independent), which is robust to zero variances.
+    if (command == "simulate"){
+        if (in.seed != 0) arma_rng::set_seed(in.seed);
+        SSinputs sim = sysBSM.SSmodel::getInputs();
+        const int h    = in.h;
+        const int nsim = std::max(1, in.nsim);
+        mat T  = sim.system.T;
+        mat R  = sim.system.R;
+        mat Q  = sim.system.Q;
+        mat Z  = sim.system.Z.row(0);
+        double H = sim.system.H(0, 0);
+        vec aEnd = sim.aEnd;
+        vec sdQ(Q.n_rows);
+        for (uword i = 0; i < Q.n_rows; ++i)
+            sdQ(i) = std::sqrt(std::max(0.0, Q(i, i)));
+        double sdH = std::sqrt(std::max(0.0, H));
+        mat paths(h, nsim);
+        for (int s = 0; s < nsim; ++s){
+            vec a = aEnd;
+            for (int t = 0; t < h; ++t){
+                double y_t = as_scalar(Z * a) + sdH * randn();
+                paths(t, s) = y_t;
+                vec eta(R.n_cols);
+                for (uword i = 0; i < R.n_cols && i < sdQ.n_elem; ++i)
+                    eta(i) = sdQ(i) * randn();
+                a = T * a + R * eta;
+            }
+        }
+        // Back-transform to the original scale element-by-element.
+        out.simPaths = invBoxCoxMat(paths, inputs2.lambda);
+        out.hasSimulate = true;
     }
 }
 

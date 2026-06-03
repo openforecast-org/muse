@@ -45,24 +45,42 @@ summary.pts <- function(object, ...){
     invisible(object)
 }
 
+# plot.pts and plot.pts.forecast intentionally NOT defined.  With the
+# class chain c("pts", "smooth"), plot(m) dispatches to plot.smooth (a
+# 4-panel diagnostic) and plot(forecast(m, h)) dispatches to
+# plot.smooth.forecast.  See smooth/R/methods.R:1188 and :1880.
+
 #' @rdname pts-methods
 #' @export
-plot.pts <- function(x, ...){
-    if (is.null(x$comp) || length(x$comp) < 2)
-        stop("pts object has no components; refit with pts().", call. = FALSE)
-    if (is.ts(x$comp))
-        plot(x$comp, main = "PTS decomposition", ...)
-    else
-        plot(stats::ts(x$comp, frequency = x$lags), main = "PTS decomposition", ...)
+fitted.pts <- function(object, ...){
+    # In-sample fitted values only (length nobs(object)).  The cached
+    # $fitted slot has nrow(comp) = n + h_fit entries; truncate so the
+    # length matches actuals() and smooth's plot.smooth can align them.
+    f <- object$fitted
+    n <- length(object$y)
+    if (length(f) > n) {
+        if (is.ts(f))
+            f <- stats::window(f, end = stats::time(object$y)[n])
+        else
+            f <- f[seq_len(n)]
+    }
+    f
 }
 
 #' @rdname pts-methods
 #' @export
-fitted.pts <- function(object, ...) object$fitted
-
-#' @rdname pts-methods
-#' @export
-residuals.pts <- function(object, ...) object$residuals
+residuals.pts <- function(object, ...){
+    # In-sample BC-scale innovations only; match length(y).
+    r <- object$residuals
+    n <- length(object$y)
+    if (length(r) > n){
+        if (is.ts(r))
+            r <- stats::window(r, end = stats::time(object$y)[n])
+        else
+            r <- r[seq_len(n)]
+    }
+    r
+}
 
 #' @rdname pts-methods
 #' @export
@@ -89,8 +107,9 @@ logLik.pts <- function(object, ...){
 #' @rdname pts-methods
 #' @export
 predict.pts <- function(object, newdata = NULL, ...){
-    # In-sample fitted values. Out-of-sample forecasts go through forecast().
-    object$fitted
+    # In-sample fitted values (same shape as fitted(object)).  Out-of-sample
+    # forecasts go through forecast().
+    fitted.pts(object)
 }
 
 #' @rdname pts-methods
@@ -130,6 +149,7 @@ forecast.pts <- function(object, h = 10, level = 0.95, ...){
                 upper    = upper_out,
                 variance = yForV,           # documented: BC-scale variance
                 level    = level,
+                interval = "prediction",    # read by plot.smooth.forecast
                 method   = object$model)
     class(ret) <- c("pts.forecast", "smooth.forecast")
     ret
@@ -147,22 +167,5 @@ print.pts.forecast <- function(x, ...){
     invisible(x)
 }
 
-#' @export
-plot.pts.forecast <- function(x, ...){
-    y <- x$model$y
-    fmean <- x$mean
-    ymin <- min(c(y, x$lower), na.rm = TRUE)
-    ymax <- max(c(y, x$upper), na.rm = TRUE)
-    if (is.ts(y) && is.ts(fmean)){
-        xlim <- c(stats::time(y)[1], stats::time(fmean)[length(fmean)])
-        plot(y, xlim = xlim, ylim = c(ymin, ymax),
-             ylab = "y", main = x$method, ...)
-    } else {
-        plot(c(y, fmean), type = "n", ylim = c(ymin, ymax),
-             ylab = "y", main = x$method, ...)
-        lines(seq_along(y), as.numeric(y))
-    }
-    lines(fmean, col = "blue", lwd = 2)
-    lines(x$lower, col = "blue", lty = 2)
-    lines(x$upper, col = "blue", lty = 2)
-}
+# plot.pts.forecast intentionally not defined; class chain
+# c("pts.forecast", "smooth.forecast") dispatches to plot.smooth.forecast.

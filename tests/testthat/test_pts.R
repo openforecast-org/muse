@@ -12,8 +12,10 @@ test_that("pts returns a populated 'pts' object", {
     expect_equal(m$lags, frequency(y))
     expect_true(is.matrix(m$comp))
     expect_true(all(c("Error", "Fit") %in% colnames(m$comp)))
-    expect_equal(length(fitted(m)),   nrow(m$comp))
-    expect_equal(length(residuals(m)), nrow(m$comp))
+    # fitted() / residuals() are in-sample only (length nobs), matching
+    # standard R conventions; the full (n + h_fit) trajectory lives on $comp.
+    expect_equal(length(fitted(m)),   length(y))
+    expect_equal(length(residuals(m)), length(y))
     expect_true(length(m$yFor)  == 12)
     expect_true(length(m$yForV) == 12)
     expect_true(is.ts(m$yFor))
@@ -108,10 +110,12 @@ test_that("forecast.pts rejects bad h", {
 #### S3 dispatch via base generics ####
 test_that("base generics dispatch correctly", {
     m <- pts(y, model = "0NT", h = 12)
-    # fitted / residuals should reach our S3 method (not PTS's)
-    expect_identical(fitted(m),    m$fitted)
-    expect_identical(residuals(m), m$residuals)
-    expect_identical(coef(m),      m$p)
+    # fitted / residuals are exposed in-sample only; truncate the cached
+    # full trajectories to match.
+    n <- length(m$y)
+    expect_equal(as.numeric(fitted(m)),    as.numeric(m$fitted)[seq_len(n)])
+    expect_equal(as.numeric(residuals(m)), as.numeric(m$residuals)[seq_len(n)])
+    expect_identical(coef(m),              m$p)
 })
 
 #### Box-Cox back-transform ####
@@ -119,17 +123,20 @@ test_that("fitted() and yFor are on the original scale (lambda = 1 -> identity)"
     m <- pts(y, model = "1NT", h = 12)
     expect_equal(m$lambda, 1)
     # With lambda = 1 the engine's BoxCox is the identity, so fitted ==
-    # comp[, "Fit"] and yFor matches the engine output unchanged.
-    expect_equal(as.numeric(fitted(m)), as.numeric(m$comp[, "Fit"]))
+    # comp[, "Fit"] (in-sample portion).
+    n <- length(m$y)
+    expect_equal(as.numeric(fitted(m)),
+                 as.numeric(m$comp[, "Fit"])[seq_len(n)])
 })
 
 test_that("fitted() and yFor are back-transformed when lambda = 0 (log/exp)", {
     m <- pts(y, model = "0NT", h = 12)
     expect_equal(m$lambda, 0)
     # comp[, "Fit"] is the engine's level on the BC scale (= log(y_scale)).
-    # fitted() should be its exp(.) inverse on the original scale.
+    # fitted() should be its exp(.) inverse on the original scale, in-sample.
+    n <- length(m$y)
     expect_equal(as.numeric(fitted(m)),
-                 exp(as.numeric(m$comp[, "Fit"])))
+                 exp(as.numeric(m$comp[, "Fit"]))[seq_len(n)])
     # m$yFor is the cached forecast on the original scale.
     expect_true(all(m$yFor > 0))
     # Sanity: y is log(AirPassengers) ~ 4.7-6.4. yFor stays in that band,
@@ -142,8 +149,9 @@ test_that("fitted() matches a handcrafted inverse Box-Cox when 0 < lambda < 1", 
     m <- pts(y, model = "0.5NT", h = 6)
     expect_equal(m$lambda, 0.5)
     bc  <- as.numeric(m$comp[, "Fit"])
-    # invBoxCox(z, 0.5) = (0.5*z + 1)^2
-    expect_equal(as.numeric(fitted(m)), (0.5 * bc + 1) ^ 2)
+    n   <- length(m$y)
+    # invBoxCox(z, 0.5) = (0.5*z + 1)^2, in-sample only
+    expect_equal(as.numeric(fitted(m)), ((0.5 * bc + 1) ^ 2)[seq_len(n)])
 })
 
 test_that("forecast() returns asymmetric intervals on the original scale when lambda < 1", {

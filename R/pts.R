@@ -100,6 +100,9 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
         IC        = res$IC,
         table     = res$table,
         forecast_args = res$forecast_args,
+        # Slots that let smooth's plot.smooth / diagnostics inherit cleanly:
+        occurrence = NULL,        # is.occurrence(NULL) is FALSE
+        loss      = "likelihood", # plot.smooth -> qqnorm path
         call      = cl,
         timeElapsed = proc.time() - tic
     )
