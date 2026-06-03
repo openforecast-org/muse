@@ -109,19 +109,26 @@ forecast.pts <- function(object, h = 10, level = 0.95, ...){
     args$h <- as.integer(h)
     out    <- .pts_call_uc("forecastOnly", args)
 
-    yFor  <- .pts_ts_forecast(as.numeric(out$yFor),  object$y)
-    yForV <- .pts_ts_forecast(as.numeric(out$yForV), object$y)
+    # Engine returns yFor / yForV on the Box-Cox scale.  Build the
+    # prediction interval by endpoint transformation:
+    #   lower_orig = invBoxCox(yFor_bc - z*se),  upper_orig = invBoxCox(yFor_bc + z*se)
+    # This preserves coverage and gives asymmetric intervals on the
+    # original scale whenever lambda != 1.
+    yFor_bc <- .pts_ts_forecast(as.numeric(out$yFor),  object$y)
+    yForV   <- .pts_ts_forecast(as.numeric(out$yForV), object$y)
+    z       <- stats::qnorm(1 - (1 - level) / 2)
+    se      <- sqrt(yForV)
+    lambda  <- args$lambda
 
-    z   <- stats::qnorm(1 - (1 - level) / 2)
-    se  <- sqrt(yForV)
-    lo  <- yFor - z * se
-    hi  <- yFor + z * se
+    mean_out  <- .inv_box_cox(yFor_bc,          lambda)
+    lower_out <- .inv_box_cox(yFor_bc - z * se, lambda)
+    upper_out <- .inv_box_cox(yFor_bc + z * se, lambda)
 
     ret <- list(model    = object,
-                mean     = yFor,
-                lower    = lo,
-                upper    = hi,
-                variance = yForV,
+                mean     = mean_out,
+                lower    = lower_out,
+                upper    = upper_out,
+                variance = yForV,           # documented: BC-scale variance
                 level    = level,
                 method   = paste0("PTS(", object$model, ")"))
     class(ret) <- c("pts.forecast", "smooth.forecast")

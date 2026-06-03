@@ -91,9 +91,9 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
         covp      = res$covp,
         parNames  = names(res$p),
         nParam    = length(res$p),
-        comp      = res$comp,
-        fitted    = if (is.matrix(res$comp)) res$comp[, "Fit"]   else NA,
-        residuals = if (is.matrix(res$comp)) res$comp[, "Error"] else NA,
+        comp      = res$comp,           # BC scale, additive (engine native)
+        fitted    = res$fitted,         # original scale (back-transformed)
+        residuals = res$residuals,      # BC scale (engine innovations)
         yFor      = if (h > 0) res$yFor  else NULL,
         yForV     = if (h > 0) res$yForV else NULL,
         logLik    = res$logLik,

@@ -113,3 +113,58 @@ test_that("base generics dispatch correctly", {
     expect_identical(residuals(m), m$residuals)
     expect_identical(coef(m),      m$p)
 })
+
+#### Box-Cox back-transform ####
+test_that("fitted() and yFor are on the original scale (lambda = 1 -> identity)", {
+    m <- pts(y, model = "1NT", h = 12)
+    expect_equal(m$lambda, 1)
+    # With lambda = 1 the engine's BoxCox is the identity, so fitted ==
+    # comp[, "Fit"] and yFor matches the engine output unchanged.
+    expect_equal(as.numeric(fitted(m)), as.numeric(m$comp[, "Fit"]))
+})
+
+test_that("fitted() and yFor are back-transformed when lambda = 0 (log/exp)", {
+    m <- pts(y, model = "0NT", h = 12)
+    expect_equal(m$lambda, 0)
+    # comp[, "Fit"] is the engine's level on the BC scale (= log(y_scale)).
+    # fitted() should be its exp(.) inverse on the original scale.
+    expect_equal(as.numeric(fitted(m)),
+                 exp(as.numeric(m$comp[, "Fit"])))
+    # m$yFor is the cached forecast on the original scale.
+    expect_true(all(m$yFor > 0))
+    # Sanity: y is log(AirPassengers) ~ 4.7-6.4. yFor stays in that band,
+    # not in the BC band (which would be ~1.5 = log of 4.7).
+    expect_true(min(m$yFor) > 4)
+    expect_true(max(m$yFor) < 8)
+})
+
+test_that("fitted() matches a handcrafted inverse Box-Cox when 0 < lambda < 1", {
+    m <- pts(y, model = "0.5NT", h = 6)
+    expect_equal(m$lambda, 0.5)
+    bc  <- as.numeric(m$comp[, "Fit"])
+    # invBoxCox(z, 0.5) = (0.5*z + 1)^2
+    expect_equal(as.numeric(fitted(m)), (0.5 * bc + 1) ^ 2)
+})
+
+test_that("forecast() returns asymmetric intervals on the original scale when lambda < 1", {
+    m <- pts(y, model = "0NT", h = 12)
+    f <- forecast(m, h = 12, level = 0.95)
+    # On the BC scale intervals are symmetric around the point forecast;
+    # after invBoxCox the original-scale intervals lose that symmetry.
+    upper_arm <- as.numeric(f$upper - f$mean)
+    lower_arm <- as.numeric(f$mean  - f$lower)
+    expect_true(all(upper_arm > 0))
+    expect_true(all(lower_arm > 0))
+    # The upper arm should be visibly longer (Box-Cox with lambda=0 = log
+    # makes the exp() inverse stretch the upper tail more).
+    expect_true(mean(upper_arm) > mean(lower_arm))
+})
+
+test_that("forecast() round-trips with the cached yFor on the original scale", {
+    m <- pts(y, model = "0NT", h = 12)
+    f <- forecast(m, h = 12)
+    # Both m$yFor and f$mean are on the original scale.  Their match (to
+    # numerical noise) demonstrates the back-transform is identical in
+    # both the `all` and `forecastOnly` code paths.
+    expect_equal(as.numeric(f$mean), as.numeric(m$yFor), tolerance = 1e-10)
+})

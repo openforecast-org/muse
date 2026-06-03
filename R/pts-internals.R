@@ -83,6 +83,23 @@
     M
 }
 
+# .inv_box_cox: inverse Box-Cox transform.  Thresholds must match exactly
+# what the C++ engine uses in BoxCox / invBoxCox (src/boxcox.h:34-58):
+#   |lambda| < 0.02  -> exp(x)        (engine treats this as the log case)
+#   lambda  > 0.98   -> x             (engine returns y unchanged)
+#   otherwise        -> (lambda*x + 1)^(1/lambda)
+# Preserves ts attributes on the input.
+.inv_box_cox <- function(x, lambda){
+    if (is.null(x) || length(x) == 0) return(x)
+    if (lambda > 0.98) return(x)                       # identity, attrs intact
+    out <- if (abs(lambda) < 0.02) exp(as.numeric(x))
+           else                    (lambda * as.numeric(x) + 1) ^ (1 / lambda)
+    if (is.ts(x))
+        out <- stats::ts(out, start = stats::start(x),
+                         frequency = stats::frequency(x))
+    out
+}
+
 # .pts_build_comp: take the engine's component matrix and rebuild it in
 # the user-friendly column order  [Error, Fit, Level, Slope?, Seasonal?, ...].
 # Fit becomes the row-sum of the structural components (so users can plot
@@ -126,15 +143,26 @@
         colnames(covp) <- out$parNames[seq_len(ncol(covp))]
     }
 
-    # Time-series wrappers
-    yFor  <- .pts_ts_forecast(out$yFor,  y)
-    yForV <- .pts_ts_forecast(out$yForV, y)
-    v     <- .pts_ts_innov   (out$v,     y)
+    # Time-series wrappers.  yFor and yForV come out of the engine on the
+    # Box-Cox scale; back-transform yFor for the user, keep yForV on the
+    # BC scale so forecast.pts can compute intervals by endpoint transform.
+    yFor_bc <- .pts_ts_forecast(out$yFor,  y)
+    yForV   <- .pts_ts_forecast(out$yForV, y)
+    yFor    <- .inv_box_cox(yFor_bc, out$lambda)
+    v       <- .pts_ts_innov   (out$v,     y)
 
-    # Component matrix (raw + user-friendly rearrangement)
+    # Component matrix (raw + user-friendly rearrangement).  Components stay
+    # on the BC scale to keep the decomposition additive (Error + structural
+    # cols = Fit); user-facing fitted / residuals get exposed separately.
     rawComp <- .pts_ts_comp(out$comp, out$m, y, h)
     colnames(rawComp) <- strsplit(out$compNames, "/")[[1]]
     comp <- .pts_build_comp(rawComp, v)
+    # fitted on the original scale (back-transformed from comp[, "Fit"]).
+    # residuals stay as the engine's BC-scale innovations -- they are the
+    # white-noise sequence used by the validation table's diagnostics.
+    fittedBC  <- if (is.matrix(comp)) comp[, "Fit"]   else NA_real_
+    residuals <- if (is.matrix(comp)) comp[, "Error"] else NA_real_
+    fitted    <- if (is.matrix(comp)) .inv_box_cox(fittedBC, out$lambda) else NA_real_
 
     # Information criteria
     crit <- as.numeric(out$criteria)
@@ -156,10 +184,12 @@
         p            = p,
         p0           = as.vector(out$p0),
         covp         = covp,
-        yFor         = yFor,
-        yForV        = yForV,
+        yFor         = yFor,           # original scale
+        yForV        = yForV,          # BC scale (forecast.pts consumes it)
         v            = v,
-        comp         = comp,
+        comp         = comp,           # BC scale, additive
+        fitted       = fitted,         # original scale
+        residuals    = residuals,      # BC scale (engine innovations)
         table        = out$table,
         logLik       = if (length(crit) >= 1) unname(crit[1]) else NA_real_,
         IC           = if (length(crit) >= 4) crit[2:4]       else NA_real_,
