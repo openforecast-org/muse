@@ -237,6 +237,46 @@
     out
 }
 
+# .pts_logLik_bc: pts equivalent of greybox::alm's likelihood path for
+# distribution = "dbcnorm" (alm.R:641-643).  Mirrors the same call shape:
+#   sum( dbcnorm(q = y_original, mu = fitted_BC, sigma = scale_BC,
+#                lambda = lambda, log = TRUE) )
+# dbcnorm's density carries the q^(lambda-1) Jacobian internally
+# (greybox/R/bcnorm.R:79), so summing log-densities gives the joint
+# log-likelihood on the ORIGINAL response scale -- comparable across
+# different lambdas and to other distributions on the same y.
+#
+# Important caveat about lambda = 1: the C++ engine treats lambda > 0.98
+# as identity (src/boxcox.h:35 -- BoxCox returns y unchanged), so when
+# lambda is in that band the engine never applied the Box-Cox transform
+# and the fitted muBC is already on the original scale.  dbcnorm in
+# contrast uses the shifted-mean formula dnorm(y, mu + 1, sigma) for
+# lambda == 1 (bcnorm.R:76), which would mis-anchor the likelihood by
+# exactly 1 unit in our setup.  So we branch: identity -> plain dnorm,
+# otherwise dbcnorm.
+.pts_logLik_bc <- function(y, muBC, sigmaBC, lambda){
+    y  <- as.numeric(y)
+    mu <- as.numeric(muBC)
+    n  <- min(length(y), length(mu))
+    if (n == 0) return(NA_real_)
+    y  <- y[seq_len(n)];  mu <- mu[seq_len(n)]
+    ok <- is.finite(y) & is.finite(mu)
+    if (!any(ok)) return(NA_real_)
+    if (lambda > 0.98){
+        # Engine path: identity transform; likelihood is straight Gaussian
+        # on the original scale.
+        ll <- dnorm(y[ok], mean = mu[ok], sd = sigmaBC, log = TRUE)
+    } else {
+        # Engine path: Box-Cox transform applied; dbcnorm's density
+        # already includes the q^(lambda-1) Jacobian.
+        ok <- ok & y > 0    # dbcnorm requires q > 0
+        if (!any(ok)) return(NA_real_)
+        ll <- dbcnorm(y[ok], mu = mu[ok], sigma = sigmaBC,
+                      lambda = lambda, log = TRUE)
+    }
+    sum(ll[is.finite(ll)])
+}
+
 # .pts_build_comp: take the engine's component matrix and rebuild it in
 # the user-friendly column order  [Error, Fit, Level, Slope?, Seasonal?, ...].
 # Fit becomes the row-sum of the structural components (so users can plot
@@ -261,6 +301,13 @@
     # When the series has no seasonal frequency, fix lambda = 1 (no Box-Cox)
     # to match the behaviour the old PTSforecast() relied on.
     lambda <- modelU$lambda
+    # Track whether the user asked the engine to estimate lambda (sentinel
+    # 9999.9, set by pts_to_uc when the spec starts with "Z").  Frequency-1
+    # series force lambda = 1, which overrides the estimation request.  This
+    # mirrors greybox::alm at alm.R:2148 -- lambda contributes one DoF when
+    # optimised, zero when fixed.
+    lambdaEstimated <- isTRUE(modelU$lambda == 9999.9) &&
+                       stats::frequency(y) > 1
     if (stats::frequency(y) == 1) lambda <- 1
 
     args <- .pts_uc_inputs(y = y, u = u, modelUC = modelU$modelU, h = h,
@@ -330,7 +377,19 @@
     # point lagsAll can mirror adam's per-parameter lag vector directly.
     lagsAll <- as.numeric(args$periods)
 
-    # Information criteria
+    # Original-scale log-likelihood via the dbcnorm convention.  We feed
+    # dbcnorm() the untransformed y, the BC-scale fitted values (mu), and
+    # the MLE SD on the BC scale (sigma).  Because dbcnorm carries the
+    # q^(lambda-1) Jacobian internally (greybox/R/bcnorm.R:79), the
+    # returned log-density is on the ORIGINAL response scale; summing
+    # gives the model log-likelihood comparable across different lambdas
+    # and to alm(y, distribution = "dbcnorm") on the same y.
+    logLik <- .pts_logLik_bc(y, muBC = fittedBC,
+                             sigmaBC = scale, lambda = out$lambda)
+
+    # Information criteria (raw from C++; we now derive AIC/BIC etc. from
+    # the corrected logLik via stats / greybox, so this slot is informative
+    # only -- kept to mirror the existing return shape).
     crit <- as.numeric(out$criteria)
     if (length(crit) == 4L) names(crit) <- c("logLik", "AIC", "BIC", "AICc")
 
@@ -348,7 +407,8 @@
         scale        = scale,          # MLE sigma on the BC scale
         lagsAll      = lagsAll,        # internal harmonic periods (C++ engine)
         table        = out$table,
-        logLik       = if (length(crit) >= 1) unname(crit[1]) else NA_real_,
+        logLik       = logLik,
+        lambdaEstimated = lambdaEstimated,
         IC           = if (length(crit) >= 4) crit[2:4]       else NA_real_
     )
 }

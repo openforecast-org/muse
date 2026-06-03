@@ -173,7 +173,10 @@ pts <- function(data,
         B          = res$p,
         vcov       = res$covp,          # parameter covariance, computed by the
                                         # C++ "all" command at no extra cost
-        nParam     = length(res$p),
+        # Count the Box-Cox lambda as one additional DoF when the user
+        # asked the engine to estimate it (model spec started with "Z").
+        # Matches greybox::alm at alm.R:2148 for distribution = "dbcnorm".
+        nParam     = length(res$p) + as.integer(isTRUE(res$lambdaEstimated)),
         ## --- in-sample ---
         fitted     = res$fitted,        # original scale (back-transformed)
         residuals  = res$residuals,     # BC scale (engine innovations)

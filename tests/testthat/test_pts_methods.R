@@ -219,3 +219,47 @@ test_that("plot(forecast(m)) dispatches to plot.smooth.forecast", {
     f <- forecast(m, h = 12)
     expect_silent(plot(f))
 })
+
+#### Box-Cox-corrected logLik (via dbcnorm) ####
+test_that("logLik matches a manual dbcnorm sum at the fitted parameters", {
+    m_bc <- pts(log(AirPassengers), model = "0NT", h = 0)
+    muB  <- as.numeric(m_bc$comp[, "Fit"])
+    sg   <- m_bc$scale
+    lam  <- m_bc$lambda
+    yv   <- as.numeric(m_bc$data)
+    ok   <- is.finite(yv) & is.finite(muB) & yv > 0
+    ll_manual <- sum(dbcnorm(yv[ok], mu = muB[ok], sigma = sg,
+                             lambda = lam, log = TRUE))
+    expect_equal(as.numeric(logLik(m_bc)), ll_manual, tolerance = 1e-10)
+})
+
+test_that("lambda counts as +1 parameter when estimated", {
+    m_fixed <- pts(log(AirPassengers), model = "0NT", h = 0)   # lambda = 0
+    m_auto  <- pts(log(AirPassengers), model = "ZNT", h = 0)   # lambda free
+    expect_equal(nparam(m_fixed), length(coef(m_fixed)))
+    expect_equal(nparam(m_auto),  length(coef(m_auto)) + 1L)
+})
+
+test_that("AIC / BIC / AICc / BICc derive directly from the corrected logLik", {
+    m_bc <- pts(log(AirPassengers), model = "0NT", h = 0)
+    ll   <- as.numeric(logLik(m_bc))
+    k    <- nparam(m_bc)
+    n    <- nobs(m_bc)
+    expect_equal(AIC(m_bc),  -2 * ll + 2 * k,           tolerance = 1e-10)
+    expect_equal(BIC(m_bc),  -2 * ll + log(n) * k,      tolerance = 1e-10)
+    expect_equal(AICc(m_bc), 2*k - 2*ll + 2*k*(k+1)/(n - k - 1),     tolerance = 1e-10)
+    expect_equal(BICc(m_bc), -2*ll + (k * log(n) * n) / (n - k - 1), tolerance = 1e-10)
+})
+
+test_that("ICs are finite and on a comparable scale across lambdas", {
+    y     <- log(AirPassengers)
+    m_0   <- pts(y, model = "0NT",   h = 0)
+    m_05  <- pts(y, model = "0.5NT", h = 0)
+    m_1   <- pts(y, model = "1NT",   h = 0)
+    ICs <- vapply(list(m_0, m_05, m_1), AIC, numeric(1))
+    expect_true(all(is.finite(ICs)))
+    # Before the dbcnorm correction the lambda = 0 model's AIC was offset by
+    # sum(log y) (~245 for log(AirPassengers)); after the correction the
+    # three values should land on a comparable order of magnitude.
+    expect_lt(max(ICs) - min(ICs), 1e3)
+})

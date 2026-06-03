@@ -20,6 +20,9 @@
 #include <vector>
 #include <armadillo>
 #include "PTSmodel.h"
+#include "bcnorm.h"   // C++ analogue of greybox::dbcnorm; not wired into
+                      // estimation yet -- available for any code path that
+                      // wants the BC-corrected log-density.
 
 struct MuseInputs {
     std::string  command;
