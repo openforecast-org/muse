@@ -111,10 +111,12 @@ print.pts <- function(x, digits = 4, ...){
     cat("\nNumber of degrees of freedom:", nobs(x) - nparam(x))
 
     # --- information criteria as a named vector (adam.R:6036-6039) ---
+    # AIC / BIC come from stats; AICc / BICc come from greybox via the
+    # c("pts", "smooth") dispatch chain.  No pts-local formulas.
     ICs <- c(AIC  = AIC(x),
-             AICc = AICc.pts(x),
+             AICc = AICc(x),
              BIC  = BIC(x),
-             BICc = BICc.pts(x))
+             BICc = BICc(x))
     cat("\nInformation criteria:\n")
     print(round(ICs, digits))
 

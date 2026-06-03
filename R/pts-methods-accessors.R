@@ -81,19 +81,12 @@ errorType.pts <- function(object, ...){
     "A"
 }
 
-#' @export
-AICc.pts <- function(object, ...){
-    # Compute from logLik + nParam + n in the standard total-scale R
-    # convention (object$IC carries per-observation criteria from the C++
-    # engine, which would be inconsistent with AIC(m) / BIC(m)).
-    n  <- nobs(object); k <- nparam.pts(object)
-    ll <- as.numeric(logLik(object))
-    2 * k - 2 * ll + 2 * k * (k + 1) / (n - k - 1)
-}
-
-#' @export
-BICc.pts <- function(object, ...){
-    n  <- nobs(object); k <- nparam.pts(object)
-    ll <- as.numeric(logLik(object))
-    -2 * ll + (k * log(n) * n) / (n - k - 1)
-}
+# AIC / BIC / AICc / BICc methods intentionally NOT defined for class
+# `pts`.  Dispatch falls through the c("pts", "smooth") class chain so:
+#   AIC(m)  ->  stats::AIC.default   (via logLik.pts attributes)
+#   BIC(m)  ->  stats::BIC.default   (via logLik.pts attributes)
+#   AICc(m) ->  greybox / smooth::AICc.smooth
+#   BICc(m) ->  greybox / smooth::BICc.smooth
+# All four use logLik(object), nparam(object), and nobs(object) (default
+# all = FALSE).  Keeping pts as a thin user of the existing greybox /
+# stats formulas avoids drifting from the smooth ecosystem.
