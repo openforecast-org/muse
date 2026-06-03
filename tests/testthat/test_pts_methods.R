@@ -162,11 +162,36 @@ test_that("simulate.pts sample-path mean -> forecast mean", {
     expect_lt(max(abs(rowMeans(s$data) - fmean)), 0.01)
 })
 
+#### adam-aligned slots ####
+test_that("pts carries the adam slots that plot.smooth reads", {
+    expect_equal(m$distribution, "dnorm")
+    expect_equal(m$loss, "likelihood")
+    expect_null(m$occurrence)
+    expect_null(m$persistence)
+    expect_null(m$phi)
+    expect_null(m$transition)
+    expect_equal(m$forecast, m$yFor)
+    expect_equal(m$B, m$p)
+    # states: structural columns of comp (no Error / Fit), in-sample only.
+    expect_true(is.matrix(m$states))
+    expect_equal(nrow(m$states), length(m$y))
+    expect_false("Error" %in% colnames(m$states))
+    expect_false("Fit"   %in% colnames(m$states))
+})
+
 #### plot inheritance ####
 test_that("plot(m) dispatches to plot.smooth without error", {
     pdf(NULL)
     on.exit(dev.off())
     expect_silent(plot(m))
+})
+
+test_that("every plot.smooth panel (which = 1..16) runs without error", {
+    pdf(NULL)
+    on.exit(dev.off())
+    for (w in 1:16) {
+        expect_silent(plot(m, which = w))
+    }
 })
 
 test_that("plot(forecast(m)) dispatches to plot.smooth.forecast", {
