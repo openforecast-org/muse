@@ -16,16 +16,14 @@ test_that("pts returns a populated 'pts' object", {
     # standard R conventions; the full (n + h_fit) trajectory lives on $comp.
     expect_equal(length(fitted(m)),   length(y))
     expect_equal(length(residuals(m)), length(y))
-    expect_true(length(m$yFor)  == 12)
-    expect_true(length(m$yForV) == 12)
-    expect_true(is.ts(m$yFor))
-    expect_false(any(is.na(m$yFor)))
+    expect_true(length(m$forecast)  == 12)
+    expect_true(is.ts(m$forecast))
+    expect_false(any(is.na(m$forecast)))
 })
 
 test_that("pts honours h = 0 (no cached forecast)", {
     m <- pts(y, model = "0NT", h = 0)
-    expect_null(m$yFor)
-    expect_null(m$yForV)
+    expect_null(m$forecast)
     expect_true(is.matrix(m$comp))
 })
 
@@ -40,9 +38,9 @@ test_that("pts criterion argument is honoured", {
     expect_silent(m_aic  <- pts(y, model = "0NT", h = 12, criterion = "aic"))
     expect_silent(m_bic  <- pts(y, model = "0NT", h = 12, criterion = "bic"))
     expect_silent(m_aicc <- pts(y, model = "0NT", h = 12, criterion = "aicc"))
-    expect_equal(length(m_aic$yFor),  12)
-    expect_equal(length(m_bic$yFor),  12)
-    expect_equal(length(m_aicc$yFor), 12)
+    expect_equal(length(m_aic$forecast),  12)
+    expect_equal(length(m_bic$forecast),  12)
+    expect_equal(length(m_aicc$forecast), 12)
 })
 
 #### auto.pts ####
@@ -89,8 +87,7 @@ test_that("forecast.pts returns a forecast object", {
 test_that("forecast.pts matches the forecast cached at fit time", {
     m <- pts(y, model = "0NT", h = 12)
     f <- forecast(m, h = 12)
-    expect_equal(as.numeric(f$mean),     as.numeric(m$yFor),  tolerance = 1e-8)
-    expect_equal(as.numeric(f$variance), as.numeric(m$yForV), tolerance = 1e-6)
+    expect_equal(as.numeric(f$mean), as.numeric(m$forecast), tolerance = 1e-8)
 })
 
 test_that("forecast.pts honours the level argument", {
@@ -115,7 +112,7 @@ test_that("base generics dispatch correctly", {
     n <- length(m$y)
     expect_equal(as.numeric(fitted(m)),    as.numeric(m$fitted)[seq_len(n)])
     expect_equal(as.numeric(residuals(m)), as.numeric(m$residuals)[seq_len(n)])
-    expect_identical(coef(m),              m$p)
+    expect_identical(coef(m),              m$B)
 })
 
 #### Box-Cox back-transform ####
@@ -137,12 +134,12 @@ test_that("fitted() and yFor are back-transformed when lambda = 0 (log/exp)", {
     n <- length(m$y)
     expect_equal(as.numeric(fitted(m)),
                  exp(as.numeric(m$comp[, "Fit"]))[seq_len(n)])
-    # m$yFor is the cached forecast on the original scale.
-    expect_true(all(m$yFor > 0))
+    # m$forecast is the cached forecast on the original scale.
+    expect_true(all(m$forecast > 0))
     # Sanity: y is log(AirPassengers) ~ 4.7-6.4. yFor stays in that band,
     # not in the BC band (which would be ~1.5 = log of 4.7).
-    expect_true(min(m$yFor) > 4)
-    expect_true(max(m$yFor) < 8)
+    expect_true(min(m$forecast) > 4)
+    expect_true(max(m$forecast) < 8)
 })
 
 test_that("fitted() matches a handcrafted inverse Box-Cox when 0 < lambda < 1", {
@@ -171,8 +168,8 @@ test_that("forecast() returns asymmetric intervals on the original scale when la
 test_that("forecast() round-trips with the cached yFor on the original scale", {
     m <- pts(y, model = "0NT", h = 12)
     f <- forecast(m, h = 12)
-    # Both m$yFor and f$mean are on the original scale.  Their match (to
+    # Both m$forecast and f$mean are on the original scale.  Their match (to
     # numerical noise) demonstrates the back-transform is identical in
     # both the `all` and `forecastOnly` code paths.
-    expect_equal(as.numeric(f$mean), as.numeric(m$yFor), tolerance = 1e-10)
+    expect_equal(as.numeric(f$mean), as.numeric(m$forecast), tolerance = 1e-10)
 })

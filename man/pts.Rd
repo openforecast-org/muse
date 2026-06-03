@@ -47,16 +47,27 @@ component.}
 \item{u}{optional matrix of external regressors.}
 }
 \value{
-An object of class \code{c("pts", "smooth")} with components:
+An object of class \code{c("pts", "smooth")}.  Slot names mirror
+\code{smooth::adam()}'s return list where the concept is shared; pts-only
+extensions are flagged below.
 \itemize{
-  \item \code{y, u, model, modelUC, lags, lambda} -- inputs / spec
-  \item \code{p, p0, covp, parNames, nParam} -- parameters
-  \item \code{fitted, residuals, comp} -- in-sample fit
-  \item \code{yFor, yForV} -- cached forecast (if \code{h > 0})
-  \item \code{logLik, IC} -- likelihood + AIC/BIC/AICc
-  \item \code{table} -- printable validation table
-  \item \code{call, timeElapsed} -- bookkeeping
+  \item Inputs / spec: \code{y, model, modelUC*, lags, lambda*}
+  \item Parameters: \code{B} (estimated parameter vector), \code{covp*}
+    (parameter covariance), \code{nParam}
+  \item In-sample fit: \code{fitted, residuals, states} plus
+    pts-specific \code{comp*} (additive BC-scale decomposition with
+    Error/Fit columns)
+  \item Cached forecast: \code{forecast} (original scale, if \code{h > 0})
+    and \code{forecast_args*} for cheap re-forecasting
+  \item Likelihood + diagnostics: \code{logLik},
+    \code{table*} (C++ validation text)
+  \item Scalars read by \code{plot.smooth} / diagnostics:
+    \code{distribution = "dnorm"}, \code{loss = "likelihood"},
+    \code{occurrence = NULL}, \code{holdout}
+  \item Bookkeeping: \code{call, timeElapsed}
 }
+AIC / AICc / BIC / BICc are derived on demand via the methods, not
+stored on the object.  (* = pts-specific extension.)
 }
 \description{
 Estimates a PTS (Power / Trend / Seasonal) state-space model

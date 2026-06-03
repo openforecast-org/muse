@@ -170,8 +170,6 @@ test_that("pts carries the adam slots that plot.smooth reads", {
     expect_null(m$persistence)
     expect_null(m$phi)
     expect_null(m$transition)
-    expect_equal(m$forecast, m$yFor)
-    expect_equal(m$B, m$p)
     # states: structural columns of comp (no Error / Fit), in-sample only.
     expect_true(is.matrix(m$states))
     expect_equal(nrow(m$states), length(m$y))

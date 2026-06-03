@@ -24,12 +24,13 @@ print.pts <- function(x, ...){
         "   lags: ", x$lags,
         "   nobs: ", nobs(x),
         "   nParam: ", x$nParam, "\n", sep = "")
-    if (length(x$IC) == 3 && all(!is.na(x$IC))){
+    ll <- as.numeric(x$logLik)
+    if (length(ll) == 1 && is.finite(ll)){
         cat("  ",
-            "logLik=", format(as.numeric(x$logLik), digits = 5),
-            "  AIC=",  format(x$IC["AIC"],  digits = 5),
-            "  BIC=",  format(x$IC["BIC"],  digits = 5),
-            "  AICc=", format(x$IC["AICc"], digits = 5), "\n", sep = "")
+            "logLik=", format(ll,         digits = 5),
+            "  AIC=",  format(AIC(x),     digits = 5),
+            "  BIC=",  format(BIC(x),     digits = 5),
+            "  AICc=", format(AICc.pts(x), digits = 5), "\n", sep = "")
     }
     if (!is.null(x$table) && nzchar(paste(x$table, collapse = ""))){
         cat("\n")
@@ -84,7 +85,7 @@ residuals.pts <- function(object, ...){
 
 #' @rdname pts-methods
 #' @export
-coef.pts <- function(object, ...) object$p
+coef.pts <- function(object, ...) object$B
 
 #' @rdname pts-methods
 #' @export
