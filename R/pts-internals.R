@@ -297,24 +297,13 @@
     crit <- as.numeric(out$criteria)
     if (length(crit) == 4L) names(crit) <- c("logLik", "AIC", "BIC", "AICc")
 
-    # Stash the inputs UCompC will need for forecastOnly. y/u stay raw
-    # (pre-BoxCox) because C++ re-applies BoxCox internally.
-    forecast_args        <- args
-    forecast_args$model  <- out$model     # the resolved (no '?') UC string
-    forecast_args$lambda <- out$lambda
-    forecast_args$p      <- p             # natural-scale variances + others
-    forecast_args$periods<- out$periods
-    forecast_args$rhos   <- out$rhos
-    forecast_args$seas   <- lags
-
     list(
         modelUC      = out$model,
         lambda       = out$lambda,
         p            = p,
         p0           = as.vector(out$p0),
         covp         = covp,
-        yFor         = yFor,           # original scale
-        yForV        = yForV,          # BC scale (forecast.pts consumes it)
+        yFor         = yFor,           # original scale (length h, possibly 0)
         v            = v,
         comp         = comp,           # BC scale, additive
         fitted       = fitted,         # original scale
@@ -323,7 +312,38 @@
         lagsAll      = lagsAll,        # internal harmonic periods (C++ engine)
         table        = out$table,
         logLik       = if (length(crit) >= 1) unname(crit[1]) else NA_real_,
-        IC           = if (length(crit) >= 4) crit[2:4]       else NA_real_,
-        forecast_args = forecast_args
+        IC           = if (length(crit) >= 4) crit[2:4]       else NA_real_
+    )
+}
+
+# .pts_forecast_inputs: rebuild the UCompC argument list from a fitted
+# pts object, using slot values directly so we don't need a separate
+# $forecast_args cache.  Used by forecast.pts (forecastOnly path).
+.pts_forecast_inputs <- function(object, h){
+    # u: NULL -> sentinel; vector -> 1xn matrix; matrix passed through
+    u <- object$u
+    if (is.null(u))                u_mat <- matrix(0, 1, 2)
+    else if (is.null(dim(u)))      u_mat <- matrix(u, 1, length(u))
+    else                           u_mat <- if (nrow(u) > ncol(u)) t(u) else u
+    list(
+        y                = as.numeric(object$data),
+        u                = u_mat,
+        model            = object$modelUC,
+        h                = as.integer(h),
+        lambda           = object$lambda,
+        outlier          = 0,
+        tTest            = FALSE,
+        criterion        = "aic",
+        periods          = as.numeric(object$lagsAll),
+        rhos             = rep(1, length(object$lagsAll)),
+        verbose          = FALSE,
+        stepwise         = FALSE,
+        p                = as.numeric(object$B),
+        arma             = FALSE,
+        TVP              = -9999.99,
+        seas             = object$lags,
+        trendOptions     = "rw/llt/srw/td",
+        seasonalOptions  = "none/linear/equal",
+        irregularOptions = "arma(0,0)"
     )
 }

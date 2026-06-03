@@ -13,10 +13,6 @@ simulate.pts <- function(object, nsim = 1, seed = NULL,
         stop("`nsim` must be a positive integer.", call. = FALSE)
     if (!is.numeric(h) || length(h) != 1 || h < 1)
         stop("`h` must be a positive integer.", call. = FALSE)
-    if (is.null(object$forecast_args))
-        stop("pts object has no cached forecast inputs; cannot simulate.",
-             call. = FALSE)
-
     # Armadillo, when linked against R, delegates randn() to R's RNG and
     # ignores its own seed.  So reproducibility goes through R: set the
     # seed here, save / restore .Random.seed if it was untouched.
@@ -31,8 +27,7 @@ simulate.pts <- function(object, nsim = 1, seed = NULL,
         set.seed(seed)
     }
 
-    args         <- object$forecast_args
-    args$h       <- as.integer(h)
+    args         <- .pts_forecast_inputs(object, h)
     args$nsim    <- as.integer(nsim)
     args$seed    <- 0L      # C++ set_seed is ignored; R RNG is the source of truth
     out          <- suppressWarnings(.pts_call_uc("simulate", args))

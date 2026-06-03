@@ -32,9 +32,9 @@ print.pts <- function(x, ...){
             "  BIC=",  format(BIC(x),     digits = 5),
             "  AICc=", format(AICc.pts(x), digits = 5), "\n", sep = "")
     }
-    if (!is.null(x$table) && nzchar(paste(x$table, collapse = ""))){
+    if (!is.null(x$cppOutput) && nzchar(paste(x$cppOutput, collapse = ""))){
         cat("\n")
-        cat(x$table)
+        cat(x$cppOutput)
     }
     invisible(x)
 }
@@ -65,7 +65,7 @@ coef.pts <- function(object, ...) object$B
 
 #' @rdname pts-methods
 #' @export
-vcov.pts <- function(object, ...) object$covp
+vcov.pts <- function(object, ...) object$vcov
 
 #' @rdname pts-methods
 #' @export
@@ -104,12 +104,10 @@ predict.pts <- function(object, newdata = NULL, ...){
 forecast.pts <- function(object, h = 10, level = 0.95, ...){
     if (!is.numeric(h) || length(h) != 1 || h < 1)
         stop("`h` must be a positive integer.", call. = FALSE)
-    if (is.null(object$forecast_args))
-        stop("pts object has no cached forecast inputs; cannot forecast.",
-             call. = FALSE)
-    args   <- object$forecast_args
-    args$h <- as.integer(h)
-    out    <- .pts_call_uc("forecastOnly", args)
+    # Reconstruct the UCompC inputs from the fitted object's slots; no
+    # need for a separate $forecast_args cache.
+    args <- .pts_forecast_inputs(object, h)
+    out  <- .pts_call_uc("forecastOnly", args)
 
     # Engine returns yFor / yForV on the Box-Cox scale.  Build the
     # prediction interval by endpoint transformation:

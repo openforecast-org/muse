@@ -82,14 +82,15 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
         }
     }
 
-    # The C++ engine always wants h >= 1; ask for one forecast point even
-    # when the user asked for none, and drop the resulting cache below.
-    h_fit <- max(as.integer(h), 1L)
-
-    res <- .pts_fit(y = y, u = u, model = model, lags = lags, h = h_fit,
+    # pts() never builds the forecast on the user's behalf when h = 0
+    # (the default); when h > 0 the C++ "all" command returns a length-h
+    # forecast that we cache on $forecast as a convenience.  The full
+    # UCompC call set used by forecast.pts is rebuilt from object slots
+    # by .pts_forecast_inputs(), so no $forecast_args cache is kept.
+    res <- .pts_fit(y = y, u = u, model = model, lags = lags,
+                    h = as.integer(h),
                     criterion = criterion, armaIdent = armaIdent,
                     verbose = verbose)
-
     cachedFor <- if (h > 0) res$yFor else NULL
 
     # Structural state evolution: build the (nobs + 1) x nStates matrix
@@ -117,6 +118,7 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
         # data: same wrapping convention as adam (.pts_wrap_in handles the
         # yClasses promotion + ts/zoo branch at adam.R:4489-4499).
         data       = .pts_wrap_in(y, y),
+        u          = u,                 # NULL when there are no regressors
         model      = uc_to_pts(res$modelUC, res$lambda),
         modelUC    = res$modelUC,       # pts-specific UC string
         lags       = lags,
@@ -124,21 +126,21 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
         lambda     = res$lambda,        # pts-specific Box-Cox parameter
         ## --- parameters ---
         B          = res$p,
-        covp       = res$covp,          # vcov source (we have it directly; adam has $FI instead)
+        vcov       = res$covp,          # parameter covariance, computed by the
+                                        # C++ "all" command at no extra cost
         nParam     = length(res$p),
         ## --- in-sample ---
         fitted     = res$fitted,        # original scale (back-transformed)
         residuals  = res$residuals,     # BC scale (engine innovations)
         comp       = res$comp,          # pts-specific BC-scale additive decomposition
         states     = statesMat,         # adam-aligned structural state evolution
-        ## --- forecast cache (adam name = forecast; no variance slot) ---
-        forecast      = cachedFor,
-        forecast_args = res$forecast_args,
+        ## --- forecast convenience cache (NULL when pts is called with h = 0) ---
+        forecast     = cachedFor,
         ## --- likelihood + diagnostics ---
         logLik       = res$logLik,
         lossValue    = -as.numeric(res$logLik),  # adam: CFValue
         scale        = res$scale,                # MLE scale of dnorm
-        table        = res$table,                # pts-specific C++ validation text
+        cppOutput    = res$table,                # raw C++ validation text block
         ## --- smooth/adam-aligned scalars for plot.smooth dispatch ---
         distribution = "dnorm",
         loss         = "likelihood",
