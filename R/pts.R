@@ -91,7 +91,12 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
                     h = as.integer(h),
                     criterion = criterion, armaIdent = armaIdent,
                     verbose = verbose)
-    cachedFor <- if (h > 0) res$yFor else NULL
+    # When h > 0 we cache the engine's forecast (length h, original scale).
+    # When h == 0 we still populate $forecast with a 1-period NA placeholder
+    # anchored at the next observation, mirroring adam.R:572:
+    #   ts(NA, start = yIndex[obsInSample] + diff(yIndex[1:2]),
+    #      frequency = yFrequency)
+    cachedFor <- if (h > 0) res$yFor else .pts_wrap_oos(NA_real_, y)
 
     # Structural state evolution: build the (nobs + 1) x nStates matrix
     # (row 1 = initial state at t = 0, rows 2..n+1 = smoothed states), then

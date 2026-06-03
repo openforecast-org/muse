@@ -21,9 +21,13 @@ test_that("pts returns a populated 'pts' object", {
     expect_false(any(is.na(m$forecast)))
 })
 
-test_that("pts honours h = 0 (no cached forecast)", {
+test_that("pts honours h = 0 (forecast slot is ts(NA) placeholder)", {
     m <- pts(y, model = "0NT", h = 0)
-    expect_null(m$forecast)
+    # adam.R:572 stores ts(NA, ...) when no forecast was requested;
+    # pts mirrors that so $forecast is always a defined ts object.
+    expect_equal(length(m$forecast), 1L)
+    expect_true(is.na(m$forecast))
+    expect_true(is.ts(m$forecast))
     expect_true(is.matrix(m$comp))
 })
 
