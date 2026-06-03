@@ -7,7 +7,7 @@ test_that("pts returns a populated 'pts' object", {
     m <- pts(y, model = "0NT", h = 12)
     expect_s3_class(m, "pts")
     expect_s3_class(m, "smooth")
-    expect_equal(m$model, "0NT")
+    expect_equal(m$model, "PTS(0,N,T)")
     expect_equal(m$lambda, 0)
     expect_equal(m$lags, frequency(y))
     expect_true(is.matrix(m$comp))

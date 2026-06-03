@@ -130,7 +130,7 @@ forecast.pts <- function(object, h = 10, level = 0.95, ...){
                 upper    = upper_out,
                 variance = yForV,           # documented: BC-scale variance
                 level    = level,
-                method   = paste0("PTS(", object$model, ")"))
+                method   = object$model)
     class(ret) <- c("pts.forecast", "smooth.forecast")
     ret
 }

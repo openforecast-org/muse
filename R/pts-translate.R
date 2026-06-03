@@ -33,22 +33,32 @@ pts_to_uc <- function(model, armaOrders = c(0, 0)){
     out
 }
 
-# uc_to_pts: invert pts_to_uc, given a fully-resolved UC string and the
-# estimated lambda.
+# uc_to_pts: format a fully-resolved UC string + lambda as
+#   PTS(<lambda>,<trend letter>,<seasonal letter>)
+# e.g. PTS(0,N,T), PTS(-0.29,D,T), PTS(1,L,N).  Unknown trend / seasonal
+# tokens collapse to an empty field rather than silently dropping a slot.
 uc_to_pts <- function(modelUC, lambda){
     modelUC <- sub("/none/", "/", modelUC, fixed = TRUE)
     sl <- gregexpr("/", modelUC)[[1]]
     trend    <- substr(modelUC, 1,         sl[1] - 1)
     seasonal <- substr(modelUC, sl[1] + 1, sl[2] - 1)
-    model <- as.character(round(lambda, 2))
-    if      (trend == "rw")  model <- paste0(model, "N")
-    else if (trend == "srw") model <- paste0(model, "D")
-    else if (trend == "llt") model <- paste0(model, "L")
-    else if (trend == "td")  model <- paste0(model, "G")
-    if      (seasonal == "none")   model <- paste0(model, "N")
-    else if (seasonal == "equal")  model <- paste0(model, "T")
-    else if (seasonal == "linear") model <- paste0(model, "D")
-    model
+    trendLetter <- switch(trend,
+                          "rw"  = "N",
+                          "srw" = "D",
+                          "llt" = "L",
+                          "td"  = "G",
+                          "?"   = "Z",
+                          "")
+    seasonalLetter <- switch(seasonal,
+                             "none"   = "N",
+                             "equal"  = "T",
+                             "linear" = "D",
+                             "?"      = "Z",
+                             "")
+    sprintf("PTS(%s,%s,%s)",
+            as.character(round(lambda, 2)),
+            trendLetter,
+            seasonalLetter)
 }
 
 # uc_to_arma: pull (p, q) out of "arma(p,q)" embedded in a UC string.
