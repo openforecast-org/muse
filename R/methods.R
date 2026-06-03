@@ -16,26 +16,108 @@
 NULL
 
 #' @rdname pts-methods
+#' @description \code{print.pts} mirrors \code{smooth::print.adam}
+#' (\code{smooth/R/adam.R:5862}) section by section, substituting the
+#' PTS-specific MSOE concepts where ETS-specific ones do not apply:
+#' the "initialisation" line becomes the Box-Cox \eqn{\lambda} block, and
+#' the "Persistence vector g" block becomes the MSOE innovation variances
+#' (the same variances are otherwise the structural pieces of the B
+#' parameter vector).  The C++ validation diagnostics live on
+#' \code{$cppOutput} should the user want them.
 #' @export
-print.pts <- function(x, ...){
-    cat("PTS state-space model\n")
-    cat("  spec:   ", x$model, "   (UC: ", x$modelUC, ")\n", sep = "")
-    cat("  lambda: ", format(x$lambda, digits = 5),
-        "   lags: ", x$lags,
-        "   nobs: ", nobs(x),
-        "   nParam: ", x$nParam, "\n", sep = "")
-    ll <- as.numeric(x$logLik)
-    if (length(ll) == 1 && is.finite(ll)){
-        cat("  ",
-            "logLik=", format(ll,         digits = 5),
-            "  AIC=",  format(AIC(x),     digits = 5),
-            "  BIC=",  format(BIC(x),     digits = 5),
-            "  AICc=", format(AICc.pts(x), digits = 5), "\n", sep = "")
+print.pts <- function(x, digits = 4, ...){
+    # --- elapsed time + model spec line (adam.R:5872-5875) ---
+    elapsed <- if (inherits(x$timeElapsed, "proc_time"))
+                   as.numeric(x$timeElapsed["elapsed"])
+               else if (inherits(x$timeElapsed, "difftime"))
+                   as.numeric(x$timeElapsed, units = "secs")
+               else suppressWarnings(as.numeric(x$timeElapsed))
+    if (!is.null(elapsed) && is.finite(elapsed))
+        cat("Time elapsed:", round(elapsed, 2), "seconds")
+    fnName <- tryCatch(utils::tail(all.vars(x$call[[1]]), 1),
+                       error = function(e) "pts")
+    if (!nzchar(fnName)) fnName <- "pts"
+    cat("\nModel estimated using ", fnName, "() function: ", x$model, sep = "")
+
+    # --- Box-Cox transform line (replaces adam's `With ... initialisation`) ---
+    lam <- x$lambda
+    if (is.finite(lam) && abs(lam - 1) < 1e-8){
+        cat("\nWith no Box-Cox transform (lambda = 1)")
+    } else if (is.finite(lam) && abs(lam) < 1e-8){
+        cat("\nWith log transform (Box-Cox lambda = 0)")
+    } else {
+        cat("\nWith Box-Cox lambda = ", round(lam, digits), sep = "")
     }
-    if (!is.null(x$cppOutput) && nzchar(paste(x$cppOutput, collapse = ""))){
-        cat("\n")
-        cat(x$cppOutput)
+
+    # --- distribution line (adam.R:5898-5917) ---
+    distrib <- switch(as.character(x$distribution),
+                      "dnorm"     = "Normal",
+                      "dlaplace"  = "Laplace",
+                      "ds"        = "S",
+                      "dlogis"    = "Logistic",
+                      "dinvgauss" = "Inverse Gaussian",
+                      "dgamma"    = "Gamma",
+                      as.character(x$distribution))
+    cat("\nDistribution assumed in the model:", distrib)
+
+    # --- loss line (adam.R:5919-5925) ---
+    cat("\nLoss function type:", x$loss)
+    if (!is.null(x$lossValue) && is.finite(x$lossValue))
+        cat("; Loss function value:", round(x$lossValue, digits))
+
+    # --- intercept / drift (adam.R:5928-5930); skip when NA for pts ---
+    if (!is.null(x$constant) && !is.na(x$constant))
+        cat("\nIntercept/Drift value:", round(x$constant, digits))
+
+    # --- MSOE innovation variances (pts analog of adam's persistence
+    #     vector g at adam.R:5947-5966).  Filter B to drop the ARMA / Beta
+    #     rows; what remains are the variances of state innovations. ---
+    B  <- coef(x)
+    nm <- names(B)
+    isArma <- grepl("^(AR|MA)\\(", nm)
+    isXreg <- grepl("^Beta",       nm)
+    vars   <- B[!(isArma | isXreg)]
+    if (length(vars) > 0){
+        cat("\nInnovation variances:\n")
+        # Variances live on whatever scale the BC residuals do, often very
+        # small (1e-5 .. 1e-3), so signif() preserves magnitude where
+        # round(., digits) would zero them out.
+        print(signif(vars, digits))
     }
+
+    # --- ARMA parameters of the irregular component (adam.R:5976-6013) ---
+    if (!is.null(x$orders) && (x$orders$ar > 0 || x$orders$ma > 0)){
+        cat("\nARMA parameters of the irregular component:\n")
+        if (x$orders$ar > 0){
+            arVals <- B[grepl("^AR\\(", nm)]
+            if (length(arVals)) print(round(arVals, digits))
+        }
+        if (x$orders$ma > 0){
+            maVals <- B[grepl("^MA\\(", nm)]
+            if (length(maVals)) print(round(maVals, digits))
+        }
+    }
+
+    # --- Beta block when the model carries xregs (PTS-specific addition,
+    #     since adam folds xreg info into the persistence vector header) ---
+    if (any(isXreg)){
+        cat("\nRegressor coefficients:\n")
+        print(signif(B[isXreg], digits))
+    }
+
+    # --- sample size / nparam / df (adam.R:6024-6026) ---
+    cat("\nSample size:", nobs(x))
+    cat("\nNumber of estimated parameters:", nparam(x))
+    cat("\nNumber of degrees of freedom:", nobs(x) - nparam(x))
+
+    # --- information criteria as a named vector (adam.R:6036-6039) ---
+    ICs <- c(AIC  = AIC(x),
+             AICc = AICc.pts(x),
+             BIC  = BIC(x),
+             BICc = BICc.pts(x))
+    cat("\nInformation criteria:\n")
+    print(round(ICs, digits))
+
     invisible(x)
 }
 

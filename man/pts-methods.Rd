@@ -14,7 +14,7 @@
 \alias{forecast.pts}
 \title{S3 methods for objects of class \code{pts}}
 \usage{
-\method{print}{pts}(x, ...)
+\method{print}{pts}(x, digits = 4, ...)
 
 \method{summary}{pts}(object, level = 0.95, ...)
 
@@ -50,6 +50,15 @@ Standard accessors and printing for fitted \code{pts}
 objects. \code{forecast(object, h)} generates forecasts from the fitted
 parameters without re-running the optimiser; \code{predict(object)}
 returns the in-sample fitted values.
+
+\code{print.pts} mirrors \code{smooth::print.adam}
+(\code{smooth/R/adam.R:5862}) section by section, substituting the
+PTS-specific MSOE concepts where ETS-specific ones do not apply:
+the "initialisation" line becomes the Box-Cox \eqn{\lambda} block, and
+the "Persistence vector g" block becomes the MSOE innovation variances
+(the same variances are otherwise the structural pieces of the B
+parameter vector).  The C++ validation diagnostics live on
+\code{$cppOutput} should the user want them.
 
 \code{forecast.pts} uses the C++ \code{forecastOnly} entry
 point: it skips re-estimation and just propagates the Kalman filter
