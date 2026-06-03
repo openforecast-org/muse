@@ -4,14 +4,23 @@
 # is the Box-Cox-scale innovation vector -- intentional, matches what
 # the validation table's diagnostics already assume.
 
+# sigma.pts -- mirrors sigma.adam (smooth/R/adam.R:6398-6431) for dnorm:
+#   sigma = sqrt( sum(residuals^2, na.rm=TRUE) / (nobs - nparam) )
+# Uses degrees of freedom (n - k) rather than the (n - 1) of stats::sd,
+# and does not subtract mean(residuals) (so it is consistent with adam's
+# log-likelihood-based loss).
 #' @export
-sigma.pts <- function(object, ...) sd(residuals(object), na.rm = TRUE)
+sigma.pts <- function(object, ...){
+    df <- nobs(object) - nparam(object)
+    if (df <= 0) df <- nobs(object)
+    sqrt(sum(residuals(object) ^ 2, na.rm = TRUE) / df)
+}
 
 #' @export
 extractSigma.pts <- function(object, ...) sigma.pts(object)
 
 #' @export
-extractScale.pts <- function(object, ...) sigma.pts(object)
+extractScale.pts <- function(object, ...) object$scale
 
 #' @export
 nparam.pts <- function(object, ...) object$nParam

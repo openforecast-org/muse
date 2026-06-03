@@ -5,8 +5,10 @@ y <- log(AirPassengers)
 m <- pts(y, model = "0NT", h = 12, holdout = TRUE)
 
 #### accessors ####
-test_that("sigma.pts returns sd of BC-scale innovations", {
-    expect_equal(sigma(m), sd(residuals(m), na.rm = TRUE), tolerance = 1e-12)
+test_that("sigma.pts uses the (n - k) df formula from sigma.adam", {
+    df <- nobs(m) - nparam(m)
+    expected <- sqrt(sum(residuals(m) ^ 2, na.rm = TRUE) / df)
+    expect_equal(sigma(m), expected, tolerance = 1e-12)
 })
 
 test_that("nparam.pts matches the stored nParam slot", {
@@ -47,9 +49,13 @@ test_that("AICc / BICc match the standard formulas", {
     expect_equal(BICc(m), -2*ll + (k * log(n) * n) / (n - k - 1),  tolerance = 1e-12)
 })
 
-test_that("extractSigma / extractScale equal sigma", {
+test_that("extractSigma equals sigma; extractScale returns the MLE scale", {
+    # extractSigma() is the same n - k formula as sigma().
     expect_equal(extractSigma(m), sigma(m))
-    expect_equal(extractScale(m), sigma(m))
+    # extractScale() returns the MLE scale of the distribution (the value
+    # adam stores in $scale, see smooth/R/adam.R:1777), NOT sigma -- they
+    # use different denominators.
+    expect_equal(extractScale(m), m$scale)
 })
 
 #### diagnostics ####
@@ -167,9 +173,22 @@ test_that("pts carries the adam slots that plot.smooth reads", {
     expect_equal(m$distribution, "dnorm")
     expect_equal(m$loss, "likelihood")
     expect_null(m$occurrence)
-    expect_null(m$persistence)
-    expect_null(m$phi)
-    expect_null(m$transition)
+    # adam-aligned slots PTS has no analog for are stored as NA (atomic) or
+    # NULL (list-typed) to mirror adam's storage at smooth/R/adam.R:578-612.
+    expect_true(is.na(m$persistence))
+    expect_true(is.na(m$phi))
+    expect_true(is.na(m$transition))
+    expect_true(is.na(m$measurement))
+    expect_true(is.na(m$initial))
+    expect_null(m$arma)
+    expect_null(m$formula)
+    expect_null(m$other)
+    # scale: MLE of dnorm, sqrt(sum(e^2, na.rm=TRUE) / nobs).
+    # Matches the dnorm branch of smooth's scaler() (adam.R:1777).
+    e <- residuals(m)
+    expect_equal(m$scale,
+                 sqrt(sum(e ^ 2, na.rm = TRUE) / nobs(m)),
+                 tolerance = 1e-12)
     # states: structural columns of comp (no Error / Fit), in-sample only.
     expect_true(is.matrix(m$states))
     # adam stores states as length nobs + 1 with row 1 = initial state at

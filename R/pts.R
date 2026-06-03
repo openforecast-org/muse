@@ -92,41 +92,35 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
 
     cachedFor <- if (h > 0) res$yFor else NULL
 
-    # Structural state evolution.  Mirror adam's storage convention
-    # (smooth/R/adam.R:574): an (nobs + 1) x nStates ts matrix anchored
-    # one period before the data so row 1 is the initial state at t = 0
-    # and rows 2..n+1 are the smoothed states at t = 1..n.  The C++ engine
-    # does not currently expose the initial state separately, so we fill
-    # row 1 with NA -- honest and harmless (plot.smooth's plot8 just shows
-    # a missing leftmost point).
+    # Structural state evolution: build the (nobs + 1) x nStates matrix
+    # (row 1 = initial state at t = 0, rows 2..n+1 = smoothed states), then
+    # let .pts_wrap_states attach the right ts/zoo time class with the
+    # leading row anchored at start(data) - one period (adam convention).
     statesMat <- NULL
     if (is.matrix(res$comp) && ncol(res$comp) >= 3){
         ns   <- length(y)
         cols <- setdiff(colnames(res$comp), c("Error", "Fit"))
         raw  <- res$comp[, cols, drop = FALSE]
-        if (nrow(raw) > ns){
-            if (is.ts(raw))
-                raw <- stats::window(raw, end = stats::time(y)[ns])
-            else
-                raw <- raw[seq_len(ns), , drop = FALSE]
-        }
+        if (nrow(raw) > ns) raw <- raw[seq_len(ns), , drop = FALSE]
         statesMat <- rbind(NA_real_, unclass(raw))
         colnames(statesMat) <- colnames(raw)
-        if (is.ts(y)){
-            yFreq <- stats::frequency(y)
-            t0    <- stats::time(y)[1] - 1 / yFreq
-            statesMat <- stats::ts(statesMat, start = t0, frequency = yFreq)
-        }
+        statesMat <- .pts_wrap_states(statesMat, y)
     }
+
+    # ARMA orders from the UC string (derived once so $orders is consistent
+    # with what the orders.pts accessor returns).
+    pq <- uc_to_arma(res$modelUC)
+    ordersList <- list(ar = as.integer(pq[1]), i = 0L, ma = as.integer(pq[2]))
 
     out <- list(
         ## --- inputs / spec ---
-        data       = y,                 # adam-aligned name (was $y)
+        data       = y,
         model      = uc_to_pts(res$modelUC, res$lambda),
         modelUC    = res$modelUC,       # pts-specific UC string
         lags       = lags,
+        lagsAll    = res$lagsAll,       # internal harmonic periods (C++ engine)
         lambda     = res$lambda,        # pts-specific Box-Cox parameter
-        ## --- parameters (adam name = B) ---
+        ## --- parameters ---
         B          = res$p,
         covp       = res$covp,          # vcov source (we have it directly; adam has $FI instead)
         nParam     = length(res$p),
@@ -140,12 +134,39 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
         forecast_args = res$forecast_args,
         ## --- likelihood + diagnostics ---
         logLik       = res$logLik,
-        table        = res$table,       # pts-specific C++ validation text block
+        lossValue    = -as.numeric(res$logLik),  # adam: CFValue
+        scale        = res$scale,                # MLE scale of dnorm
+        table        = res$table,                # pts-specific C++ validation text
         ## --- smooth/adam-aligned scalars for plot.smooth dispatch ---
         distribution = "dnorm",
         loss         = "likelihood",
-        occurrence   = NULL,            # is.occurrence(NULL) == FALSE
-        holdout      = NULL,            # overwritten below if holdout = TRUE
+        lossFunction = NULL,
+        occurrence   = NULL,                     # is.occurrence(NULL) == FALSE
+        holdout      = NULL,                     # overwritten below if holdout = TRUE
+        ## --- adam-aligned slots that PTS has no analog for; values
+        ## mirror what adam stores when the corresponding feature is
+        ## absent (smooth/R/adam.R:578-612).  NA for atomic; NULL for
+        ## list-typed.  Keeping them in the return list keeps `names(m)`
+        ## in line with adam so downstream tooling can introspect by name. ---
+        persistence      = NA_real_,
+        phi              = NA_real_,
+        transition       = NA,
+        measurement      = NA,
+        initial          = NA,
+        initialType      = NA_character_,
+        initialEstimated = NA,
+        orders           = ordersList,
+        arma             = NULL,
+        constant         = NA_real_,
+        formula          = NULL,
+        regressors       = NA_character_,
+        other            = NULL,
+        ets              = NA,
+        res              = NA,
+        FI               = NA,
+        adamCpp          = NA,
+        profile          = NULL,
+        profileInitial   = NULL,
         ## --- bookkeeping ---
         call         = cl,
         timeElapsed  = proc.time() - tic
