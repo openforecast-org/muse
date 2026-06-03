@@ -1129,33 +1129,24 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 objFunValue = datum::nan;
         }
         // ----------------------------------------------------------------
-        // LLIK on the ORIGINAL response scale, replacing the previous
-        // hand-rolled Gaussian formula
+        // LLIK on the ORIGINAL response scale.  Keep the engine's exact
+        // closed-form concentrated KF likelihood on the BC scale
         //     LLIK_BC = -0.5 * (n*log(2*pi) + nTrue * objFunValue)
-        // which lived on the Box-Cox-transformed scale and therefore was
-        // not comparable across different lambdas.
-        //
-        // Two paths:
-        // (a) Standard KF (`SSmodel::inputs.v` populated, length = n):
-        //     evaluate bcnormLogDensity element-wise with
-        //       mu_BC = y_BC - v   (= one-step predictor Z * a_{t|t-1})
-        //       sigma = sqrt(innVariance)
-        //     and sum.  This matches greybox's dbcnorm-based likelihood
-        //     for distribution = "dbcnorm" (alm.R:641-643).
-        // (b) Augmented KF / xreg path (v is empty at this point):
-        //     keep the engine's exact concentrated KF likelihood on the
-        //     BC scale and add the Box-Cox Jacobian
-        //       (lambda - 1) * sum(log y_orig)
-        //     analytically.  Mathematically equivalent.
+        // -- this is what the optimiser converged on and what the legacy
+        // identification logic ranked candidates by -- then add the
+        // Box-Cox Jacobian
+        //     (lambda - 1) * sum(log y_orig)
+        // to lift the value onto the original response scale (greybox
+        // dbcnorm convention; bcnorm.R:79).  For lambda in the engine's
+        // identity band (lambda > 0.98) the Jacobian is zero, so LLIK
+        // equals LLIK_BC exactly -- preserving fixed-lambda ident-sweep
+        // ordering.  bcnormLogDensity sums element-wise and would count
+        // a slightly different observation set than nTrue, which shifted
+        // per-candidate LLIK non-uniformly and made the engine pick
+        // under-parametrised seasonals on AirPassengers (the previously
+        // reported "fitted lagging by 3" symptom).
         if (!std::isfinite(objFunValue)){
                 LLIK = datum::nan;
-        } else if (SSmodel::inputs.v.n_elem == SSmodel::inputs.y.n_elem){
-                vec y_orig   = invBoxCox(SSmodel::inputs.y, inputs.lambda);
-                vec mu_bc    = SSmodel::inputs.y - SSmodel::inputs.v;
-                double sigma = std::sqrt(SSmodel::inputs.innVariance);
-                vec ll_vec   = bcnormLogDensity(y_orig, mu_bc, sigma, inputs.lambda);
-                uvec finite  = find_finite(ll_vec);
-                LLIK = finite.n_elem > 0 ? accu(ll_vec.elem(finite)) : datum::nan;
         } else {
                 double LLIK_BC = -0.5 * (log(2*datum::pi) * nNan2pi + nTrue * objFunValue);
                 double jac     = 0.0;
@@ -1167,14 +1158,16 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 }
                 LLIK = LLIK_BC + jac;
         }
-        // k follows R's nparam(m) convention (matches adam / nparam.pts):
-        // count the optimised parameters not concentrated out (p.n_elem -
-        // cLlik) plus outlier dummies.  The previous "+ nonStationaryTerms"
-        // term -- the Harvey-style diffuse initial state DoF -- has been
-        // dropped so the engine's criteria(1..4) line up exactly with what
-        // stats::AIC / greybox::AICc / BICc report on the R side from the
-        // same LLIK.
-        infoCriteria(LLIK, p.n_elem - SSmodel::inputs.cLlik + SSmodel::inputs.u.n_rows,
+        // k INCLUDES nonStationaryTerms (the Harvey-style diffuse initial-
+        // state DoF), because estimUCs's selection and the ident()/outlier
+        // paths need that penalty to rank candidates correctly -- candidates
+        // with bigger seasonal/cycle blocks carry more diffuse states, and
+        // dropping the term flips the AIC ordering.  The verbose
+        // identification table recomputes its own AIC/BIC/AICc/BICc using
+        // the adam-style k (no nonStationaryTerms) in estimUCs so the
+        // printed values still line up with stats::AIC / greybox::AICc on
+        // the R side from the same LLIK.
+        infoCriteria(LLIK, p.n_elem - SSmodel::inputs.cLlik + SSmodel::inputs.u.n_rows + SSmodel::inputs.nonStationaryTerms,
                      nNan2pi, AIC, BIC, AICc, BICc);
         vec criteria(5);
         criteria(0) = LLIK;
