@@ -26,13 +26,13 @@
 
 \method{vcov}{pts}(object, ...)
 
-\method{nobs}{pts}(object, ...)
+\method{nobs}{pts}(object, all = FALSE, ...)
 
 \method{logLik}{pts}(object, ...)
 
 \method{predict}{pts}(object, newdata = NULL, ...)
 
-\method{forecast}{pts}(object, h = 10, level = 0.95, ...)
+\method{forecast}{pts}(object, h = 10, level = 0.95, newdata = NULL, ...)
 }
 \arguments{
 \item{x, object}{A fitted object of class \code{"pts"}.}

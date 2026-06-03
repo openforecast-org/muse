@@ -61,6 +61,36 @@ uc_to_pts <- function(modelUC, lambda){
             seasonalLetter)
 }
 
+# .pts_orders_to_uc: turn adam-style orders = list(ar, ma, select) into the
+# (ar, ma) tuple + select flag that the UC engine consumes.  PTS has no
+# differencing (engine has no `i` flow) and ARMA only sits on the irregular
+# component, so we validate i == 0 (when supplied) and reject negatives.
+.pts_orders_to_uc <- function(orders){
+    if (is.null(orders)) orders <- list()
+    ar <- if (is.null(orders$ar)) 0L else as.integer(orders$ar[1])
+    ma <- if (is.null(orders$ma)) 0L else as.integer(orders$ma[1])
+    sel <- isTRUE(orders$select)
+    if (!is.null(orders$i) && any(orders$i != 0))
+        stop("`orders$i` (differencing) is not supported by PTS — ",
+             "PTS has no I component.", call. = FALSE)
+    if (ar < 0 || ma < 0)
+        stop("`orders$ar` and `orders$ma` must be non-negative integers.",
+             call. = FALSE)
+    list(ar = ar, ma = ma, select = sel)
+}
+
+# .pts_ic_to_engine: map adam-style ic (AICc / AIC / BIC / BICc) to the
+# engine's lowercase criterion.  BICc collapses to BIC at the engine level;
+# the small-sample correction is computed in R via BICc.pts.
+.pts_ic_to_engine <- function(ic){
+    ic <- match.arg(ic, c("AICc", "AIC", "BIC", "BICc"))
+    switch(ic,
+           "AICc" = "aicc",
+           "AIC"  = "aic",
+           "BIC"  = "bic",
+           "BICc" = "bic")
+}
+
 # uc_to_arma: pull (p, q) out of "arma(p,q)" embedded in a UC string.
 uc_to_arma <- function(model){
     p1 <- regexpr("arma", model, fixed = TRUE)[1]

@@ -5,14 +5,17 @@
 \alias{auto.pts}
 \title{pts: Power / Trend / Seasonal state-space model}
 \usage{
-pts(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
-  holdout = FALSE, criterion = c("aic", "bic", "aicc"),
-  armaIdent = FALSE, verbose = FALSE, u = NULL)
+pts(data, model = "ZZZ", lags = stats::frequency(data), orders = list(ar
+  = 0, ma = 0, select = FALSE), formula = NULL, regressors = c("use"),
+  ic = c("AICc", "AIC", "BIC", "BICc"), h = 0, holdout = FALSE,
+  verbose = FALSE)
 
-auto.pts(y, ...)
+auto.pts(data, ...)
 }
 \arguments{
-\item{y}{univariate time series (numeric vector or \code{ts}).}
+\item{data}{response series.  Either a univariate \code{ts} / \code{zoo} /
+numeric vector, OR a matrix / \code{data.frame} whose first column is the
+response and whose remaining columns are external regressors (xregs).}
 
 \item{model}{3-letter PTS specification string.  The three positions
 encode Power / Trend / Seasonal:
@@ -26,25 +29,35 @@ encode Power / Trend / Seasonal:
     linear), \code{T} (trigonometric / equal).
 }}
 
-\item{lags}{seasonal period (default \code{frequency(y)}).}
+\item{lags}{seasonal period (default \code{frequency(data)}).}
+
+\item{orders}{list \code{list(ar, ma, select)} controlling the ARMA part of
+the irregular component.  \code{ar} / \code{ma} are non-negative integers
+(default 0); \code{select = TRUE} asks the engine to search ARMA orders
+(replaces the old \code{armaIdent} flag).  PTS has no differencing, so
+\code{orders$i} must be 0 if supplied.}
+
+\item{formula}{optional formula \code{response ~ x1 + x2 + ...}; only
+meaningful when \code{data} is a matrix or \code{data.frame}.  Used to
+pick the response column + xreg columns explicitly.}
+
+\item{regressors}{handling of xregs.  Currently only \code{"use"}
+(apply all supplied xregs as fixed-coefficient covariates).  Adam's
+\code{"select"} and \code{"adapt"} modes are not yet implemented.}
+
+\item{ic}{information criterion for automatic model selection; one of
+\code{"AICc"} (default), \code{"AIC"}, \code{"BIC"}, \code{"BICc"}.
+Matches the adam option set.}
 
 \item{h}{forecast horizon. If \code{h > 0} a forecast is computed at fit
 time and cached on the object; \code{forecast(object, h)} can later
 recompute for a different horizon cheaply.}
 
 \item{holdout}{logical. If \code{TRUE} and \code{h > 0}, the last \code{h}
-observations of \code{y} are withheld from estimation and returned in
+observations of \code{data} are withheld from estimation and returned in
 \code{$holdout} for later accuracy assessment.}
 
-\item{criterion}{information criterion used for automatic model selection
-(\code{"aic"}, \code{"bic"} or \code{"aicc"}).}
-
-\item{armaIdent}{logical: search for an ARMA structure in the irregular
-component.}
-
 \item{verbose}{logical: print intermediate optimisation output.}
-
-\item{u}{optional matrix of external regressors.}
 }
 \value{
 An object of class \code{c("pts", "smooth")}.  Slot names mirror
@@ -77,7 +90,7 @@ the \pkg{smooth} family: \code{pts()} estimates the model, and
 \code{\link{forecast.pts}} produces forecasts from the fitted object
 without re-estimating.
 
-\code{auto.pts(y, ...)} is a thin wrapper that forces full
+\code{auto.pts(data, ...)} is a thin wrapper that forces full
   automatic selection (\code{model = "ZZZ"}).
 }
 \seealso{

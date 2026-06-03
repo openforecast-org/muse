@@ -1,5 +1,42 @@
 # Internal helpers used by pts() and forecast.pts(). Not exported.
 
+# .pts_parse_data: extract a response vector + regressor matrix from any of
+# the input shapes pts() accepts.  Returns
+#   list(y = <response>, u = <NULL or k x n matrix>,
+#        responseName = <string>, formula = <formula or NULL>)
+#
+# Behaviour matches adam-style data handling (smooth/R/adamGeneral.R:56-119)
+# but PTS supports only the univariate-response case: matrix / data.frame
+# inputs use column 1 as the response and the remaining columns as xreg
+# unless a `formula` is supplied to pin them explicitly.
+.pts_parse_data <- function(data, formula = NULL){
+    # Vector / ts / zoo -> univariate response, no xreg
+    if (is.null(dim(data))){
+        if (!is.null(formula))
+            stop("formula is only meaningful when `data` is a matrix or ",
+                 "data.frame.", call. = FALSE)
+        return(list(y = data, u = NULL, responseName = "y", formula = NULL))
+    }
+
+    if (!is.null(formula)){
+        # Build a model frame so categorical xregs / interactions just work
+        mf <- stats::model.frame(formula, data = as.data.frame(data))
+        responseName <- all.vars(formula)[1L]
+        y    <- stats::model.response(mf)
+        mm   <- stats::model.matrix(stats::terms(mf), mf)
+        keep <- !colnames(mm) %in% "(Intercept)"
+        u    <- if (any(keep)) t(mm[, keep, drop = FALSE]) else NULL
+    } else {
+        # No formula: column 1 is response, columns 2..k are xreg
+        if (is.data.frame(data)) data <- as.matrix(data)
+        responseName <- if (!is.null(colnames(data))) colnames(data)[1L]
+                        else "y"
+        y <- data[, 1L]
+        u <- if (ncol(data) > 1L) t(data[, -1L, drop = FALSE]) else NULL
+    }
+    list(y = y, u = u, responseName = responseName, formula = formula)
+}
+
 # .pts_uc_inputs: marshal y / u / model / horizon / options into the exact
 # argument list the C++ UCompC entry point expects. Returns a named list
 # that we pass to UCompC and also stash on the pts object for forecast.pts.
@@ -319,12 +356,41 @@
 # .pts_forecast_inputs: rebuild the UCompC argument list from a fitted
 # pts object, using slot values directly so we don't need a separate
 # $forecast_args cache.  Used by forecast.pts (forecastOnly path).
-.pts_forecast_inputs <- function(object, h){
-    # u: NULL -> sentinel; vector -> 1xn matrix; matrix passed through
+#
+# When the model has regressors (object$u is non-NULL), forecast.pts
+# requires `newdata` with at least `h` rows of future xreg values; this
+# helper concatenates object$u (k x n) with t(newdata)[, 1:h] (k x h)
+# into the (k x (n + h)) matrix the engine wants -- the C++ side reads
+# `u.col(n + i)` at SSpace.h:286 during the forecast loop.
+.pts_forecast_inputs <- function(object, h, newdata = NULL){
     u <- object$u
-    if (is.null(u))                u_mat <- matrix(0, 1, 2)
-    else if (is.null(dim(u)))      u_mat <- matrix(u, 1, length(u))
-    else                           u_mat <- if (nrow(u) > ncol(u)) t(u) else u
+    if (is.null(u)){
+        if (!is.null(newdata))
+            stop("`newdata` was supplied but the fitted model has no ",
+                 "regressors.", call. = FALSE)
+        u_mat <- matrix(0, 1, 2)
+    } else {
+        # u is k x n_train (built that way in .pts_parse_data)
+        if (is.null(newdata))
+            stop("This model was fitted with regressors; please supply ",
+                 "`newdata` containing at least `h` rows of future ",
+                 "regressor values.", call. = FALSE)
+        # Bring newdata into the same (rows = obs, cols = vars) layout as
+        # the original `data` matrix the user passed to pts(); then
+        # transpose to k x h for column-bind with the engine's `u`.
+        if (is.data.frame(newdata)) newdata <- as.matrix(newdata)
+        if (is.null(dim(newdata)))  newdata <- matrix(newdata, ncol = 1L)
+        if (nrow(newdata) < h)
+            stop("`newdata` must have at least `h` rows of regressor ",
+                 "values; got ", nrow(newdata), " for h = ", h, ".",
+                 call. = FALSE)
+        if (ncol(newdata) != nrow(u))
+            stop("`newdata` has ", ncol(newdata), " column(s); the fitted ",
+                 "model expects ", nrow(u), " (one column per regressor).",
+                 call. = FALSE)
+        u_future <- t(newdata[seq_len(h), , drop = FALSE])
+        u_mat    <- cbind(u, u_future)
+    }
     list(
         y                = as.numeric(object$data),
         u                = u_mat,

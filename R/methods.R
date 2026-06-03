@@ -101,12 +101,14 @@ predict.pts <- function(object, newdata = NULL, ...){
 #' \code{h} steps forward from the fitted state, so changing \code{h} is
 #' cheap.
 #' @export
-forecast.pts <- function(object, h = 10, level = 0.95, ...){
+forecast.pts <- function(object, h = 10, level = 0.95, newdata = NULL, ...){
     if (!is.numeric(h) || length(h) != 1 || h < 1)
         stop("`h` must be a positive integer.", call. = FALSE)
     # Reconstruct the UCompC inputs from the fitted object's slots; no
-    # need for a separate $forecast_args cache.
-    args <- .pts_forecast_inputs(object, h)
+    # need for a separate $forecast_args cache.  When the model was fit
+    # with regressors, newdata supplies their future values for the
+    # forecast horizon (see .pts_forecast_inputs).
+    args <- .pts_forecast_inputs(object, h, newdata = newdata)
     out  <- .pts_call_uc("forecastOnly", args)
 
     # Engine returns yFor / yForV on the Box-Cox scale.  Build the

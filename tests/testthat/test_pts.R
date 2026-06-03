@@ -38,13 +38,15 @@ test_that("pts holdout splits y", {
     expect_equal(nobs(m), length(y) - 12)
 })
 
-test_that("pts criterion argument is honoured", {
-    expect_silent(m_aic  <- pts(y, model = "0NT", h = 12, criterion = "aic"))
-    expect_silent(m_bic  <- pts(y, model = "0NT", h = 12, criterion = "bic"))
-    expect_silent(m_aicc <- pts(y, model = "0NT", h = 12, criterion = "aicc"))
+test_that("pts ic argument is honoured (adam-style options)", {
+    expect_silent(m_aicc <- pts(y, model = "0NT", h = 12, ic = "AICc"))
+    expect_silent(m_aic  <- pts(y, model = "0NT", h = 12, ic = "AIC"))
+    expect_silent(m_bic  <- pts(y, model = "0NT", h = 12, ic = "BIC"))
+    expect_silent(m_bicc <- pts(y, model = "0NT", h = 12, ic = "BICc"))
+    expect_equal(m_aic$ic,  "AIC")
+    expect_equal(m_aicc$ic, "AICc")
     expect_equal(length(m_aic$forecast),  12)
-    expect_equal(length(m_bic$forecast),  12)
-    expect_equal(length(m_aicc$forecast), 12)
+    expect_equal(length(m_bicc$forecast), 12)
 })
 
 #### auto.pts ####
@@ -176,4 +178,55 @@ test_that("forecast() round-trips with the cached yFor on the original scale", {
     # numerical noise) demonstrates the back-transform is identical in
     # both the `all` and `forecastOnly` code paths.
     expect_equal(as.numeric(f$mean), as.numeric(m$forecast), tolerance = 1e-10)
+})
+
+#### data + formula + regressors ####
+test_that("pts() accepts a matrix; column 1 is the response", {
+    xreg <- seq_along(y) / length(y)
+    M    <- cbind(y = as.numeric(y), x = xreg)
+    m    <- pts(M, model = "0NT", h = 0)
+    expect_s3_class(m, "pts")
+    expect_equal(m$responseName, "y")
+    # Engine sees the regressor: $u is k x n with k = 1
+    expect_equal(nrow(m$u), 1L)
+    expect_equal(ncol(m$u), length(y))
+    # A "Beta(1)" coefficient row is present in the C++ par-names list
+    expect_true(any(grepl("^Beta", names(coef(m)))))
+})
+
+test_that("pts() accepts a formula on a data.frame", {
+    df  <- data.frame(y = as.numeric(y),
+                      x = seq_along(y) / length(y))
+    m_M <- pts(cbind(df$y, df$x), model = "0NT", h = 0)
+    m_F <- pts(df, formula = y ~ x, model = "0NT", h = 0)
+    # The two paths feed the engine identical inputs, so the fits agree
+    expect_equal(as.numeric(coef(m_F)), as.numeric(coef(m_M)),
+                 tolerance = 1e-10)
+    expect_equal(m_F$responseName, "y")
+})
+
+test_that("forecast.pts(newdata = …) supplies future xreg values", {
+    df    <- data.frame(y = as.numeric(y),
+                        x = seq_along(y) / length(y))
+    m_xy  <- pts(df, formula = y ~ x, model = "0NT", h = 0)
+    nd    <- data.frame(x = (length(y) + 1:12) / length(y))
+    f     <- forecast(m_xy, h = 12, newdata = nd)
+    expect_equal(length(f$mean), 12L)
+    expect_true(all(is.finite(as.numeric(f$mean))))
+})
+
+test_that("forecast.pts errors helpfully when newdata is missing / wrong shape", {
+    df    <- data.frame(y = as.numeric(y),
+                        x = seq_along(y) / length(y))
+    m_xy  <- pts(df, formula = y ~ x, model = "0NT", h = 0)
+    expect_error(forecast(m_xy, h = 12), "newdata")
+    expect_error(forecast(m_xy, h = 12, newdata = data.frame(x = 1:3)),
+                 "must have at least")
+})
+
+test_that("orders argument replaces the old armaIdent flag", {
+    m_sel <- pts(y, model = "0NT", h = 0,
+                 orders = list(ar = 0, ma = 0, select = TRUE))
+    expect_s3_class(m_sel, "pts")
+    expect_true(m_sel$orders$select)
 })

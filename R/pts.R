@@ -7,7 +7,9 @@
 #' \code{\link{forecast.pts}} produces forecasts from the fitted object
 #' without re-estimating.
 #'
-#' @param y univariate time series (numeric vector or \code{ts}).
+#' @param data response series.  Either a univariate \code{ts} / \code{zoo} /
+#' numeric vector, OR a matrix / \code{data.frame} whose first column is the
+#' response and whose remaining columns are external regressors (xregs).
 #' @param model 3-letter PTS specification string.  The three positions
 #' encode Power / Trend / Seasonal:
 #' \itemize{
@@ -19,19 +21,28 @@
 #'   \item Seasonal: \code{Z} (auto), \code{N} (none), \code{D} (discrete /
 #'     linear), \code{T} (trigonometric / equal).
 #' }
-#' @param lags seasonal period (default \code{frequency(y)}).
+#' @param lags seasonal period (default \code{frequency(data)}).
+#' @param orders list \code{list(ar, ma, select)} controlling the ARMA part of
+#' the irregular component.  \code{ar} / \code{ma} are non-negative integers
+#' (default 0); \code{select = TRUE} asks the engine to search ARMA orders
+#' (replaces the old \code{armaIdent} flag).  PTS has no differencing, so
+#' \code{orders$i} must be 0 if supplied.
+#' @param formula optional formula \code{response ~ x1 + x2 + ...}; only
+#' meaningful when \code{data} is a matrix or \code{data.frame}.  Used to
+#' pick the response column + xreg columns explicitly.
+#' @param regressors handling of xregs.  Currently only \code{"use"}
+#' (apply all supplied xregs as fixed-coefficient covariates).  Adam's
+#' \code{"select"} and \code{"adapt"} modes are not yet implemented.
+#' @param ic information criterion for automatic model selection; one of
+#' \code{"AICc"} (default), \code{"AIC"}, \code{"BIC"}, \code{"BICc"}.
+#' Matches the adam option set.
 #' @param h forecast horizon. If \code{h > 0} a forecast is computed at fit
 #' time and cached on the object; \code{forecast(object, h)} can later
 #' recompute for a different horizon cheaply.
 #' @param holdout logical. If \code{TRUE} and \code{h > 0}, the last \code{h}
-#' observations of \code{y} are withheld from estimation and returned in
+#' observations of \code{data} are withheld from estimation and returned in
 #' \code{$holdout} for later accuracy assessment.
-#' @param criterion information criterion used for automatic model selection
-#' (\code{"aic"}, \code{"bic"} or \code{"aicc"}).
-#' @param armaIdent logical: search for an ARMA structure in the irregular
-#' component.
 #' @param verbose logical: print intermediate optimisation output.
-#' @param u optional matrix of external regressors.
 #'
 #' @return An object of class \code{c("pts", "smooth")}.  Slot names mirror
 #' \code{smooth::adam()}'s return list where the concept is shared; pts-only
@@ -59,38 +70,60 @@
 #'
 #' @template authors
 #' @export
-pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
-                holdout = FALSE, criterion = c("aic", "bic", "aicc"),
-                armaIdent = FALSE, verbose = FALSE, u = NULL){
+pts <- function(data,
+                model      = "ZZZ",
+                lags       = stats::frequency(data),
+                orders     = list(ar = 0, ma = 0, select = FALSE),
+                formula    = NULL,
+                regressors = c("use"),
+                ic         = c("AICc", "AIC", "BIC", "BICc"),
+                h          = 0,
+                holdout    = FALSE,
+                verbose    = FALSE){
     cl  <- match.call()
     tic <- proc.time()
-    criterion <- match.arg(criterion)
+    regressors <- match.arg(regressors)
+    ic         <- match.arg(ic)
+    criterion  <- .pts_ic_to_engine(ic)
+    ordersUC   <- .pts_orders_to_uc(orders)
     if (!is.numeric(h) || length(h) != 1 || h < 0)
         stop("`h` must be a non-negative integer.", call. = FALSE)
+
+    # Split the user-supplied `data` into the response vector y plus an
+    # optional xreg matrix u.  Vector / ts / zoo go through unchanged;
+    # matrix / data.frame either follow `formula` or default to "col 1 is
+    # response, cols 2..k are xregs".
+    parsed <- .pts_parse_data(data, formula = formula)
+    y      <- parsed$y
+    u      <- parsed$u
 
     held <- NULL
     if (holdout && h > 0){
         if (length(y) <= h)
-            stop("`holdout = TRUE` requires `length(y) > h`.", call. = FALSE)
+            stop("`holdout = TRUE` requires `length(data) > h`.", call. = FALSE)
         n <- length(y) - h
         if (is.ts(y)){
             held <- stats::window(y, start = stats::time(y)[n + 1L])
             y    <- stats::window(y, end   = stats::time(y)[n])
+        } else if (inherits(y, "zoo")){
+            held <- y[(n + 1L):length(y)]
+            y    <- y[seq_len(n)]
         } else {
             held <- y[(n + 1L):length(y)]
             y    <- y[seq_len(n)]
         }
+        if (!is.null(u)){
+            # u is k x N; split column-wise to keep the kxn / kxh shapes.
+            u_held <- u[, (n + 1L):ncol(u), drop = FALSE]
+            u      <- u[, seq_len(n),       drop = FALSE]
+        }
     }
 
-    # pts() never builds the forecast on the user's behalf when h = 0
-    # (the default); when h > 0 the C++ "all" command returns a length-h
-    # forecast that we cache on $forecast as a convenience.  The full
-    # UCompC call set used by forecast.pts is rebuilt from object slots
-    # by .pts_forecast_inputs(), so no $forecast_args cache is kept.
     res <- .pts_fit(y = y, u = u, model = model, lags = lags,
                     h = as.integer(h),
-                    criterion = criterion, armaIdent = armaIdent,
-                    verbose = verbose)
+                    criterion = criterion,
+                    armaIdent = ordersUC$select,
+                    verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).
     # When h == 0 we still populate $forecast with a 1-period NA placeholder
     # anchored at the next observation, mirroring adam.R:572:
@@ -114,16 +147,23 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
     }
 
     # ARMA orders from the UC string (derived once so $orders is consistent
-    # with what the orders.pts accessor returns).
+    # with what the orders.pts accessor returns).  We carry the user's
+    # `select` flag through so a model fitted with orders$select = TRUE
+    # reports that in its $orders slot too.
     pq <- uc_to_arma(res$modelUC)
-    ordersList <- list(ar = as.integer(pq[1]), i = 0L, ma = as.integer(pq[2]))
+    ordersList <- list(ar = as.integer(pq[1]), i = 0L, ma = as.integer(pq[2]),
+                       select = ordersUC$select)
 
     out <- list(
         ## --- inputs / spec ---
         # data: same wrapping convention as adam (.pts_wrap_in handles the
         # yClasses promotion + ts/zoo branch at adam.R:4489-4499).
         data       = .pts_wrap_in(y, y),
-        u          = u,                 # NULL when there are no regressors
+        u            = u,                # NULL when there are no regressors
+        formula      = parsed$formula,
+        responseName = parsed$responseName,
+        regressors   = regressors,       # adam-aligned: "use" only for now
+        ic           = ic,               # adam-style criterion name (AICc/...)
         model      = uc_to_pts(res$modelUC, res$lambda),
         modelUC    = res$modelUC,       # pts-specific UC string
         lags       = lags,
@@ -167,8 +207,6 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
         orders           = ordersList,
         arma             = NULL,
         constant         = NA_real_,
-        formula          = NULL,
-        regressors       = NA_character_,
         other            = NULL,
         ets              = NA,
         res              = NA,
@@ -186,9 +224,9 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
 }
 
 #' @rdname pts
-#' @description \code{auto.pts(y, ...)} is a thin wrapper that forces full
+#' @description \code{auto.pts(data, ...)} is a thin wrapper that forces full
 #'   automatic selection (\code{model = "ZZZ"}).
 #' @export
-auto.pts <- function(y, ...){
-    pts(y, model = "ZZZ", ...)
+auto.pts <- function(data, ...){
+    pts(data, model = "ZZZ", ...)
 }
