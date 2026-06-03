@@ -53,35 +53,11 @@ summary.pts <- function(object, ...){
 
 #' @rdname pts-methods
 #' @export
-fitted.pts <- function(object, ...){
-    # In-sample fitted values only (length nobs(object)).  The cached
-    # $fitted slot has nrow(comp) = n + h_fit entries; truncate so the
-    # length matches actuals() and smooth's plot.smooth can align them.
-    f <- object$fitted
-    n <- length(object$y)
-    if (length(f) > n) {
-        if (is.ts(f))
-            f <- stats::window(f, end = stats::time(object$y)[n])
-        else
-            f <- f[seq_len(n)]
-    }
-    f
-}
+fitted.pts <- function(object, ...) object$fitted
 
 #' @rdname pts-methods
 #' @export
-residuals.pts <- function(object, ...){
-    # In-sample BC-scale innovations only; match length(y).
-    r <- object$residuals
-    n <- length(object$y)
-    if (length(r) > n){
-        if (is.ts(r))
-            r <- stats::window(r, end = stats::time(object$y)[n])
-        else
-            r <- r[seq_len(n)]
-    }
-    r
-}
+residuals.pts <- function(object, ...) object$residuals
 
 #' @rdname pts-methods
 #' @export
@@ -93,7 +69,7 @@ vcov.pts <- function(object, ...) object$covp
 
 #' @rdname pts-methods
 #' @export
-nobs.pts <- function(object, ...) sum(!is.na(object$y))
+nobs.pts <- function(object, ...) sum(!is.na(object$data))
 
 #' @rdname pts-methods
 #' @export
@@ -134,8 +110,8 @@ forecast.pts <- function(object, h = 10, level = 0.95, ...){
     #   lower_orig = invBoxCox(yFor_bc - z*se),  upper_orig = invBoxCox(yFor_bc + z*se)
     # This preserves coverage and gives asymmetric intervals on the
     # original scale whenever lambda != 1.
-    yFor_bc <- .pts_ts_forecast(as.numeric(out$yFor),  object$y)
-    yForV   <- .pts_ts_forecast(as.numeric(out$yForV), object$y)
+    yFor_bc <- .pts_ts_forecast(as.numeric(out$yFor),  object$data)
+    yForV   <- .pts_ts_forecast(as.numeric(out$yForV), object$data)
     z       <- stats::qnorm(1 - (1 - level) / 2)
     se      <- sqrt(yForV)
     lambda  <- args$lambda

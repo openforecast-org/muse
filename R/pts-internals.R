@@ -162,9 +162,19 @@
     # fitted on the original scale (back-transformed from comp[, "Fit"]).
     # residuals stay as the engine's BC-scale innovations -- they are the
     # white-noise sequence used by the validation table's diagnostics.
+    # Both are truncated to in-sample length here (matching adam's storage
+    # convention; see smooth/R/adam.R:558-560) so plot.smooth / cbind on
+    # ts objects align naturally with actuals.
+    ns        <- length(y)
     fittedBC  <- if (is.matrix(comp)) comp[, "Fit"]   else NA_real_
     residuals <- if (is.matrix(comp)) comp[, "Error"] else NA_real_
     fitted    <- if (is.matrix(comp)) .inv_box_cox(fittedBC, out$lambda) else NA_real_
+    truncToNs <- function(x){
+        if (length(x) <= ns) return(x)
+        if (is.ts(x)) stats::window(x, end = stats::time(y)[ns]) else x[seq_len(ns)]
+    }
+    fitted    <- truncToNs(fitted)
+    residuals <- truncToNs(residuals)
 
     # Information criteria
     crit <- as.numeric(out$criteria)

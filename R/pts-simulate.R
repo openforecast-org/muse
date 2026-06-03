@@ -39,10 +39,10 @@ simulate.pts <- function(object, nsim = 1, seed = NULL,
 
     paths <- as.matrix(out$simPaths)        # h x nsim, original scale
     # Anchor as a ts matrix starting one period after the last observation.
-    if (is.ts(object$y)){
-        fy <- stats::frequency(object$y)
-        sy <- stats::start(object$y, frequency = fy)
-        aux <- stats::ts(rep(NA_real_, length(object$y) + 1L),
+    if (is.ts(object$data)){
+        fy <- stats::frequency(object$data)
+        sy <- stats::start(object$data, frequency = fy)
+        aux <- stats::ts(rep(NA_real_, length(object$data) + 1L),
                          start = sy, frequency = fy)
         paths <- stats::ts(paths, start = stats::end(aux), frequency = fy)
     }

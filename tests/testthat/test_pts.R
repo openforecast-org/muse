@@ -29,7 +29,7 @@ test_that("pts honours h = 0 (no cached forecast)", {
 
 test_that("pts holdout splits y", {
     m <- pts(y, model = "0NT", h = 12, holdout = TRUE)
-    expect_equal(length(m$y), length(y) - 12)
+    expect_equal(length(m$data), length(y) - 12)
     expect_equal(length(m$holdout), 12)
     expect_equal(nobs(m), length(y) - 12)
 })
@@ -109,7 +109,7 @@ test_that("base generics dispatch correctly", {
     m <- pts(y, model = "0NT", h = 12)
     # fitted / residuals are exposed in-sample only; truncate the cached
     # full trajectories to match.
-    n <- length(m$y)
+    n <- length(m$data)
     expect_equal(as.numeric(fitted(m)),    as.numeric(m$fitted)[seq_len(n)])
     expect_equal(as.numeric(residuals(m)), as.numeric(m$residuals)[seq_len(n)])
     expect_identical(coef(m),              m$B)
@@ -121,7 +121,7 @@ test_that("fitted() and yFor are on the original scale (lambda = 1 -> identity)"
     expect_equal(m$lambda, 1)
     # With lambda = 1 the engine's BoxCox is the identity, so fitted ==
     # comp[, "Fit"] (in-sample portion).
-    n <- length(m$y)
+    n <- length(m$data)
     expect_equal(as.numeric(fitted(m)),
                  as.numeric(m$comp[, "Fit"])[seq_len(n)])
 })
@@ -131,7 +131,7 @@ test_that("fitted() and yFor are back-transformed when lambda = 0 (log/exp)", {
     expect_equal(m$lambda, 0)
     # comp[, "Fit"] is the engine's level on the BC scale (= log(y_scale)).
     # fitted() should be its exp(.) inverse on the original scale, in-sample.
-    n <- length(m$y)
+    n <- length(m$data)
     expect_equal(as.numeric(fitted(m)),
                  exp(as.numeric(m$comp[, "Fit"]))[seq_len(n)])
     # m$forecast is the cached forecast on the original scale.
@@ -146,7 +146,7 @@ test_that("fitted() matches a handcrafted inverse Box-Cox when 0 < lambda < 1", 
     m <- pts(y, model = "0.5NT", h = 6)
     expect_equal(m$lambda, 0.5)
     bc  <- as.numeric(m$comp[, "Fit"])
-    n   <- length(m$y)
+    n   <- length(m$data)
     # invBoxCox(z, 0.5) = (0.5*z + 1)^2, in-sample only
     expect_equal(as.numeric(fitted(m)), ((0.5 * bc + 1) ^ 2)[seq_len(n)])
 })

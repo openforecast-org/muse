@@ -92,25 +92,36 @@ pts <- function(y, model = "ZZZ", lags = stats::frequency(y), h = 0,
 
     cachedFor <- if (h > 0) res$yFor else NULL
 
-    # Structural state evolution (adam-aligned): comp without Error / Fit,
-    # truncated to in-sample length so plot.smooth's plot8 (which = 11, 12)
-    # can cbind residuals to it.
+    # Structural state evolution.  Mirror adam's storage convention
+    # (smooth/R/adam.R:574): an (nobs + 1) x nStates ts matrix anchored
+    # one period before the data so row 1 is the initial state at t = 0
+    # and rows 2..n+1 are the smoothed states at t = 1..n.  The C++ engine
+    # does not currently expose the initial state separately, so we fill
+    # row 1 with NA -- honest and harmless (plot.smooth's plot8 just shows
+    # a missing leftmost point).
     statesMat <- NULL
     if (is.matrix(res$comp) && ncol(res$comp) >= 3){
         ns   <- length(y)
         cols <- setdiff(colnames(res$comp), c("Error", "Fit"))
-        statesMat <- res$comp[, cols, drop = FALSE]
-        if (nrow(statesMat) > ns){
-            if (is.ts(statesMat))
-                statesMat <- stats::window(statesMat, end = stats::time(y)[ns])
+        raw  <- res$comp[, cols, drop = FALSE]
+        if (nrow(raw) > ns){
+            if (is.ts(raw))
+                raw <- stats::window(raw, end = stats::time(y)[ns])
             else
-                statesMat <- statesMat[seq_len(ns), , drop = FALSE]
+                raw <- raw[seq_len(ns), , drop = FALSE]
+        }
+        statesMat <- rbind(NA_real_, unclass(raw))
+        colnames(statesMat) <- colnames(raw)
+        if (is.ts(y)){
+            yFreq <- stats::frequency(y)
+            t0    <- stats::time(y)[1] - 1 / yFreq
+            statesMat <- stats::ts(statesMat, start = t0, frequency = yFreq)
         }
     }
 
     out <- list(
         ## --- inputs / spec ---
-        y          = y,                 # smooth::actuals.smooth reads $y
+        data       = y,                 # adam-aligned name (was $y)
         model      = uc_to_pts(res$modelUC, res$lambda),
         modelUC    = res$modelUC,       # pts-specific UC string
         lags       = lags,

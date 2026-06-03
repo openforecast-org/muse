@@ -38,7 +38,7 @@ test_that("errorType.pts reports additive on the BC scale", {
 })
 
 test_that("actuals.pts returns the y series", {
-    expect_equal(as.numeric(actuals(m)), as.numeric(m$y))
+    expect_equal(as.numeric(actuals(m)), as.numeric(m$data))
 })
 
 test_that("AICc / BICc match the standard formulas", {
@@ -172,7 +172,9 @@ test_that("pts carries the adam slots that plot.smooth reads", {
     expect_null(m$transition)
     # states: structural columns of comp (no Error / Fit), in-sample only.
     expect_true(is.matrix(m$states))
-    expect_equal(nrow(m$states), length(m$y))
+    # adam stores states as length nobs + 1 with row 1 = initial state at
+    # t = start(data) - 1/frequency.  See smooth/R/adam.R:574.
+    expect_equal(nrow(m$states), length(m$data) + 1L)
     expect_false("Error" %in% colnames(m$states))
     expect_false("Fit"   %in% colnames(m$states))
 })

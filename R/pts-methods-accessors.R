@@ -17,7 +17,7 @@ extractScale.pts <- function(object, ...) sigma.pts(object)
 nparam.pts <- function(object, ...) object$nParam
 
 #' @export
-actuals.pts <- function(object, all = TRUE, ...) object$y
+actuals.pts <- function(object, all = TRUE, ...) object$data
 
 #' @export
 actuals.pts.forecast <- function(object, all = TRUE, ...) actuals.pts(object$model)
