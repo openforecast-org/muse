@@ -13,3 +13,6 @@
 13. summary - add stars to show which is concentrated out
 14. Amend the data to split into y and xreg.
 15. Lambda estimation
+16. Outliers parameter: identify/use/nothing + level=0.99
+17. Include the seasonal ARMA in the residuals
+18. Check df for BC vs lambda=0, 1
