@@ -20,3 +20,4 @@
 Diego:
 19. Check the residuals - make sure that they are returned for the whole sample to be comparable with other models.
 20. Make sure that likelihoods have the same dimensions (same length).
+21. Check the Discrete seasonality - it is shifted 3 steps ahead.
