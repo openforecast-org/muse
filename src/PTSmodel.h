@@ -74,7 +74,8 @@ struct BSMmodel{
         typeOutliers,           // Matrix with type of outliers and sample of each outlier
         cycleLimits;            // limits for period of cycle estimation
         bool pureARMA = false,      // Pure ARMA model flag
-                Drift = false;         // trend with drift
+                Drift = false,         // trend with drift
+                estimateLambda = false; // true when lambda is jointly estimated
         vector<string> parNames;    // Parameter names
 };
 /**************************
@@ -252,10 +253,18 @@ void BSMaux(vec y, mat u, string model, int h, double outlier, bool tTest, strin
         inputsBSM.arma = arma;
 
         // BoxCox transformation
-        if (lambda == 9999.9)
-                lambda = testBoxCox(y, periods);
-        inputsBSM.lambda = lambda;
-        inputsSS.y = BoxCox(inputsSS.y, inputsBSM.lambda);
+        if (lambda == 9999.9) {
+                // Joint estimation: warm-start from testBoxCox; llik() applies
+                // BoxCox per evaluation so we leave inputsSS.y untransformed.
+                double lambda0 = testBoxCox(y, periods);
+                inputsBSM.lambda = lambda0;
+                inputsBSM.estimateLambda = true;
+                inputsSS.estimateLambda = true;
+                inputsSS.y_raw = inputsSS.y;   // raw trimmed series
+        } else {
+                inputsBSM.lambda = lambda;
+                inputsSS.y = BoxCox(inputsSS.y, inputsBSM.lambda);
+        }
 }
 // Main function
 void BSM(vec y, mat u, string model, int h, double outlier, bool tTest, string criterion,
@@ -1102,6 +1111,13 @@ void BSMclass::estim(vec p, bool VERBOSE){
         SSmodel::inputs.userInputs = &inputs;
         flag = quasiNewtonBSM(SSmodel::inputs.llikFUN, gradLlik, p, &(SSmodel::inputs),
                               objFunValue, grad, iHess, SSmodel::inputs.verbose);
+        // Capture whether lambda was jointly estimated; extract its final value.
+        bool lambdaWasEstimated = SSmodel::inputs.estimateLambda;
+        double finalLambda = 0.0;
+        if (lambdaWasEstimated) {
+                finalLambda = std::max(-1.0, std::min(1.5, p(p.n_elem - 1)));
+                inputs.lambda = finalLambda;
+        }
         uvec indNan = find_nonfinite(SSmodel::inputs.y);
         int nNan2pi = SSmodel::inputs.y.n_elem - indNan.n_elem;
         int nTrue;
@@ -1149,14 +1165,21 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 LLIK = datum::nan;
         } else {
                 double LLIK_BC = -0.5 * (log(2*datum::pi) * nNan2pi + nTrue * objFunValue);
-                double jac     = 0.0;
-                if (inputs.lambda <= 0.98){
-                        vec  y_orig = invBoxCox(SSmodel::inputs.y, inputs.lambda);
-                        uvec ok     = find(y_orig > 0);
-                        if (ok.n_elem > 0)
-                                jac = (inputs.lambda - 1.0) * accu(log(y_orig.elem(ok)));
+                if (lambdaWasEstimated) {
+                        // Jacobian already embedded in objFunValue by llik(); no
+                        // second adjustment needed — LLIK_BC equals LLIK_orig here.
+                        LLIK = LLIK_BC;
+                } else {
+                        // Fixed-lambda path: add Jacobian post-hoc (unchanged).
+                        double jac = 0.0;
+                        if (inputs.lambda <= 0.98){
+                                vec  y_orig = invBoxCox(SSmodel::inputs.y, inputs.lambda);
+                                uvec ok     = find(y_orig > 0);
+                                if (ok.n_elem > 0)
+                                        jac = (inputs.lambda - 1.0) * accu(log(y_orig.elem(ok)));
+                        }
+                        LLIK = LLIK_BC + jac;
                 }
-                LLIK = LLIK_BC + jac;
         }
         // k INCLUDES nonStationaryTerms (the Harvey-style diffuse initial-
         // state DoF), because estimUCs's selection and the ident()/outlier
@@ -1198,6 +1221,17 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 double nSeconds = timer.toc();
                 printf("%s", SSmodel::inputs.estimOk.c_str());
                 printf("Elapsed time: %10.5f seconds\n", nSeconds);
+        }
+        // Strip lambda from parameter vectors so the structural-only p is
+        // returned to R; also apply the final BoxCox to SSmodel::inputs.y so
+        // that subsequent filter/forecast calls work on the correct series.
+        if (lambdaWasEstimated) {
+                SSmodel::inputs.y = BoxCox(SSmodel::inputs.y_raw, finalLambda);
+                p.shed_row(p.n_elem - 1);
+                if (grad.n_elem > 0) grad.shed_row(grad.n_elem - 1);
+                inputs.typePar.shed_row(inputs.typePar.n_elem - 1);
+                inputs.constPar.shed_row(inputs.constPar.n_elem - 1);
+                SSmodel::inputs.estimateLambda = false;   // y now correctly set
         }
         SSmodel::inputs.p = p;
         SSmodel::inputs.objFunValue = objFunValue;
@@ -3301,6 +3335,16 @@ void BSMclass::initParBsm(){
                         inputs.p0Return(ind) = inputs.beta0ARMA;
                 }
         }
+        // ---- Section 9: lambda warm-start when jointly estimated -------
+        // Append lambda as last element of p0, typePar (type 6), constPar (0=free).
+        // SSmodel::inputs.estimateLambda is re-enabled here so each estimation
+        // pass (including ident sweeps) sees the correct flag.
+        if (inputs.estimateLambda) {
+                SSmodel::inputs.p0 = join_vert(SSmodel::inputs.p0, vec({inputs.lambda}));
+                inputs.typePar = join_vert(inputs.typePar, vec({6.0}));
+                inputs.constPar = join_vert(inputs.constPar, vec({0.0}));
+                SSmodel::inputs.estimateLambda = true;
+        }
 }
 /*************************************************************
  //  * Implementation of auxiliar functions
@@ -3308,6 +3352,8 @@ void BSMclass::initParBsm(){
  // Variance matrices in standard BSM on top of fixed structure
  void bsmMatrices(vec p, SSmatrix* model, void* userInputs){
          BSMmodel* inp = (BSMmodel*)userInputs;
+         // Drop the trailing lambda element so all structural indices stay valid
+         if (inp->estimateLambda) p.shed_row(p.n_elem - 1);
          vec nsCum = cumsum(inp->ns);
          vec nparCum = cumsum(inp->nPar);
          // Trend

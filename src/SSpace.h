@@ -64,7 +64,9 @@ struct SSinputs{
    double innVariance;    // innovations variance
    bool exact = true,     // exact or numerical gradient
         verbose,          // intermediate output verbose on / off
-        augmented = false; // Augmented KF estimation on / off
+        augmented = false, // Augmented KF estimation on / off
+        estimateLambda = false; // true when lambda is last element of p
+   vec y_raw;             // original (untransformed) y when estimateLambda
    std::function <double (vec&, void*)> llikFUN; // LogLik to select llik or llikAug
 };
 /****************************************************
@@ -525,6 +527,12 @@ void KFprediction(bool steadyState, bool colapsed, mat& T, mat& RQRt, vec& at, m
 double llik(vec& p, void* opt_data){
   // Converting void* to SSinputs*
   SSinputs* data = (SSinputs*)opt_data;
+  // When lambda is jointly estimated, rebuild y from y_raw at current lambda
+  if (data->estimateLambda) {
+      double lam = p(p.n_elem - 1);
+      lam = std::max(-1.0, std::min(1.5, lam));
+      data->y = BoxCox(data->y_raw, lam);
+  }
   // Running user function model
   data->userModel(p, &data->system, data->userInputs);
   double tolsta = 1e-19;
@@ -648,6 +656,22 @@ double llik(vec& p, void* opt_data){
       llikValue = (llikValue + v2F + logF) / nTrue;
   }
   data->objFunValue = llikValue(0, 0);
+  // When lambda is jointly estimated, fold the Box-Cox Jacobian into the
+  // objective so the optimizer sees the true original-scale log-likelihood.
+  // Correct formula: objFunValue -= 2*jac/nTrue so that
+  //   LLIK = -0.5*(n*log(2*pi) + nTrue*objFunValue) = LLIK_BC + jac
+  if (data->estimateLambda && nTrue > 0) {
+      double lam = p(p.n_elem - 1);
+      lam = std::max(-1.0, std::min(1.5, lam));
+      if (lam <= 0.98) {
+          uvec ok = find(data->y_raw > 0);
+          if (ok.n_elem > 0) {
+              double jac = (lam - 1.0) * accu(log(data->y_raw.elem(ok)));
+              llikValue(0, 0) -= 2.0 * jac / nTrue;
+              data->objFunValue = llikValue(0, 0);
+          }
+      }
+  }
   // System colapsed
   if ((uword)data->d_t < n){
       data->v.rows(0, data->d_t).fill(datum::nan);

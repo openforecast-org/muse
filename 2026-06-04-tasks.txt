@@ -1,0 +1,15 @@
+1. Innovation variances: -> parameters
+2. Substitute variances in the prints to proportions.
+3. Drop Irregular from the output.
+4. summary.pts -> proportions as well + variances of proportions
+5. Add actuals in plot(12).
+6. Slope before seasonal in plot(12)
+7. plot(4,5) have issues
+8. plot(6) - check that it is BCNorm
+9. forecast method improvements
+10. simulate(test) add obs
+11. Simulated intervals
+12. Add Periods:  12.0 /  6.0 /  4.0 /  3.0 /  2.4 to print/summary
+13. summary - add stars to show which is concentrated out
+14. Amend the data to split into y and xreg.
+15. Lambda estimation
