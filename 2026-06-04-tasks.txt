@@ -16,3 +16,7 @@
 16. Outliers parameter: identify/use/nothing + level=0.99
 17. Include the seasonal ARMA in the residuals
 18. Check df for BC vs lambda=0, 1
+
+Diego:
+19. Check the residuals - make sure that they are returned for the whole sample to be comparable with other models.
+20. Make sure that likelihoods have the same dimensions (same length).
