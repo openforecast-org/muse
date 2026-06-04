@@ -1544,16 +1544,18 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                         AIC = BIC = AICc = BICc = datum::nan;
                 }
                 if (VERBOSE){
-                        // Recompute the printed ICs with adam-style k
-                        // (no nonStationaryTerms) so the per-candidate
-                        // values match what stats::AIC / greybox::AICc /
-                        // BICc report on the R side from the same LLIK.
-                        // Selection above keeps the state-space k (see
-                        // estim()'s infoCriteria call).
+                        // Recompute the printed ICs to match R-side nparam(m).
+                        // k counts ALL model parameters: p.n_elem (every
+                        // variance, including the concentrated one, by the
+                        // alm / adam convention) + outlier dummies + lambda
+                        // when it survived the snap.  Earlier this also
+                        // subtracted SSmodel::inputs.cLlik, which is the
+                        // "actually moved by BFGS" count -- correct for
+                        // bookkeeping, wrong for AIC.  See R/pts.R:179.
                         double LLIK_print = SSmodel::inputs.criteria(0);
                         int    n_print    = static_cast<int>(SSmodel::inputs.y.n_elem
                                                              - find_nonfinite(SSmodel::inputs.y).eval().n_elem);
-                        int    k_print    = SSmodel::inputs.p.n_elem - SSmodel::inputs.cLlik
+                        int    k_print    = SSmodel::inputs.p.n_elem
                                             + SSmodel::inputs.u.n_rows
                                             + (inputs.lambdaEstimated ? 1 : 0);
                         double AICp, BICp, AICcp, BICcp;
