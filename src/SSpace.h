@@ -909,6 +909,18 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     Gamma.submat(ns, ns, ns, ns) = GammaD;
     int nn = n - nMiss - data->d_t - 1;
     for (int i = 0; i < nPar; i++){
+      // Lambda is the last element when jointly estimated: it affects data->y
+      // (BoxCox), not Q/H, so the analytic smoother formula gives zero.
+      // Use a numerical step through the full llik() instead.
+      if (data->estimateLambda && i == nPar - 1){
+        p0 = p;
+        p0.row(i) += inc(i);
+        double f1 = data->llikFUN(p0, opt_data);
+        grad.row(i) = (f1 - llikValue) / inc(i);
+        data->userModel(p, &data->system, data->userInputs);  // restore matrices
+        nFuns += 1;
+        continue;
+      }
       p0 = p;
       p0.row(i) += inc(i);
       data->userModel(p0, &data->system, data->userInputs);

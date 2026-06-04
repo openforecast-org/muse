@@ -1232,6 +1232,7 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 inputs.typePar.shed_row(inputs.typePar.n_elem - 1);
                 inputs.constPar.shed_row(inputs.constPar.n_elem - 1);
                 SSmodel::inputs.estimateLambda = false;   // y now correctly set
+                inputs.estimateLambda = false;            // bsmMatrices must not shed p again
         }
         SSmodel::inputs.p = p;
         SSmodel::inputs.objFunValue = objFunValue;

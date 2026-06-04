@@ -170,10 +170,18 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     inputsBSM.arma     = in.armaFlag;
     inputsBSM.seas     = in.seas;
 
-    if (in.lambda == 9999.9)
-        in.lambda = testBoxCox(in.y, in.periods);
-    inputsBSM.lambda = in.lambda;
-    inputsSS.y       = BoxCox(inputsSS.y, inputsBSM.lambda);
+    if (in.lambda == 9999.9) {
+        // Joint estimation: warm-start from testBoxCox; llik() applies BoxCox
+        // per evaluation so we leave inputsSS.y untransformed.
+        double lambda0 = testBoxCox(in.y, in.periods);
+        inputsBSM.lambda        = lambda0;
+        inputsBSM.estimateLambda = true;
+        inputsSS.estimateLambda  = true;
+        inputsSS.y_raw           = inputsSS.y;   // raw trimmed series
+    } else {
+        inputsBSM.lambda = in.lambda;
+        inputsSS.y       = BoxCox(inputsSS.y, inputsBSM.lambda);
+    }
 
     BSMclass sysBSM(inputsSS, inputsBSM);
     if (skipEstim){
