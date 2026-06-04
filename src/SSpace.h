@@ -527,12 +527,12 @@ void KFprediction(bool steadyState, bool colapsed, mat& T, mat& RQRt, vec& at, m
 double llik(vec& p, void* opt_data){
   // Converting void* to SSinputs*
   SSinputs* data = (SSinputs*)opt_data;
-  // When lambda is jointly estimated, rebuild y from y_raw at current lambda
-  if (data->estimateLambda) {
-      double lam = p(p.n_elem - 1);
-      lam = std::max(-2.0, std::min(2.0, lam));
-      data->y = BoxCox(data->y_raw, lam);
-  }
+  // Inner BFGS no longer carries lambda.  The outer profile-lambda loop
+  // (BSMclass::profileLambda) installs data->y = BoxCox(y_raw, lambda)
+  // once per outer step and adds the Box-Cox Jacobian outside the
+  // optimiser via the closed-form correction in BSMclass::estim.  The
+  // estimateLambda field is retained for backward struct compatibility
+  // but is always false on the active code paths.
   // Running user function model
   data->userModel(p, &data->system, data->userInputs);
   double tolsta = 1e-19;
@@ -656,22 +656,6 @@ double llik(vec& p, void* opt_data){
       llikValue = (llikValue + v2F + logF) / nTrue;
   }
   data->objFunValue = llikValue(0, 0);
-  // When lambda is jointly estimated, fold the Box-Cox Jacobian into the
-  // objective so the optimizer sees the true original-scale log-likelihood.
-  // Correct formula: objFunValue -= 2*jac/nTrue so that
-  //   LLIK = -0.5*(n*log(2*pi) + nTrue*objFunValue) = LLIK_BC + jac
-  if (data->estimateLambda && nTrue > 0) {
-      double lam = p(p.n_elem - 1);
-      lam = std::max(-1.0, std::min(1.5, lam));
-      if (lam <= 0.98) {
-          uvec ok = find(data->y_raw > 0);
-          if (ok.n_elem > 0) {
-              double jac = (lam - 1.0) * accu(log(data->y_raw.elem(ok)));
-              llikValue(0, 0) -= 2.0 * jac / nTrue;
-              data->objFunValue = llikValue(0, 0);
-          }
-      }
-  }
   // System colapsed
   if ((uword)data->d_t < n){
       data->v.rows(0, data->d_t).fill(datum::nan);
@@ -909,18 +893,8 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     Gamma.submat(ns, ns, ns, ns) = GammaD;
     int nn = n - nMiss - data->d_t - 1;
     for (int i = 0; i < nPar; i++){
-      // Lambda is the last element when jointly estimated: it affects data->y
-      // (BoxCox), not Q/H, so the analytic smoother formula gives zero.
-      // Use a numerical step through the full llik() instead.
-      if (data->estimateLambda && i == nPar - 1){
-        p0 = p;
-        p0.row(i) += inc(i);
-        double f1 = data->llikFUN(p0, opt_data);
-        grad.row(i) = (f1 - llikValue) / inc(i);
-        data->userModel(p, &data->system, data->userInputs);  // restore matrices
-        nFuns += 1;
-        continue;
-      }
+      // Lambda is no longer in p; analytic disturbance-smoother gradient
+      // covers every active parameter directly.
       p0 = p;
       p0.row(i) += inc(i);
       data->userModel(p0, &data->system, data->userInputs);

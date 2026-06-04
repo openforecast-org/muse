@@ -61,6 +61,7 @@ struct MuseOutputs {
     arma::vec               yForV;
     std::string             estimOk;
     double                  lambda = 0.0;
+    bool                    lambdaEstimated = false;  // true iff lambda kept (+1 DoF on R side)
     arma::vec               periods;
     arma::vec               rhos;
     arma::vec               p;
@@ -170,17 +171,23 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     inputsBSM.arma     = in.armaFlag;
     inputsBSM.seas     = in.seas;
 
-    if (in.lambda == 9999.9) {
-        // Joint estimation: warm-start from testBoxCox; llik() applies BoxCox
-        // per evaluation so we leave inputsSS.y untransformed.
-        double lambda0 = testBoxCox(in.y, in.periods);
-        inputsBSM.lambda        = lambda0;
-        inputsBSM.estimateLambda = true;
-        inputsSS.estimateLambda  = true;
-        inputsSS.y_raw           = inputsSS.y;   // raw trimmed series
+    // y_raw retains the untransformed trimmed series in every path so the
+    // profile-lambda outer loop (BSMclass::profileLambda) can re-Box-Cox
+    // for each candidate lambda without leaning on llik to do it inline.
+    inputsSS.y_raw          = inputsSS.y;
+    inputsSS.estimateLambda = false;       // joint-lambda path retired
+    inputsBSM.estimateLambda = false;
+    if (in.lambda == 9999.9){
+        // Profile lambda per candidate model inside ident().  testBoxCox
+        // gives a warm-start that initialises the Brent bracket point
+        // and the inputs.y transform for the first inner BFGS call.
+        inputsBSM.profileLambda = true;
+        inputsBSM.lambda        = testBoxCox(in.y, in.periods);
+        inputsSS.y              = BoxCox(inputsSS.y, inputsBSM.lambda);
     } else {
-        inputsBSM.lambda = in.lambda;
-        inputsSS.y       = BoxCox(inputsSS.y, inputsBSM.lambda);
+        inputsBSM.profileLambda = false;
+        inputsBSM.lambda        = in.lambda;
+        inputsSS.y              = BoxCox(inputsSS.y, inputsBSM.lambda);
     }
 
     BSMclass sysBSM(inputsSS, inputsBSM);
@@ -229,7 +236,8 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     out.h        = inputs.h;
     out.yForV    = inputs.FFor;
     out.estimOk  = inputs.estimOk;
-    out.lambda   = inputs2.lambda;
+    out.lambda          = inputs2.lambda;
+    out.lambdaEstimated = inputs2.lambdaEstimated;
     out.periods  = inputs2.periods;
     out.rhos     = inputs2.rhos;
     out.p        = inputs.p;

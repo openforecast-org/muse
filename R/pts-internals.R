@@ -258,16 +258,8 @@
 # (now retired) PTSsetup + MSOEsetup + MSOE chain.
 .pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose){
     modelU <- pts_to_uc(model)
-    # When the series has no seasonal frequency, fix lambda = 1 (no Box-Cox)
-    # to match the behaviour the old PTSforecast() relied on.
+    # When the series has no seasonal frequency, fix lambda = 1 (no Box-Cox).
     lambda <- modelU$lambda
-    # Track whether the user asked the engine to estimate lambda (sentinel
-    # 9999.9, set by pts_to_uc when the spec starts with "Z").  Frequency-1
-    # series force lambda = 1, which overrides the estimation request.  This
-    # mirrors greybox::alm at alm.R:2148 -- lambda contributes one DoF when
-    # optimised, zero when fixed.
-    lambdaEstimated <- isTRUE(modelU$lambda == 9999.9) &&
-                       stats::frequency(y) > 1
     if (stats::frequency(y) == 1) lambda <- 1
 
     args <- .pts_uc_inputs(y = y, u = u, modelUC = modelU$modelU, h = h,
@@ -276,6 +268,11 @@
     out <- .pts_call_uc("all", args)
     if (identical(out$model, "error"))
         stop("Estimation failed in the C++ engine.", call. = FALSE)
+    # lambdaEstimated is decided inside the engine: profile-lambda's snap
+    # test sets it to FALSE when lambda landed on an anchor (no +1 DoF) and
+    # TRUE when the optimised lambda* won (+1 DoF).  Fixed-lambda specs
+    # (e.g. "1NT", "0NT") always come back FALSE.
+    lambdaEstimated <- isTRUE(out$lambdaEstimated)
 
     # Parameter vector and its covariance
     p    <- as.vector(out$coef)

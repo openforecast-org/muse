@@ -75,7 +75,10 @@ struct BSMmodel{
         cycleLimits;            // limits for period of cycle estimation
         bool pureARMA = false,      // Pure ARMA model flag
                 Drift = false,         // trend with drift
-                estimateLambda = false; // true when lambda is jointly estimated
+                estimateLambda = false, // deprecated; joint-lambda path is off
+                profileLambda = false,  // run outer profile-lambda search inside ident()
+                lambdaEstimated = false;// engine's authoritative DoF flag for lambda
+                                        // (true => lambda* kept; false => snapped to anchor)
         vector<string> parNames;    // Parameter names
 };
 /**************************
@@ -111,6 +114,19 @@ public:
         //Estimation
         void estim(bool);
         void estim(vec, bool);
+        // Profile-lambda outer Brent search; called from estimUCs when
+        // inputs.profileLambda is true.  Returns the selected lambda
+        // (either lambda* or a snap anchor in {-2,-1,-0.5,0,0.5,1,2})
+        // and a flag indicating whether the optimised lambda counts as
+        // a free parameter (true) or was snapped (false).  Side effect:
+        // leaves SSmodel::inputs in the state of the chosen final fit
+        // (inputs.criteria populated, inputs.p / .v / etc. populated).
+        struct ProfileResult {
+                double lambda;          // selected lambda
+                bool   lambdaCounts;    // true => +1 DoF; false => snapped
+                double llik;            // LLIK on the original response scale
+        };
+        ProfileResult profileLambda(bool VERBOSE);
         // Plug in a previously-estimated parameter vector and warm up the
         // filter so forecast() can run without re-optimisation.
         void setEstimatedParams(vec);
@@ -252,18 +268,20 @@ void BSMaux(vec y, mat u, string model, int h, double outlier, bool tTest, strin
         inputsBSM.harmonics = regspace<uvec>(0, periods.n_elem - 1);
         inputsBSM.arma = arma;
 
-        // BoxCox transformation
-        if (lambda == 9999.9) {
-                // Joint estimation: warm-start from testBoxCox; llik() applies
-                // BoxCox per evaluation so we leave inputsSS.y untransformed.
-                double lambda0 = testBoxCox(y, periods);
-                inputsBSM.lambda = lambda0;
-                inputsBSM.estimateLambda = true;
-                inputsSS.estimateLambda = true;
-                inputsSS.y_raw = inputsSS.y;   // raw trimmed series
+        // BoxCox transformation; mirror musecore.h::runMuseCommand.  y_raw
+        // is always preserved so BSMclass::profileLambda can re-transform
+        // per outer step.
+        inputsSS.y_raw           = inputsSS.y;
+        inputsSS.estimateLambda  = false;
+        inputsBSM.estimateLambda = false;
+        if (lambda == 9999.9){
+                inputsBSM.profileLambda = true;
+                inputsBSM.lambda        = testBoxCox(y, periods);
+                inputsSS.y              = BoxCox(inputsSS.y, inputsBSM.lambda);
         } else {
-                inputsBSM.lambda = lambda;
-                inputsSS.y = BoxCox(inputsSS.y, inputsBSM.lambda);
+                inputsBSM.profileLambda = false;
+                inputsBSM.lambda        = lambda;
+                inputsSS.y              = BoxCox(inputsSS.y, inputsBSM.lambda);
         }
 }
 // Main function
@@ -978,7 +996,14 @@ void BSMclass::estim(bool VERBOSE){
                 if (SSmodel::inputs.outlier == 0){
                         // Without outlier detection
                         uvec harmonics = inputs.harmonics;
-                        estim(SSmodel::inputs.p0, VERBOSE);
+                        if (inputs.profileLambda){
+                                // Profile lambda for this specific model; sets
+                                // inputs.lambda and inputs.lambdaEstimated.
+                                SSmodel::inputs.p.reset();
+                                profileLambda(VERBOSE);
+                        } else {
+                                estim(SSmodel::inputs.p0, VERBOSE);
+                        }
                         // checkModel(harmonics);
                 } else {
                         // With outlier detection
@@ -1111,13 +1136,6 @@ void BSMclass::estim(vec p, bool VERBOSE){
         SSmodel::inputs.userInputs = &inputs;
         flag = quasiNewtonBSM(SSmodel::inputs.llikFUN, gradLlik, p, &(SSmodel::inputs),
                               objFunValue, grad, iHess, SSmodel::inputs.verbose);
-        // Capture whether lambda was jointly estimated; extract its final value.
-        bool lambdaWasEstimated = SSmodel::inputs.estimateLambda;
-        double finalLambda = 0.0;
-        if (lambdaWasEstimated) {
-                finalLambda = std::max(-1.0, std::min(1.5, p(p.n_elem - 1)));
-                inputs.lambda = finalLambda;
-        }
         uvec indNan = find_nonfinite(SSmodel::inputs.y);
         int nNan2pi = SSmodel::inputs.y.n_elem - indNan.n_elem;
         int nTrue;
@@ -1148,38 +1166,27 @@ void BSMclass::estim(vec p, bool VERBOSE){
         // LLIK on the ORIGINAL response scale.  Keep the engine's exact
         // closed-form concentrated KF likelihood on the BC scale
         //     LLIK_BC = -0.5 * (n*log(2*pi) + nTrue * objFunValue)
-        // -- this is what the optimiser converged on and what the legacy
-        // identification logic ranked candidates by -- then add the
-        // Box-Cox Jacobian
+        // and add the Box-Cox Jacobian
         //     (lambda - 1) * sum(log y_orig)
-        // to lift the value onto the original response scale (greybox
-        // dbcnorm convention; bcnorm.R:79).  For lambda in the engine's
-        // identity band (lambda > 0.98) the Jacobian is zero, so LLIK
-        // equals LLIK_BC exactly -- preserving fixed-lambda ident-sweep
-        // ordering.  bcnormLogDensity sums element-wise and would count
-        // a slightly different observation set than nTrue, which shifted
-        // per-candidate LLIK non-uniformly and made the engine pick
-        // under-parametrised seasonals on AirPassengers (the previously
-        // reported "fitted lagging by 3" symptom).
+        // post-hoc to lift the value onto the original response scale
+        // (greybox dbcnorm convention; bcnorm.R:79).  For lambda in the
+        // engine's identity band (lambda > 0.98) the Jacobian is zero,
+        // so LLIK equals LLIK_BC exactly.  Joint-lambda is no longer a
+        // separate code path -- BSMclass::profileLambda installs the
+        // current outer-step lambda and re-Box-Coxes y once per outer
+        // step; inside estim() lambda is always "fixed".
         if (!std::isfinite(objFunValue)){
                 LLIK = datum::nan;
         } else {
                 double LLIK_BC = -0.5 * (log(2*datum::pi) * nNan2pi + nTrue * objFunValue);
-                if (lambdaWasEstimated) {
-                        // Jacobian already embedded in objFunValue by llik(); no
-                        // second adjustment needed — LLIK_BC equals LLIK_orig here.
-                        LLIK = LLIK_BC;
-                } else {
-                        // Fixed-lambda path: add Jacobian post-hoc (unchanged).
-                        double jac = 0.0;
-                        if (inputs.lambda <= 0.98){
-                                vec  y_orig = invBoxCox(SSmodel::inputs.y, inputs.lambda);
-                                uvec ok     = find(y_orig > 0);
-                                if (ok.n_elem > 0)
-                                        jac = (inputs.lambda - 1.0) * accu(log(y_orig.elem(ok)));
-                        }
-                        LLIK = LLIK_BC + jac;
+                double jac     = 0.0;
+                if (inputs.lambda <= 0.98){
+                        vec  y_orig = invBoxCox(SSmodel::inputs.y, inputs.lambda);
+                        uvec ok     = find(y_orig > 0);
+                        if (ok.n_elem > 0)
+                                jac = (inputs.lambda - 1.0) * accu(log(y_orig.elem(ok)));
                 }
+                LLIK = LLIK_BC + jac;
         }
         // k INCLUDES nonStationaryTerms (the Harvey-style diffuse initial-
         // state DoF), because estimUCs's selection and the ident()/outlier
@@ -1222,18 +1229,9 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 printf("%s", SSmodel::inputs.estimOk.c_str());
                 printf("Elapsed time: %10.5f seconds\n", nSeconds);
         }
-        // Strip lambda from parameter vectors so the structural-only p is
-        // returned to R; also apply the final BoxCox to SSmodel::inputs.y so
-        // that subsequent filter/forecast calls work on the correct series.
-        if (lambdaWasEstimated) {
-                SSmodel::inputs.y = BoxCox(SSmodel::inputs.y_raw, finalLambda);
-                p.shed_row(p.n_elem - 1);
-                if (grad.n_elem > 0) grad.shed_row(grad.n_elem - 1);
-                inputs.typePar.shed_row(inputs.typePar.n_elem - 1);
-                inputs.constPar.shed_row(inputs.constPar.n_elem - 1);
-                SSmodel::inputs.estimateLambda = false;   // y now correctly set
-                inputs.estimateLambda = false;            // bsmMatrices must not shed p again
-        }
+        // lambda is no longer in p (joint-lambda path retired); profile-
+        // lambda installs SSmodel::inputs.y from y_raw before each inner
+        // estim() call.  Nothing to shed here.
         SSmodel::inputs.p = p;
         SSmodel::inputs.objFunValue = objFunValue;
         SSmodel::inputs.grad = grad;
@@ -1244,6 +1242,175 @@ void BSMclass::estim(vec p, bool VERBOSE){
         SSmodel::inputs.v.reset();
         inputs.harmonics = regspace<uvec>(0, inputs.periods.n_elem - 1);
         SSmodel::inputs.verbose = verboseCopy;
+}
+// ----------------------------------------------------------------------
+// profileLambda: outer 1-D Brent search over lambda with the inner BFGS
+// (estim(p, false)) called at each candidate lambda.  ψ is warm-started
+// across outer steps via SSmodel::inputs.p left in place.  After Brent
+// converges to lambda*, the nearest anchor in {-2,-1,-0.5,0,0.5,1,2} is
+// refit; the anchor is preferred on AIC ties (saves +1 DoF for lambda).
+//
+//   * The inner BFGS never sees lambda (trick 1) -- estimateLambda is
+//     wired off everywhere; bsmMatrices no longer sheds a trailing slot.
+//   * ψ warm-starts (trick 2) by leaving SSmodel::inputs.p in place
+//     between calls; estim() reuses that vector as p0 if non-finite is
+//     absent.
+//   * Jacobian (trick 3) is added inside estim() by the closed-form
+//     correction at the LLIK reporting block (the criteria(0) value).
+//     Brent ranks on -criteria(0) so the Jacobian moves with the
+//     comparison.
+//   * Domain (trick 4): lambdaMin = -2 if all y_raw > 0, else 0.
+BSMclass::ProfileResult BSMclass::profileLambda(bool VERBOSE){
+        using arma::vec;
+        using arma::uvec;
+        vec y_raw = SSmodel::inputs.y_raw;
+        uvec okRaw = arma::find_finite(y_raw);
+        double yMin = okRaw.n_elem > 0 ? y_raw.elem(okRaw).min() : 1.0;
+        double lambdaMin = (yMin > 0.0) ? -2.0 : 0.0;
+        double lambdaMax = 2.0;
+
+        // Inner closure: install BoxCox at lambda, run estim() warm-started
+        // from the current SSmodel::inputs.p (or p0 if p is empty), and
+        // return the negative LLIK so Brent's MINIMISES the objective.
+        auto innerFit = [&](double lambda) -> double {
+                SSmodel::inputs.y    = BoxCox(SSmodel::inputs.y_raw, lambda);
+                inputs.lambda        = lambda;
+                vec pWarm;
+                if (SSmodel::inputs.p.n_elem > 0 &&
+                    SSmodel::inputs.p.is_finite()){
+                        pWarm = SSmodel::inputs.p;
+                } else {
+                        pWarm = SSmodel::inputs.p0;
+                }
+                estim(pWarm, false);    // inner BFGS (silent)
+                double llik = (SSmodel::inputs.criteria.n_elem >= 1)
+                              ? SSmodel::inputs.criteria(0) : arma::datum::nan;
+                return std::isfinite(llik) ? -llik : arma::datum::inf;
+        };
+
+        // Brent's method (Press et al, Numerical Recipes 10.2) on
+        // [lambdaMin, lambdaMax] with the testBoxCox warm-start as the
+        // initial best point.
+        const double CGOLD = 0.3819660113;
+        const double ZEPS  = 1.0e-10;
+        const double tol   = 1.0e-4;
+        const int    ITMAX = 25;
+
+        double a = lambdaMin, c = lambdaMax;
+        double xInit = std::max(lambdaMin + 1e-3,
+                                std::min(lambdaMax - 1e-3, inputs.lambda));
+        double x = xInit, w = xInit, v = xInit;
+        double fx = innerFit(x);
+        vec    pStar = SSmodel::inputs.p;   // best ψ so far
+        double fw = fx, fv = fx;
+        double e = 0.0, d = 0.0;
+
+        for (int iter = 0; iter < ITMAX; iter++){
+                double xm   = 0.5 * (a + c);
+                double tol1 = tol * std::abs(x) + ZEPS;
+                double tol2 = 2.0 * tol1;
+                if (std::abs(x - xm) <= tol2 - 0.5 * (c - a))
+                        break;
+                bool useGold = true;
+                if (std::abs(e) > tol1){
+                        double r = (x - w) * (fx - fv);
+                        double q = (x - v) * (fx - fw);
+                        double p = (x - v) * q - (x - w) * r;
+                        q = 2.0 * (q - r);
+                        if (q > 0.0) p = -p;
+                        q = std::abs(q);
+                        double etemp = e;
+                        e = d;
+                        if (!(std::abs(p) >= std::abs(0.5 * q * etemp) ||
+                              p <= q * (a - x) || p >= q * (c - x))){
+                                d = p / q;
+                                double utry = x + d;
+                                if (utry - a < tol2 || c - utry < tol2)
+                                        d = (xm - x >= 0.0 ? tol1 : -tol1);
+                                useGold = false;
+                        }
+                }
+                if (useGold){
+                        e = (x >= xm ? a - x : c - x);
+                        d = CGOLD * e;
+                }
+                double u = (std::abs(d) >= tol1)
+                           ? x + d
+                           : x + (d >= 0.0 ? tol1 : -tol1);
+                if (u < a) u = a;
+                if (u > c) u = c;
+                double fu = innerFit(u);
+                if (fu <= fx){
+                        if (u >= x) a = x; else c = x;
+                        v = w; w = x; x = u;
+                        fv = fw; fw = fx; fx = fu;
+                        pStar = SSmodel::inputs.p;
+                } else {
+                        if (u < x) a = u; else c = u;
+                        if (fu <= fw || w == x){
+                                v = w; w = u;
+                                fv = fw; fw = fu;
+                        } else if (fu <= fv || v == x || v == w){
+                                v = u; fv = fu;
+                        }
+                }
+        }
+        double lambdaStar = x;
+        double llikStar   = -fx;
+
+        // Restore the inputs state to the optimiser's best ψ and refit at
+        // lambdaStar so SSmodel::inputs.criteria is consistent with it.
+        SSmodel::inputs.p = pStar;
+        innerFit(lambdaStar);
+        // Hold k from the lambdaStar fit (criteria already populated by
+        // estim()).  k_opt counts lambda; k_snap doesn't.
+        int base_k = SSmodel::inputs.p.n_elem - SSmodel::inputs.cLlik
+                     + SSmodel::inputs.u.n_rows + SSmodel::inputs.nonStationaryTerms;
+        double AIC_opt = -2.0 * llikStar + 2.0 * (base_k + 1);
+
+        // Anchor snap: pick nearest a in {-2,-1,-0.5,0,0.5,1,2} ∩ domain.
+        const double allAnchors[7] = {-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0};
+        double lambdaSnap = 0.0;
+        double dBest = arma::datum::inf;
+        for (int i = 0; i < 7; ++i){
+                double aA = allAnchors[i];
+                if (aA < lambdaMin || aA > lambdaMax) continue;
+                double dist = std::abs(aA - lambdaStar);
+                if (dist < dBest ||
+                    (dist == dBest && std::abs(aA) < std::abs(lambdaSnap))){
+                        dBest = dist;
+                        lambdaSnap = aA;
+                }
+        }
+        // Fit at the anchor, warm-started from ψ*.
+        vec    pPreSnap = SSmodel::inputs.p;
+        double fSnap    = innerFit(lambdaSnap);
+        double llikSnap = -fSnap;
+        double AIC_snap = -2.0 * llikSnap + 2.0 * base_k;
+
+        ProfileResult pr;
+        if (std::isfinite(AIC_snap) && AIC_snap <= AIC_opt){
+                // Anchor wins (ties to the anchor for parsimony).  inputs
+                // already at the anchor fit -- nothing more to do.
+                pr.lambda       = lambdaSnap;
+                pr.lambdaCounts = false;
+                pr.llik         = llikSnap;
+        } else {
+                // Optimised wins; refit at lambdaStar to restore inputs.
+                SSmodel::inputs.p = pPreSnap;
+                innerFit(lambdaStar);
+                pr.lambda       = lambdaStar;
+                pr.lambdaCounts = true;
+                pr.llik         = llikStar;
+        }
+        inputs.lambda          = pr.lambda;
+        inputs.lambdaEstimated = pr.lambdaCounts;
+        if (VERBOSE){
+                printf("    profile-lambda  lambda*=%6.3f  anchor=%4.1f  AIC*=%9.3f  AIC^=%9.3f  -> %s\n",
+                       lambdaStar, lambdaSnap, AIC_opt, AIC_snap,
+                       pr.lambdaCounts ? "keep lambda*" : "snap to anchor");
+        }
+        return pr;
 }
 // Forecast-only path: skip optimisation and run one Kalman pass with the
 // user-supplied (natural-scale) parameters so that aEnd / PEnd are
@@ -1356,8 +1523,16 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                 //                 SSmodel::inputs.u.resize(0);
                 //         }
                 // }
-                // Model estimation
-                estim(SSmodel::inputs.verbose);
+                // Model estimation.  Per-candidate ψ structure differs, so
+                // reset SSmodel::inputs.p before the profile-lambda call
+                // so its warm-start logic falls back to p0 on the first
+                // inner BFGS of this candidate.
+                SSmodel::inputs.p.reset();
+                if (inputs.profileLambda){
+                        profileLambda(false);    // verbose handled at table-print time below
+                } else {
+                        estim(SSmodel::inputs.verbose);
+                }
                 inputs.periods = PERIODS;
                 inputs.rhos = RHOS;
                 AIC  = SSmodel::inputs.criteria(1);
@@ -1369,12 +1544,41 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                         AIC = BIC = AICc = BICc = datum::nan;
                 }
                 if (VERBOSE){
+                        // Recompute the printed ICs with adam-style k
+                        // (no nonStationaryTerms) so the per-candidate
+                        // values match what stats::AIC / greybox::AICc /
+                        // BICc report on the R side from the same LLIK.
+                        // Selection above keeps the state-space k (see
+                        // estim()'s infoCriteria call).
+                        double LLIK_print = SSmodel::inputs.criteria(0);
+                        int    n_print    = static_cast<int>(SSmodel::inputs.y.n_elem
+                                                             - find_nonfinite(SSmodel::inputs.y).eval().n_elem);
+                        int    k_print    = SSmodel::inputs.p.n_elem - SSmodel::inputs.cLlik
+                                            + SSmodel::inputs.u.n_rows
+                                            + (inputs.lambdaEstimated ? 1 : 0);
+                        double AICp, BICp, AICcp, BICcp;
+                        if (std::isfinite(LLIK_print)){
+                                infoCriteria(LLIK_print, k_print, n_print,
+                                             AICp, BICp, AICcp, BICcp);
+                        } else {
+                                AICp = BICp = AICcp = BICcp = datum::nan;
+                        }
                         string MODEL = allUCModels[i];
+                        // Mark snapped lambdas with a trailing '*' so users
+                        // can tell which candidates fit at an anchor.
+                        char lambdaTag[16];
+                        snprintf(lambdaTag, sizeof(lambdaTag), "%5.2f%s",
+                                 inputs.lambda,
+                                 inputs.lambdaEstimated ? " " : "*");
                         if (inputs.PTSnames){
                                 MODEL = UC2PTS(allUCModels[i], inputs.lambda);
-                                printf(" %*s: %13.4f %13.4f %13.4f %13.4f\n", wide, MODEL.c_str(), AIC, BIC, AICc, BICc);
+                                printf(" %*s  %6s: %13.4f %13.4f %13.4f %13.4f\n",
+                                       wide, MODEL.c_str(), lambdaTag,
+                                       AICp, BICp, AICcp, BICcp);
                         } else {
-                                printf(" %*s: %8.4f %8.4f %8.4f %8.4f\n", wide, MODEL.c_str(), AIC, BIC, AICc, BICc);
+                                printf(" %*s  %6s: %8.4f %8.4f %8.4f %8.4f\n",
+                                       wide, MODEL.c_str(), lambdaTag,
+                                       AICp, BICp, AICcp, BICcp);
                         }
                 }
                 if (inputs.criterion == "aic"){
@@ -1501,7 +1705,7 @@ void BSMclass::ident(string show, bool VERBOSE){
         // UC identification
         double minCrit; // = 1e12, minCrit1;
         if (VERBOSE && (show == "head" || show == "both")){
-                printf("---------------------------------------------------------------------------\n");
+                printf("-----------------------------------------------------------------------------------\n");
                 if (SSmodel::inputs.outlier < 0){
                         printf(" Identification started WITH outlier detection\n");
                 } else {
@@ -1510,12 +1714,13 @@ void BSMclass::ident(string show, bool VERBOSE){
                         else
                                 printf(" Identification started WITHOUT outlier detection\n");
                 }
-                printf("---------------------------------------------------------------------------\n");
+                printf("-----------------------------------------------------------------------------------\n");
                 if (inputs.PTSnames)
-                        printf("    Model            AIC           BIC          AICc          BICc\n");
+                        printf("    Model          Lambda           AIC           BIC          AICc          BICc\n");
                 else
-                        printf("          Model                       AIC      BIC     AICc     BICc\n");
-                printf("---------------------------------------------------------------------------\n");
+                        printf("          Model                     Lambda      AIC      BIC     AICc     BICc\n");
+                printf("           (Lambda values marked with '*' were snapped to a fixed anchor.)\n");
+                printf("-----------------------------------------------------------------------------------\n");
         }
         // Finding models to identify
         vector<string> allUCModels;
@@ -1725,9 +1930,9 @@ void BSMclass::ident(string show, bool VERBOSE){
         }
         if (VERBOSE && (show == "tail" || show == "both")){
                 double nSeconds = timer.toc();
-                printf("---------------------------------------------------------------------------\n");
+                printf("-----------------------------------------------------------------------------------\n");
                 printf("  Identification time: %10.5f seconds\n", nSeconds);
-                printf("---------------------------------------------------------------------------\n");
+                printf("-----------------------------------------------------------------------------------\n");
         }
         // Final estimation (genunine with nans in case of missing data)
         //if (inputs.missing.n_elem > 0){
@@ -3336,16 +3541,10 @@ void BSMclass::initParBsm(){
                         inputs.p0Return(ind) = inputs.beta0ARMA;
                 }
         }
-        // ---- Section 9: lambda warm-start when jointly estimated -------
-        // Append lambda as last element of p0, typePar (type 6), constPar (0=free).
-        // SSmodel::inputs.estimateLambda is re-enabled here so each estimation
-        // pass (including ident sweeps) sees the correct flag.
-        if (inputs.estimateLambda) {
-                SSmodel::inputs.p0 = join_vert(SSmodel::inputs.p0, vec({inputs.lambda}));
-                inputs.typePar = join_vert(inputs.typePar, vec({6.0}));
-                inputs.constPar = join_vert(inputs.constPar, vec({0.0}));
-                SSmodel::inputs.estimateLambda = true;
-        }
+        // Joint-lambda warm-start (previous "Section 9") is retired.
+        // Profile-lambda runs as an outer loop in BSMclass::profileLambda;
+        // initParBsm now leaves p0 / typePar / constPar untouched w.r.t.
+        // lambda regardless of estimateLambda's residual value.
 }
 /*************************************************************
  //  * Implementation of auxiliar functions
@@ -3353,8 +3552,7 @@ void BSMclass::initParBsm(){
  // Variance matrices in standard BSM on top of fixed structure
  void bsmMatrices(vec p, SSmatrix* model, void* userInputs){
          BSMmodel* inp = (BSMmodel*)userInputs;
-         // Drop the trailing lambda element so all structural indices stay valid
-         if (inp->estimateLambda) p.shed_row(p.n_elem - 1);
+         // Lambda is no longer in p; no trailing element to shed.
          vec nsCum = cumsum(inp->ns);
          vec nparCum = cumsum(inp->nPar);
          // Trend
