@@ -1158,12 +1158,18 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 }
         }
         bool lambdaWasEstimated = SSmodel::inputs.estimateLambda;
-        // Capture final lambda (updated by llik() into inputs.lambda via data->lambda)
+        // Capture final lambda.  After quasiNewtonBSM, the converged value
+        // sits in p.back() (BFGS optimised it in place).  llik() also wrote
+        // it to SSmodel::inputs.lambda on the last call, but BSMmodel's
+        // inputs.lambda is never touched by llik -- it still holds the
+        // estimUCs warm-start.  Reading p.back() is unambiguous.
         double lambdaStar = lambdaWasEstimated
-                            ? std::max(-2.0, std::min(2.0, inputs.lambda))
+                            ? std::max(-2.0, std::min(2.0, p(p.n_elem - 1)))
                             : inputs.lambda;
-        if (lambdaWasEstimated)
-                inputs.lambda = lambdaStar;
+        if (lambdaWasEstimated){
+                inputs.lambda          = lambdaStar;
+                SSmodel::inputs.lambda = lambdaStar;
+        }
         double LLIK, AIC, BIC, AICc, BICc;
         // Exception when function is nan
         if (flag > 6){
@@ -1621,6 +1627,13 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
         minCrit = oldMinCrit;
         bool inputsArma = inputs.arma;
         vec PERIODS = inputs.periods, RHOS = inputs.rhos;
+        // Snapshot the testBoxCox warm-start before the loop so every
+        // candidate's joint-lambda BFGS starts from the SAME neutral seed.
+        // Otherwise estim()'s snap test overwrites inputs.lambda with the
+        // previous candidate's snap anchor and the next candidate starts on
+        // the boundary basin of that anchor, killing the per-model lambda
+        // exploration the table is meant to display.
+        double lambdaSeed = inputs.lambda;
         for (unsigned int i = 0; i < allUCModels.size(); i++){
                 SSmodel::inputs.p0 = -9999.9;
                 int wide = 30;
@@ -1631,15 +1644,13 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                 inputs.rhos = RHOS;
                 SSmodel::inputs.u = uCopy;
                 inputs.typeOutliers.resize(0);
-                // For joint-lambda: set y=y_raw so llik() can re-BoxCox per step.
-                // We do NOT reset inputs.lambda — after the first candidate, each
-                // subsequent candidate warm-starts from the previous optimal lambda.
-                // The initial warm-start (first candidate) comes from musecore.h
-                // (testBoxCox) or from the constructor.
-                // Both estimateLambda flags must be re-asserted each iteration
-                // because estim() clears them at the end of each candidate.
+                // For joint-lambda: reset y=y_raw + lambda=seed every iteration
+                // so each candidate optimises lambda from the same neutral
+                // starting point.  estim() clears estimateLambda at the end of
+                // each candidate, so it must be re-asserted here.
                 if (inputs.profileLambda){
-                        SSmodel::inputs.lambda         = inputs.lambda;
+                        inputs.lambda                  = lambdaSeed;
+                        SSmodel::inputs.lambda         = lambdaSeed;
                         SSmodel::inputs.y              = SSmodel::inputs.y_raw;
                         SSmodel::inputs.estimateLambda = true;
                         inputs.estimateLambda          = true;
