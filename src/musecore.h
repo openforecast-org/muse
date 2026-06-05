@@ -178,12 +178,18 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     inputsSS.estimateLambda = false;       // joint-lambda path retired
     inputsBSM.estimateLambda = false;
     if (in.lambda == 9999.9){
-        // Profile lambda per candidate model inside ident().  testBoxCox
-        // gives a warm-start that initialises the Brent bracket point
-        // and the inputs.y transform for the first inner BFGS call.
+        // Profile lambda: Brent outer search with per-step inner BFGS.
+        // We leave inputsSS.y at y_raw (untransformed) so the constructor's
+        // initParBsm is tuned for lambda=1 — the same state the ident sweep's
+        // estimUCs sees for non-first candidates (where y_raw is left by the
+        // previous snap).  profileLambda's innerFit re-BoxCoxes at every Brent
+        // step, so the actual estimation y is always correct.
+        // Starting Brent at 1.0 (a neutral anchor) rather than testBoxCox
+        // ensures the first BFGS call has a matched (y_raw, p0_from_y_raw)
+        // pair, matching ident-sweep quality for the common snap-to-1 case.
         inputsBSM.profileLambda = true;
-        inputsBSM.lambda        = testBoxCox(in.y, in.periods);
-        inputsSS.y              = BoxCox(inputsSS.y, inputsBSM.lambda);
+        inputsBSM.lambda        = 1.0;
+        // inputsSS.y intentionally stays at y_raw (no BoxCox here)
     } else {
         inputsBSM.profileLambda = false;
         inputsBSM.lambda        = in.lambda;

@@ -1362,10 +1362,12 @@ BSMclass::ProfileResult BSMclass::profileLambda(bool VERBOSE){
         // lambdaStar so SSmodel::inputs.criteria is consistent with it.
         SSmodel::inputs.p = pStar;
         innerFit(lambdaStar);
-        // Hold k from the lambdaStar fit (criteria already populated by
-        // estim()).  k_opt counts lambda; k_snap doesn't.
-        int base_k = SSmodel::inputs.p.n_elem - SSmodel::inputs.cLlik
-                     + SSmodel::inputs.u.n_rows + SSmodel::inputs.nonStationaryTerms;
+        // Use the adam-style k (= p.n_elem + u.n_rows, no nonStationaryTerms
+        // or cLlik correction) so that AIC*/AIC^ in the verbose line match
+        // the final R-side AIC computed from nParam = length(res$p).
+        // Note: nonStationaryTerms cancels out in the AIC*/AIC^ comparison
+        // (it's the same for both), so the snap decision is unaffected.
+        int base_k = SSmodel::inputs.p.n_elem + SSmodel::inputs.u.n_rows;
         double AIC_opt = -2.0 * llikStar + 2.0 * (base_k + 1);
 
         // Anchor snap: pick nearest a in {-2,-1,-0.5,0,0.5,1,2} ∩ domain.
