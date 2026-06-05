@@ -1537,6 +1537,17 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                 inputs.rhos = RHOS;
                 SSmodel::inputs.u = uCopy;
                 inputs.typeOutliers.resize(0);
+                // For profile-lambda: reset y and lambda BEFORE setModel so
+                // initParBsm always sees y_raw (the natural data scale) and
+                // lambda=1.  Without this, initParBsm would use whatever y was
+                // left by the previous candidate's Brent snap (e.g. BoxCox(y,0.5)),
+                // giving a different p0 and a different BFGS basin than a direct
+                // call that starts from the constructor.
+                if (inputs.profileLambda){
+                        inputs.lambda          = 1.0;
+                        SSmodel::inputs.lambda = 1.0;
+                        SSmodel::inputs.y      = SSmodel::inputs.y_raw;
+                }
                 setModel(allUCModels[i], inputs.periods(harmonics), inputs.rhos(harmonics), false);
                 // setModel(allUCModels[i], PERIODS(harmonics), RHOS(harmonics), false);
                 inputs.arma = arma;
@@ -1548,16 +1559,8 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                 //                 SSmodel::inputs.u.resize(0);
                 //         }
                 // }
-                // Model estimation.  Per-candidate ψ structure and lambda both
-                // start fresh so results do not depend on which candidate ran
-                // before.  Reset p so the warm-start falls back to p0, and
-                // reset lambda to 1 (neutral anchor) so Brent always starts
-                // from the same point regardless of any previous snap.
                 SSmodel::inputs.p.reset();
                 if (inputs.profileLambda){
-                        inputs.lambda          = 1.0;
-                        SSmodel::inputs.lambda = 1.0;
-                        SSmodel::inputs.y      = SSmodel::inputs.y_raw;
                         profileLambda(false);    // verbose handled at table-print time below
                 } else {
                         estim(SSmodel::inputs.verbose);
@@ -1713,11 +1716,23 @@ void BSMclass::ident(string show, bool VERBOSE){
         } else {
                 isSeasonal = "true";
         }
-        // Selecting harmonics
+        // Selecting harmonics.
+        // selectHarmonics pre-filters which harmonics to include before
+        // building the candidate list.  We skip it when the seasonal type
+        // is either "equal" ('e') or unknown ('?') because for "equal"
+        // all harmonics share ONE variance — dropping one doesn't reduce
+        // the parameter count, only the state count, and this causes an
+        // inconsistency with direct estimation (e.g. "ZGT" vs "ZZZ"):
+        // the ident sweep would drop the π-harmonic while the direct run
+        // keeps it, giving different T matrices and different optima for
+        // what the user sees as the same model.  For "linear" ('l') the
+        // original code already skipped this; for unknown '?' the final
+        // seasonal type is not yet known and "equal" is always a candidate.
         uvec harmonics = regspace<uvec>(0, periods.n_elem - 1);
         uvec harmonics0 = harmonics;
-        // if (false) {
-        if (inputSeasonal[0] != 'n' && inputSeasonal[0] != 'l' && !inputs.MSOE && periods.n_elem > 1){
+        if (inputSeasonal[0] != 'n' && inputSeasonal[0] != 'l' &&
+            inputSeasonal[0] != 'e' && inputSeasonal[0] != '?' &&
+            !inputs.MSOE && periods.n_elem > 1){
                 vec betaHR;
                 selectHarmonics(SSmodel::inputs.y, SSmodel::inputs.u, periods, harmonics, betaHR, isSeasonal);
                 if (harmonics.n_rows == 0){
