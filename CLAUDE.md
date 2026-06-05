@@ -6,6 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `muse` ("Multiple Unobserved Sources of Error") is an R package implementing the PTS (Power / Trend / Seasonal) state-space model for time-series analysis and forecasting. It depends on `Rcpp`, `RcppArmadillo`, `greybox`, and `smooth`. License: LGPL-2.1.
 
+## ARCHITECTURE.md — primary reference
+
+`ARCHITECTURE.md` in the package root is the authoritative source for how this
+codebase is structured.  **Read it first** before exploring files or making changes.
+It covers the full call graph for every task (estimation, selection, forecasting,
+simulation, diagnostics), all C++ ↔ R data structures, coupling rules, and key
+invariants (BC scale, variance parameterisation, concentrated likelihood, λ DoF).
+
+**Keep it up to date.**  After any code change that affects call flows, data
+structures, parameter naming, or cross-file coupling, update the relevant section of
+`ARCHITECTURE.md` in the same commit.  If a coupling rule changes (e.g. a new field
+must be added in two places), update the "Coupling rules" table.  If a new invariant
+is discovered, add it to "Key invariants".  Stale documentation is worse than none.
+
 ## Common commands
 
 R package development uses `R CMD` and `devtools`/`roxygen2`. From the package root:

@@ -477,11 +477,19 @@ by the model type; only the variance entries of Q (and H) are free parameters.
   length m×(n+h) in column-major order (m components, n+h time points).
   `.pts_ts_comp()` reshapes to (n+h)×m and attaches ts/zoo attributes.
 
-- **Concentrated variances.** The quasi-Newton optimiser works on a reduced parameter
-  space; one or more variance parameters may be concentrated out analytically.  These
-  appear in `p` but have `constPar = 1`, which means their row/column in `vcov` is
-  NaN.  `nParam` counts all free + concentrated parameters (the engine reports the
-  correct k for information criteria).
+- **Variance parameterisation: ratios inside the optimiser, absolute values in output.**
+  `bsmMatrices()` builds Q and H as `exp(2·p_i)` for each variance parameter.  With
+  concentrated likelihood (`cLlik = true`, the default), one variance is pinned at
+  `p = 0` → `exp(0) = 1` during optimisation, so every other `exp(2·p_i)` is a
+  **ratio**: σ²_i / σ²_concentrated.  After optimisation, `parameterValues()`
+  (`PTSmodel.h`) multiplies all variance entries by `innVariance` — the analytical
+  MLE of the concentrated variance computed from the Kalman filter residuals as
+  `Σ(v²_t / F_t) / n` — converting ratios to **absolute variances** on the BC scale.
+  This is what ends up in `object$B`.  Consequence: the proportions printed by
+  `print.pts` are proportions of absolute variances, not of ratios.  The concentrated
+  parameter itself appears in `p` / `object$B` with its recovered absolute value, but
+  its row/column in `vcov` is NaN (`constPar = 1`) because the Hessian is computed in
+  ratio space.  `nParam` counts all free + concentrated parameters correctly for ICs.
 
 - **Lambda DoF.** When profile-lambda is used (`model` starts with `Z`) and the
   optimised λ does not snap to a fixed anchor, `lambdaEstimated = TRUE` and
