@@ -171,31 +171,28 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     inputsBSM.arma     = in.armaFlag;
     inputsBSM.seas     = in.seas;
 
-    // y_raw retains the untransformed trimmed series in every path so the
-    // profile-lambda outer loop (BSMclass::profileLambda) can re-Box-Cox
-    // for each candidate lambda without leaning on llik to do it inline.
-    inputsSS.y_raw          = inputsSS.y;
-    inputsSS.estimateLambda = false;       // joint-lambda path retired
-    inputsBSM.estimateLambda = false;
+    // y_raw retains the untransformed trimmed series so llik() can re-BoxCox
+    // per BFGS step when jointly estimating lambda.
+    inputsSS.y_raw = inputsSS.y;
     if (in.lambda == 9999.9){
-        // Profile lambda: Brent outer search with per-step inner BFGS.
-        // We leave inputsSS.y at y_raw (untransformed) so the constructor's
-        // initParBsm is tuned for lambda=1 — the same state the ident sweep's
-        // estimUCs sees for non-first candidates (where y_raw is left by the
-        // previous snap).  profileLambda's innerFit re-BoxCoxes at every Brent
-        // step, so the actual estimation y is always correct.
-        // Starting Brent at 1.0 (a neutral anchor) rather than testBoxCox
-        // ensures the first BFGS call has a matched (y_raw, p0_from_y_raw)
-        // pair, matching ident-sweep quality for the common snap-to-1 case.
-        inputsBSM.profileLambda = true;
-        inputsBSM.lambda        = 1.0;
-        // inputsSS.y intentionally stays at y_raw (no BoxCox here)
+        // Joint estimation: lambda is the last element of the BFGS p vector.
+        // llik() re-applies BoxCox(y_raw, p.back()) at every evaluation so
+        // we leave inputsSS.y untransformed here.
+        double lambda0           = testBoxCox(in.y, in.periods);
+        inputsBSM.lambda         = lambda0;
+        inputsSS.lambda          = lambda0;
+        inputsBSM.profileLambda  = true;   // persistent "joint lambda" flag
+        inputsSS.estimateLambda  = true;
+        inputsBSM.estimateLambda = true;
+        // inputsSS.y stays at y_raw
     } else {
-        inputsBSM.profileLambda = false;
-        inputsBSM.lambda        = in.lambda;
-        inputsSS.y              = BoxCox(inputsSS.y, inputsBSM.lambda);
+        inputsBSM.profileLambda  = false;
+        inputsSS.estimateLambda  = false;
+        inputsBSM.estimateLambda = false;
+        inputsBSM.lambda         = in.lambda;
+        inputsSS.lambda          = in.lambda;
+        inputsSS.y               = BoxCox(inputsSS.y, inputsBSM.lambda);
     }
-    inputsSS.lambda = inputsBSM.lambda;   // initial sync; innerFit keeps it current
 
     BSMclass sysBSM(inputsSS, inputsBSM);
     if (skipEstim){

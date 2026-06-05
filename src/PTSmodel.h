@@ -1000,14 +1000,8 @@ void BSMclass::estim(bool VERBOSE){
                 if (SSmodel::inputs.outlier == 0){
                         // Without outlier detection
                         uvec harmonics = inputs.harmonics;
-                        if (inputs.profileLambda){
-                                // Profile lambda for this specific model; sets
-                                // inputs.lambda and inputs.lambdaEstimated.
-                                SSmodel::inputs.p.reset();
-                                profileLambda(VERBOSE);
-                        } else {
-                                estim(SSmodel::inputs.p0, VERBOSE);
-                        }
+                        SSmodel::inputs.p.reset();
+                        estim(SSmodel::inputs.p0, VERBOSE);
                         // checkModel(harmonics);
                 } else {
                         // With outlier detection
@@ -1163,45 +1157,148 @@ void BSMclass::estim(vec p, bool VERBOSE){
                         nTrue = nNan2pi - 1 - SSmodel::inputs.system.T.n_rows;
                 }
         }
+        bool lambdaWasEstimated = SSmodel::inputs.estimateLambda;
+        // Capture final lambda (updated by llik() into inputs.lambda via data->lambda)
+        double lambdaStar = lambdaWasEstimated
+                            ? std::max(-2.0, std::min(2.0, inputs.lambda))
+                            : inputs.lambda;
+        if (lambdaWasEstimated)
+                inputs.lambda = lambdaStar;
         double LLIK, AIC, BIC, AICc, BICc;
         // Exception when function is nan
         if (flag > 6){
                 objFunValue = datum::nan;
         }
         // ----------------------------------------------------------------
-        // LLIK on the ORIGINAL response scale.  Keep the engine's exact
-        // closed-form concentrated KF likelihood on the BC scale
-        //     LLIK_BC = -0.5 * (n*log(2*pi) + nTrue * objFunValue)
-        // and add the Box-Cox Jacobian
-        //     (lambda - 1) * sum(log y_orig)
-        // post-hoc to lift the value onto the original response scale
-        // (greybox dbcnorm convention; bcnorm.R:79).  For lambda in the
-        // engine's identity band (lambda > 0.98) the Jacobian is zero,
-        // so LLIK equals LLIK_BC exactly.  Joint-lambda is no longer a
-        // separate code path -- BSMclass::profileLambda installs the
-        // current outer-step lambda and re-Box-Coxes y once per outer
-        // step; inside estim() lambda is always "fixed".
+        // LLIK on the ORIGINAL response scale.
+        //
+        // Fixed lambda (lambdaWasEstimated=false):
+        //   LLIK_BC = -0.5*(n*log2pi + nTrue*objFunValue)
+        //   LLIK = LLIK_BC + logJac   (Jacobian added post-hoc, constant w.r.t. psi)
+        //
+        // Joint lambda (lambdaWasEstimated=true):
+        //   llik() already folded logJac into objFunValue so that BFGS maximises
+        //   the BCnorm log-likelihood directly.  Therefore LLIK_BC IS LLIK_orig.
         if (!std::isfinite(objFunValue)){
                 LLIK = datum::nan;
         } else {
-                // LLIK_BC: concentrated KF log-likelihood on the BoxCox scale.
-                // logJac:  Σ log|g'(y_raw_t)| accumulated per observation in llik()
-                //          using bcnormLogJac() — consistent with the engine's
-                //          BoxCox branches (zero for lambda > 0.98 identity branch).
-                // Together they form the BCnorm log-likelihood on the original scale.
                 const double LLIK_BC = -0.5 * (log(2*datum::pi) * nNan2pi
                                                + nTrue * objFunValue);
-                LLIK = LLIK_BC + SSmodel::inputs.logJac;
+                LLIK = lambdaWasEstimated ? LLIK_BC
+                                          : LLIK_BC + SSmodel::inputs.logJac;
         }
+        // ----------------------------------------------------------------
+        // Anchor snap: run a second BFGS at the nearest anchor in
+        // {-2,-1,-0.5,0,0.5,1,2} and compare IC.  The snap saves one DoF
+        // (lambda fixed → k stays k instead of k+1); it wins on AIC ties.
+        // Both runs are cheap — one BFGS each, warm-started from psi*.
+        if (lambdaWasEstimated && std::isfinite(LLIK)){
+                // Save optimal state before modifying anything
+                double LLIK_star      = LLIK;
+                double objFun_star    = objFunValue;
+                vec    grad_star      = grad;
+                vec    p_opt_struct   = p.rows(0, p.n_elem - 2);  // structural only
+                vec    typePar_struct = inputs.typePar.rows(0, inputs.typePar.n_elem - 2);
+                vec    constPar_struct= inputs.constPar.rows(0, inputs.constPar.n_elem - 2);
+
+                // Find nearest anchor within the valid lambda domain
+                double yMin = SSmodel::inputs.y_raw.n_elem > 0
+                              ? SSmodel::inputs.y_raw.elem(find_finite(SSmodel::inputs.y_raw)).min()
+                              : 1.0;
+                double lambdaMin = (yMin > 0.0) ? -2.0 : 0.0;
+                const double allAnchors[] = {-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0};
+                double lambdaSnap = lambdaStar;
+                double dBest = datum::inf;
+                for (double aA : allAnchors){
+                        if (aA < lambdaMin - 1e-6 || aA > 2.0 + 1e-6) continue;
+                        double dist = std::abs(aA - lambdaStar);
+                        if (dist < dBest){ dBest = dist; lambdaSnap = aA; }
+                }
+
+                // k for IC comparison (adam-style: no nonStationaryTerms)
+                int k_base = static_cast<int>(p_opt_struct.n_elem + SSmodel::inputs.u.n_rows);
+                int n_ic   = nNan2pi;
+
+                // Snap BFGS: fixed lambda at anchor, warm-started from psi*
+                SSmodel::inputs.estimateLambda = false;
+                inputs.estimateLambda          = false;
+                inputs.typePar  = typePar_struct;
+                inputs.constPar = constPar_struct;
+                inputs.lambda          = lambdaSnap;
+                SSmodel::inputs.lambda = lambdaSnap;
+                SSmodel::inputs.y = BoxCox(SSmodel::inputs.y_raw, lambdaSnap);
+                vec    p_snap = p_opt_struct;   // warm-start; modified in place
+                double snapObjFun; vec snapGrad; mat snapHess;
+                quasiNewtonBSM(SSmodel::inputs.llikFUN, gradLlik, p_snap,
+                               &(SSmodel::inputs), snapObjFun, snapGrad, snapHess, false);
+
+                double LLIK_snap = datum::nan;
+                if (std::isfinite(snapObjFun)){
+                        const double LLIK_BC_snap = -0.5 * (log(2*datum::pi) * nNan2pi
+                                                            + nTrue * snapObjFun);
+                        LLIK_snap = LLIK_BC_snap + SSmodel::inputs.logJac;
+                }
+
+                // Compare IC using the selected criterion
+                double AIC_opt, BIC_opt, AICc_opt, BICc_opt;
+                double AIC_sn,  BIC_sn,  AICc_sn,  BICc_sn;
+                infoCriteria(LLIK_star, k_base + 1, n_ic,
+                             AIC_opt, BIC_opt, AICc_opt, BICc_opt);
+                infoCriteria(LLIK_snap, k_base,     n_ic,
+                             AIC_sn,  BIC_sn,  AICc_sn,  BICc_sn);
+                double crit_opt, crit_snap;
+                if (inputs.criterion == "bic" || inputs.criterion == "bicc"){
+                        crit_opt = BIC_opt; crit_snap = BIC_sn;
+                } else if (inputs.criterion == "aicc"){
+                        crit_opt = AICc_opt; crit_snap = AICc_sn;
+                } else {
+                        crit_opt = AIC_opt; crit_snap = AIC_sn;
+                }
+
+                if (std::isfinite(crit_snap) && crit_snap <= crit_opt){
+                        // Snap wins: keep snap-BFGS state
+                        p = p_snap;
+                        grad = snapGrad;
+                        objFunValue = snapObjFun;
+                        LLIK = LLIK_snap;
+                        inputs.lambda = lambdaSnap;
+                        inputs.lambdaEstimated = false;
+                        // SSmodel::inputs.y, .lambda, aEnd, PEnd already at snap
+                } else {
+                        // Optimal wins: restore optimal-BFGS state
+                        p = p_opt_struct;
+                        grad = grad_star;
+                        objFunValue = objFun_star;
+                        LLIK = LLIK_star;
+                        inputs.lambda = lambdaStar;
+                        inputs.lambdaEstimated = true;
+                        // Restore y and KF state for subsequent forecast()
+                        SSmodel::inputs.lambda = lambdaStar;
+                        SSmodel::inputs.y = BoxCox(SSmodel::inputs.y_raw, lambdaStar);
+                        inputs.typePar  = typePar_struct;
+                        inputs.constPar = constPar_struct;
+                        // One extra llik() call to repopulate aEnd/PEnd/v/F/iF
+                        SSmodel::inputs.llikFUN(p, &(SSmodel::inputs));
+                }
+        } else if (lambdaWasEstimated){
+                // Estimation failed (non-finite LLIK): just strip lambda cleanly
+                p.shed_row(p.n_elem - 1);
+                if (grad.n_elem > 0) grad.shed_row(grad.n_elem - 1);
+                inputs.typePar.shed_row(inputs.typePar.n_elem - 1);
+                inputs.constPar.shed_row(inputs.constPar.n_elem - 1);
+                inputs.lambdaEstimated = false;
+                SSmodel::inputs.y = BoxCox(SSmodel::inputs.y_raw, lambdaStar);
+                SSmodel::inputs.lambda = lambdaStar;
+        }
+        // Clear transient estimateLambda flags: y is now correctly set for
+        // the selected lambda; subsequent validate()/parCov()/forecast() must
+        // NOT try to re-BoxCox.
+        SSmodel::inputs.estimateLambda = false;
+        inputs.estimateLambda          = false;
+
         // k INCLUDES nonStationaryTerms (the Harvey-style diffuse initial-
         // state DoF), because estimUCs's selection and the ident()/outlier
-        // paths need that penalty to rank candidates correctly -- candidates
-        // with bigger seasonal/cycle blocks carry more diffuse states, and
-        // dropping the term flips the AIC ordering.  The verbose
-        // identification table recomputes its own AIC/BIC/AICc/BICc using
-        // the adam-style k (no nonStationaryTerms) in estimUCs so the
-        // printed values still line up with stats::AIC / greybox::AICc on
-        // the R side from the same LLIK.
+        // paths need that penalty to rank candidates correctly.
         infoCriteria(LLIK, p.n_elem + SSmodel::inputs.u.n_rows + SSmodel::inputs.nonStationaryTerms,
                      nNan2pi, AIC, BIC, AICc, BICc);
         vec criteria(5);
@@ -1234,9 +1331,6 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 printf("%s", SSmodel::inputs.estimOk.c_str());
                 printf("Elapsed time: %10.5f seconds\n", nSeconds);
         }
-        // lambda is no longer in p (joint-lambda path retired); profile-
-        // lambda installs SSmodel::inputs.y from y_raw before each inner
-        // estim() call.  Nothing to shed here.
         SSmodel::inputs.p = p;
         SSmodel::inputs.objFunValue = objFunValue;
         SSmodel::inputs.grad = grad;
@@ -1537,16 +1631,21 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                 inputs.rhos = RHOS;
                 SSmodel::inputs.u = uCopy;
                 inputs.typeOutliers.resize(0);
-                // For profile-lambda: reset y and lambda BEFORE setModel so
-                // initParBsm always sees y_raw (the natural data scale) and
-                // lambda=1.  Without this, initParBsm would use whatever y was
-                // left by the previous candidate's Brent snap (e.g. BoxCox(y,0.5)),
-                // giving a different p0 and a different BFGS basin than a direct
-                // call that starts from the constructor.
+                // For joint-lambda: reset y=y_raw and compute a fresh testBoxCox
+                // warm-start for this candidate's periods before calling setModel.
+                // initParBsm (Section 9) will append inputs.lambda to p0 when
+                // SSmodel::inputs.estimateLambda is true.  Both estimateLambda
+                // flags must be re-asserted each iteration because estim() clears
+                // them at the end of each candidate's estimation.
                 if (inputs.profileLambda){
-                        inputs.lambda          = 1.0;
-                        SSmodel::inputs.lambda = 1.0;
-                        SSmodel::inputs.y      = SSmodel::inputs.y_raw;
+                        vec perForTest = inputs.periods(harmonics);
+                        inputs.lambda = (perForTest.n_elem > 0)
+                                      ? testBoxCox(SSmodel::inputs.y_raw, perForTest)
+                                      : 1.0;
+                        SSmodel::inputs.lambda    = inputs.lambda;
+                        SSmodel::inputs.y         = SSmodel::inputs.y_raw;
+                        SSmodel::inputs.estimateLambda = true;
+                        inputs.estimateLambda          = true;
                 }
                 setModel(allUCModels[i], inputs.periods(harmonics), inputs.rhos(harmonics), false);
                 // setModel(allUCModels[i], PERIODS(harmonics), RHOS(harmonics), false);
@@ -1560,11 +1659,7 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                 //         }
                 // }
                 SSmodel::inputs.p.reset();
-                if (inputs.profileLambda){
-                        profileLambda(false);    // verbose handled at table-print time below
-                } else {
-                        estim(SSmodel::inputs.verbose);
-                }
+                estim(SSmodel::inputs.verbose);
                 inputs.periods = PERIODS;
                 inputs.rhos = RHOS;
                 AIC  = SSmodel::inputs.criteria(1);
@@ -3597,10 +3692,16 @@ void BSMclass::initParBsm(){
                         inputs.p0Return(ind) = inputs.beta0ARMA;
                 }
         }
-        // Joint-lambda warm-start (previous "Section 9") is retired.
-        // Profile-lambda runs as an outer loop in BSMclass::profileLambda;
-        // initParBsm now leaves p0 / typePar / constPar untouched w.r.t.
-        // lambda regardless of estimateLambda's residual value.
+        // Section 9: Lambda parameter (joint estimation).
+        // When SSmodel::inputs.estimateLambda is true, lambda is appended as
+        // the last element of p (typePar=6 keeps it out of the concentrated-
+        // variance machinery; constPar=0 means it is a free parameter).
+        // inputs.lambda holds the warm-start value set by estimUCs or musecore.h.
+        if (SSmodel::inputs.estimateLambda){
+                SSmodel::inputs.p0 = join_vert(SSmodel::inputs.p0, vec({inputs.lambda}));
+                inputs.typePar = join_vert(inputs.typePar, vec({6.0}));
+                inputs.constPar = join_vert(inputs.constPar, vec({0.0}));
+        }
 }
 /*************************************************************
  //  * Implementation of auxiliar functions
