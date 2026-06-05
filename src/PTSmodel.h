@@ -2941,9 +2941,14 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                 if (cLlik){
                         xUncon(isVar) = log(exp(2 * xNew(isVar)) * SSmodel::inputs.innVariance) / 2;
                 }
-                // Checking for zero variances
-                zeroVar = find((((xUncon % (inputs.constPar == 0) % (inputs.typePar == 0)) < -10) +
-                        ((abs(gradNew) % (inputs.constPar == 0)) % (inputs.typePar == 0) < 0.0001)) == 2);
+                // Checking for zero variances.
+                // Both conditions must be satisfied simultaneously: the variance
+                // must be negligibly small (xUncon < -15, i.e. var < exp(-30) ≈ 9e-14)
+                // AND its gradient must be essentially zero (|grad| < 1e-6).
+                // The old thresholds (-10 / 1e-4) were too loose and prematurely
+                // pinned variances still in motion, producing a worse optimum.
+                zeroVar = find((((xUncon % (inputs.constPar == 0) % (inputs.typePar == 0)) < -15) +
+                        ((abs(gradNew) % (inputs.constPar == 0)) % (inputs.typePar == 0) < 0.000001)) == 2);
                 if (zeroVar.n_elem > 0){
                         xNew(zeroVar).fill(-300);
                         inputs.constPar(zeroVar).fill(2);
