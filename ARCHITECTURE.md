@@ -491,6 +491,20 @@ by the model type; only the variance entries of Q (and H) are free parameters.
   its row/column in `vcov` is NaN (`constPar = 1`) because the Hessian is computed in
   ratio space.  `nParam` counts all free + concentrated parameters correctly for ICs.
 
+- **Which variance is concentrated out — initial choice and dynamic switching.**
+  `initParBsm()` Section 7 sets the initial concentrated parameter: if an irregular
+  component is present, the Irregular variance is chosen (index `nPar(0)+nPar(1)+nPar(2)`);
+  if there is no irregular component, the first variance parameter (Level) is chosen.
+  During every BFGS iteration inside `quasiNewtonBSM()`, the code converts the
+  current ratio-space `xNew` back to absolute-scale `xUncon`, then checks whether the
+  currently concentrated parameter is still the largest variance.  If not, it switches:
+  the old concentrated parameter is freed, the new largest becomes concentrated, and all
+  ratios are rescaled so the new concentrated parameter sits at `p = 0`.  Damping is
+  always excluded from this competition (its index is masked with −300 before
+  `index_max()`; its `typePar` is −1 rather than 0 in any case).  The rationale:
+  concentrating out the largest variance keeps all remaining ratios ≤ 1, giving a
+  better-conditioned BFGS search space.
+
 - **Lambda DoF.** When profile-lambda is used (`model` starts with `Z`) and the
   optimised λ does not snap to a fixed anchor, `lambdaEstimated = TRUE` and
   `nParam = length(B) + 1`.  When it snaps, `lambdaEstimated = FALSE` and `nParam
