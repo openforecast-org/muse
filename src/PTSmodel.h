@@ -1631,19 +1631,16 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                 inputs.rhos = RHOS;
                 SSmodel::inputs.u = uCopy;
                 inputs.typeOutliers.resize(0);
-                // For joint-lambda: reset y=y_raw and compute a fresh testBoxCox
-                // warm-start for this candidate's periods before calling setModel.
-                // initParBsm (Section 9) will append inputs.lambda to p0 when
-                // SSmodel::inputs.estimateLambda is true.  Both estimateLambda
-                // flags must be re-asserted each iteration because estim() clears
-                // them at the end of each candidate's estimation.
+                // For joint-lambda: set y=y_raw so llik() can re-BoxCox per step.
+                // We do NOT reset inputs.lambda — after the first candidate, each
+                // subsequent candidate warm-starts from the previous optimal lambda.
+                // The initial warm-start (first candidate) comes from musecore.h
+                // (testBoxCox) or from the constructor.
+                // Both estimateLambda flags must be re-asserted each iteration
+                // because estim() clears them at the end of each candidate.
                 if (inputs.profileLambda){
-                        vec perForTest = inputs.periods(harmonics);
-                        inputs.lambda = (perForTest.n_elem > 0)
-                                      ? testBoxCox(SSmodel::inputs.y_raw, perForTest)
-                                      : 1.0;
-                        SSmodel::inputs.lambda    = inputs.lambda;
-                        SSmodel::inputs.y         = SSmodel::inputs.y_raw;
+                        SSmodel::inputs.lambda         = inputs.lambda;
+                        SSmodel::inputs.y              = SSmodel::inputs.y_raw;
                         SSmodel::inputs.estimateLambda = true;
                         inputs.estimateLambda          = true;
                 }
