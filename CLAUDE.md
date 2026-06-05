@@ -23,37 +23,70 @@ The C++ side is built via `src/Makevars` (links LAPACK/BLAS/Fortran). Stale `*.o
 
 ## Architecture
 
-The package exposes a single user-facing model family — **PTS** — implemented as a thin R wrapper over an Armadillo C++ backend. An internal **MSOE** (general unobserved-components) layer sits between PTS and the C++ engine but is not exported.
+Full call-flow and data-structure documentation is in `ARCHITECTURE.md`.  The summary below covers what an agent needs to make safe changes.
 
-### Public API
+### How it fits together
 
-- **PTS** (`R/PTSfunctions.R`, `R/PTSS3functions.R`) — "Power/Trend/Seasonal" exponential-smoothing-style models. User specifies a three-letter model string (e.g. `"ZZZ"`, `"0NT"`, `"1LD"`) covering Power (Z or a numeric Box-Cox lambda), Trend (Z/N/L/G/D), and Seasonal (Z/N/D/T) components. Top-level entry points are `PTS()` (estimate + validate + components), `PTSforecast()` (estimate + forecast only, faster), and `PTSsetup()` (build the input object). Translators `PTS2modelUC`, `modelUC2PTS`, `modelUC2arma` map between the PTS spec and the underlying UC representation. S3 methods: `print.PTS`, `summary.PTS`, `plot.PTS`, `fitted.PTS`, `residuals.PTS`.
+`pts()` (`R/pts.R`) is the sole user-facing function.  It calls `.pts_fit()` (`R/pts-internals.R`), which translates the 3-letter model string to a UC string (`R/pts-translate.R`), marshals arguments, and invokes `UCompC()` — the single C++ entry point (`src/musecpp2R.cpp`).  `UCompC()` dispatches on a `command` argument (`"all"` for full estimation, `"forecastOnly"`, `"simulate"`, …) and returns a named list that `.pts_fit()` post-processes into the `pts` S3 object.  S3 methods live in `R/methods.R`, `R/pts-summary.R`, `R/pts-methods-accessors.R`, `R/pts-methods-diagnostics.R`, `R/pts-accuracy.R`, `R/pts-simulate.R`, and `R/pts-confint.R`.  Dispatch for `plot`, `AIC`/`BIC`, and several greybox generics falls through the `c("pts", "smooth")` class chain — no local implementations needed.
 
-### Internal engine
+### R file map
 
-- **MSOE** (`R/MSOEfunctions.R`) — `MSOEsetup`, `MSOE`, `MSOEestim`. **Not exported.** PTS calls these internally with the richer UC model-string grammar `"trend/cycle/seasonal/irregular"` (e.g. `"llt/none/equal/arma(0,0)"`). Supports outlier detection (AO/LS/SC), stepwise model selection, ARMA irregular components. Carries an `MSOE`-class object whose `hidden$MSOE = FALSE` / `hidden$PTSnames = TRUE` flags steer the C++ engine into PTS-naming mode.
+| File | What it contains |
+|------|-----------------|
+| `R/pts.R` | `pts()` entry point; assembles the returned object |
+| `R/pts-internals.R` | `.pts_fit()`, `.pts_uc_inputs()`, `.pts_call_uc()`, `.pts_parse_data()`, `.pts_wrap_*()`, `.pts_build_comp()`, `.pts_forecast_inputs()`, `.inv_box_cox()` |
+| `R/pts-translate.R` | `pts_to_uc()`, `uc_to_pts()`, `uc_to_arma()`, `.pts_ic_to_engine()` |
+| `R/methods.R` | `print.pts`, `fitted`, `residuals`, `coef`, `vcov`, `nobs`, `logLik`, `predict`, `forecast.pts` |
+| `R/pts-summary.R` | `summary.pts`, `print.summary.pts`, `as.data.frame.summary.pts` |
+| `R/pts-methods-accessors.R` | `sigma`, `nparam`, `actuals`, `modelType`, `lags`, `orders`, `errorType` |
+| `R/pts-methods-diagnostics.R` | `rstandard`, `rstudent`, `pointLik`, `outlierdummy` |
+| `R/pts-accuracy.R` | `accuracy.pts`, `accuracy.pts.forecast` |
+| `R/pts-simulate.R` | `simulate.pts` |
+| `R/pts-confint.R` | `confint.pts` (Wald intervals) |
+| `R/pts-update.R` | `update.pts` |
+| `R/RcppExports.R` | Auto-generated — do not edit; regenerate with `Rcpp::compileAttributes()` |
 
-### R ↔ C++ boundary
+### C++ file map
 
-There is exactly one C++ entry point exposed to R, declared in `src/RcppExports.cpp` and mirrored in `R/RcppExports.R`:
+Header-only, all included from `src/musecpp2R.cpp`:
 
-- `UCompC(commands, ys, us, models, hs, lambdas, outliers, tTests, criterions, periodss, rhoss, verboses, stepwises, p0s, armas, TVPs, seass, trendOptionss, seasonalOptionss, irregularOptionss)` — defined in `src/musecpp2R.cpp`. The `commands` string ("validate", "filter", "smooth", "disturb", "components", "all") selects what the engine does on top of the always-performed estimate + forecast.
+| File | What it contains |
+|------|-----------------|
+| `src/musecpp2R.cpp` | `UCompC()` Rcpp bridge; marshals SEXP ↔ `MuseInputs`/`MuseOutputs` |
+| `src/musecore.h` | `MuseInputs`, `MuseOutputs` structs; `runMuseCommand()` dispatch |
+| `src/PTSmodel.h` | `BSMclass` — model matrices, likelihood, ident, profile-lambda, components |
+| `src/SSpace.h` | `SSmodel` — Kalman filter/smoother, quasi-Newton optimiser, forecast |
+| `src/boxcox.h` | `BoxCox()`, `invBoxCox()`, `testBoxCox()` — thresholds must match `.inv_box_cox()` in R |
+| `src/optim.h` | BFGS-style optimiser used by `SSmodel::estim()` |
+| `src/ARMAmodel.h` | ARMA irregular component |
+| `src/ARIMASSmodel.h` | Included but unused (dead code) |
+| `src/stats.h`, `src/DJPTtools.h` | Statistical helpers and utilities |
 
-The R wrapper carries a large `list` of inputs and outputs (the `MSOE` / `PTS` object), passes inputs to C++, and copies results back into named slots. When adding a new field, update both the R-side `setup` function (initialising to `NA`) and the C++ unpacking/repacking code in `musecpp2R.cpp`.
+### Coupling rules — when you change one thing, also change these
 
-### C++ implementation layout (`src/*.h`)
+**Adding a new output field from C++ to R:**
+1. Populate it in `MuseOutputs` and pack it in `musecpp2R.cpp`.
+2. Unpack it in `.pts_fit()` (`R/pts-internals.R`) and add it to the returned list.
+3. Store it on the `pts` object in `pts()` (`R/pts.R`).
+4. If needed in `forecast.pts`, also unpack it in `.pts_forecast_inputs()`.
 
-Header-only, included from `musecpp2R.cpp`, built around a shared state-space engine:
+**Adding a new input field from R to C++:**
+1. Add it to the list returned by `.pts_uc_inputs()` and `.pts_forecast_inputs()`.
+2. Add it to the `UCompC()` signature in `src/musecpp2R.cpp` and unpack into `MuseInputs`.
+3. Regenerate `R/RcppExports.R` and `src/RcppExports.cpp` with `Rcpp::compileAttributes()`.
 
-- `SSpace.h` — generic Kalman-filter/smoother state-space class. The base for all model types.
-- `PTSmodel.h` (~3700 lines) — `BSMclass` PTS/BSM model deriving from `SSpace`; this is the engine PTS sits on.
-- `ARMAmodel.h` — ARMA model used for the irregular component.
-- `ARIMASSmodel.h` — currently `#include`d by `PTSmodel.h` but unused (dead code, flagged for a future cleanup).
-- `boxcox.h` — Box-Cox transform / inverse and lambda estimation.
-- `optim.h` — numerical optimiser (BFGS-style) used for ML estimation.
-- `stats.h`, `DJPTtools.h` — statistical helpers and shared utilities.
+**Changing Box-Cox thresholds:** the R-side `.inv_box_cox()` (`R/pts-internals.R`) and the C++ `BoxCox()`/`invBoxCox()` (`src/boxcox.h`) must use identical thresholds (`|λ| < 0.02` → log; `λ > 0.98` → identity).
 
-When changing model behaviour, the math typically lives in the model-specific header; the R-facing function only edits the input list.
+**Changing parameter names:** `BSMclass::parLabels()` in `PTSmodel.h` sets names; the S3 methods in `R/methods.R` and `R/pts-summary.R` pattern-match on them (`grepl("^AR\\("`, `"^Beta"`, `"^Damping"`, `"^Irregular"`).  Update both sides.
+
+**Changing `nParam` logic:** the count is assembled in `pts()` as `length(res$p) + as.integer(lambdaEstimated)`.  The C++ engine sets `lambdaEstimated`; the R side must not add any further adjustment.
+
+### Key invariants
+
+- **BC scale vs original scale.** `$residuals`, `$comp`, and innovations are on the Box-Cox scale (additive).  `$fitted`, `$forecast$mean`, and holdout comparisons are on the original scale (back-transformed).  Prediction intervals are computed by endpoint-transforming the BC-scale ±z·se bounds — not by transforming a symmetric original-scale interval.
+- **Concentrated variances.** Some variance parameters are concentrated out analytically; they appear in `$B` but have `NaN` rows/columns in `$vcov`.  `$nParam` correctly counts them for ICs.
+- **Regressor matrix orientation.** User supplies (n × k); internally and in C++ it is (k × n).  The transpose happens once in `.pts_parse_data()` for training data and once in `.pts_forecast_inputs()` for `newdata`.
+- **Harmonic periods.** `lagsAll = lags / (1 : floor(lags/2))`.  The C++ engine may select a subset, but `lagsAll` always stores the full candidate set that was passed in.
 
 ### Documentation generation
 

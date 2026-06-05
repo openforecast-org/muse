@@ -49,6 +49,12 @@ print.pts <- function(x, digits = 4, ...){
         cat("\nWith Box-Cox lambda = ", round(lam, digits), sep = "")
     }
 
+    # --- Harmonic periods (only when seasonal) ---
+    if (!is.null(x$lagsAll) && length(x$lagsAll) > 1){
+        perStr <- paste(formatC(x$lagsAll, format = "f", digits = 1), collapse = " / ")
+        cat("\nPeriods:", perStr)
+    }
+
     # --- distribution line (adam.R:5898-5917) ---
     distrib <- switch(as.character(x$distribution),
                       "dnorm"     = "Normal",
@@ -69,20 +75,31 @@ print.pts <- function(x, digits = 4, ...){
     if (!is.null(x$constant) && !is.na(x$constant))
         cat("\nIntercept/Drift value:", round(x$constant, digits))
 
-    # --- MSOE innovation variances (pts analog of adam's persistence
-    #     vector g at adam.R:5947-5966).  Filter B to drop the ARMA / Beta
-    #     rows; what remains are the variances of state innovations. ---
+    # --- Parameters block: variance params shown as proportions (Tasks 1-3).
+    #     Structural variances (Level, Slope, Seas*) are divided by their sum
+    #     so they show the relative contribution of each component.
+    #     Irregular is dropped.  Damping is shown with its raw value.
+    #     ARMA and Beta (xreg) params get their own sections below. ---
     B  <- coef(x)
     nm <- names(B)
-    isArma <- grepl("^(AR|MA)\\(", nm)
-    isXreg <- grepl("^Beta",       nm)
-    vars   <- B[!(isArma | isXreg)]
-    if (length(vars) > 0){
-        cat("\nInnovation variances:\n")
-        # Variances live on whatever scale the BC residuals do, often very
-        # small (1e-5 .. 1e-3), so signif() preserves magnitude where
-        # round(., digits) would zero them out.
-        print(signif(vars, digits))
+    isArma  <- grepl("^(AR|MA)\\(", nm)
+    isXreg  <- grepl("^Beta",       nm)
+    isDamp  <- nm == "Damping"
+    isIrr   <- nm == "Irregular"
+    isVar   <- !(isArma | isXreg | isDamp | isIrr)
+
+    varVals <- B[isVar]
+    dampVal <- B[isDamp]
+
+    if (length(varVals) > 0){
+        S <- sum(varVals)
+        props <- if (S > 0) varVals / S else varVals
+        cat("\nParameters:\n")
+        print(signif(props, digits))
+    }
+    if (length(dampVal) > 0){
+        cat("\nDamping:\n")
+        print(round(dampVal, digits))
     }
 
     # --- ARMA parameters of the irregular component (adam.R:5976-6013) ---
@@ -121,13 +138,6 @@ print.pts <- function(x, digits = 4, ...){
     print(round(ICs, digits))
 
     invisible(x)
-}
-
-#' @rdname pts-methods
-#' @export
-summary.pts <- function(object, ...){
-    print(object, ...)
-    invisible(object)
 }
 
 # plot.pts and plot.pts.forecast intentionally NOT defined.  With the

@@ -112,7 +112,9 @@ test_that("summary.pts coefficient table has the adam columns", {
                  c("Estimate", "Std. Error", "t value", "Pr(>|t|)", "Lower", "Upper"))
     df <- as.data.frame(s)
     expect_true("Parameter" %in% names(df))
-    expect_equal(nrow(df), nparam(m))
+    # Irregular is excluded from the display; rows == structural params (no Irregular)
+    expect_equal(nrow(df), nrow(s$coefficients))
+    expect_false("Irregular" %in% rownames(s$coefficients))
 })
 
 test_that("summary.pts numerical invariants", {

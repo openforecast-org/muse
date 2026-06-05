@@ -21,15 +21,46 @@ summary.pts <- function(object, level = 0.95, ...){
     z     <- qnorm(c(a, 1 - a))
     lower <- est + ses * z[1]
     upper <- est + ses * z[2]
-    cmat  <- cbind(Estimate    = est,
-                   `Std. Error` = ses,
-                   `t value`    = tval,
-                   `Pr(>|t|)`   = pval,
-                   Lower        = lower,
-                   Upper        = upper)
-    rownames(cmat) <- names(est)
+    isIrr <- names(est) == "Irregular"
+    cmat  <- cbind(Estimate    = est[!isIrr],
+                   `Std. Error` = ses[!isIrr],
+                   `t value`    = tval[!isIrr],
+                   `Pr(>|t|)`   = pval[!isIrr],
+                   Lower        = lower[!isIrr],
+                   Upper        = upper[!isIrr])
+    rownames(cmat) <- names(est)[!isIrr]
+
+    # Variance proportions + delta-method SEs.
+    # Only structural variance params (not Damping, not Irregular, not ARMA, not Beta).
+    nm <- names(est)
+    isArma  <- grepl("^(AR|MA)\\(", nm)
+    isXreg  <- grepl("^Beta",       nm)
+    isDamp  <- nm == "Damping"
+    isIrr   <- nm == "Irregular"
+    isVar   <- !(isArma | isXreg | isDamp | isIrr)
+    varVals <- est[isVar]
+    S       <- sum(varVals)
+    props   <- if (length(varVals) > 0 && S > 0) varVals / S else varVals
+
+    propSEs <- rep(NA_real_, length(varVals))
+    names(propSEs) <- names(varVals)
+    if (length(varVals) > 1 && !is.null(dim(cv)) && S > 0){
+        varIdx <- which(isVar)
+        if (max(varIdx) <= nrow(cv)){
+            Sv <- cv[varIdx, varIdx, drop = FALSE]
+            # Jacobian J[i,j] = dp_i/dv_j (delta method)
+            J  <- (diag(length(varVals)) - outer(rep(1, length(varVals)), props)) / S
+            propVar <- diag(J %*% Sv %*% t(J))
+            propSEs <- sqrt(pmax(0, propVar))
+        }
+    }
+    propMat <- cbind(Proportion  = props,
+                     `Std. Error` = propSEs)
+    rownames(propMat) <- names(props)
+
     out <- list(
         coefficients = cmat,
+        proportions  = propMat,
         sigma   = sigma(object),
         logLik  = as.numeric(logLik(object)),
         nobs    = nobs(object),
@@ -42,6 +73,7 @@ summary.pts <- function(object, level = 0.95, ...){
         modelUC = object$modelUC,
         lambda  = object$lambda,
         lags    = object$lags,
+        lagsAll = object$lagsAll,
         level   = level,
         call    = object$call,
         timeElapsed = object$timeElapsed
@@ -55,8 +87,12 @@ print.summary.pts <- function(x, digits = 4, ...){
     cat("PTS state-space model\n")
     cat("  model:  ", x$model,
         "   (UC: ", x$modelUC, ")\n", sep = "")
+    perStr <- if (!is.null(x$lagsAll) && length(x$lagsAll) > 1)
+                  paste(formatC(x$lagsAll, format = "f", digits = 1), collapse = " / ")
+              else
+                  as.character(x$lags)
     cat("  lambda: ", format(x$lambda, digits = digits),
-        "   lags: ", x$lags,
+        "   periods: ", perStr,
         "   nobs: ", x$nobs,
         "   nParam: ", x$nParam, "\n", sep = "")
     cat("  sigma:  ", format(x$sigma, digits = digits), "\n", sep = "")
@@ -70,6 +106,15 @@ print.summary.pts <- function(x, digits = 4, ...){
     cmat_print[, "Lower"]      <- signif(cmat[, "Lower"], digits)
     cmat_print[, "Upper"]      <- signif(cmat[, "Upper"], digits)
     print(as.data.frame(cmat_print), na.print = "NA")
+
+    if (!is.null(x$proportions) && nrow(x$proportions) > 0){
+        cat("\nVariance proportions:\n")
+        pmat_print <- x$proportions
+        pmat_print[, "Proportion"]  <- signif(x$proportions[, "Proportion"],  digits)
+        pmat_print[, "Std. Error"]  <- signif(x$proportions[, "Std. Error"],  digits)
+        print(as.data.frame(pmat_print), na.print = "NA")
+    }
+
     cat("\nlogLik:", format(x$logLik, digits = digits),
         "  AIC:",  format(x$IC["AIC"],  digits = digits),
         "  AICc:", format(x$IC["AICc"], digits = digits),

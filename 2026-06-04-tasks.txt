@@ -1,7 +1,7 @@
-1. Innovation variances: -> parameters
-2. Substitute variances in the prints to proportions.
-3. Drop Irregular from the output.
-4. summary.pts -> proportions as well + variances of proportions
++1. Innovation variances: -> parameters
++2. Substitute variances in the prints to proportions.
++3. Drop Irregular from the output.
++4. summary.pts -> proportions as well + variances of proportions
 5. Add actuals in plot(12).
 6. Slope before seasonal in plot(12)
 7. plot(4,5) have issues
@@ -9,15 +9,58 @@
 9. forecast method improvements
 10. simulate(test) add obs
 11. Simulated intervals
-12. Add Periods:  12.0 /  6.0 /  4.0 /  3.0 /  2.4 to print/summary
++12. Add Periods:  12.0 /  6.0 /  4.0 /  3.0 /  2.4 to print/summary
 13. summary - add stars to show which is concentrated out
 14. Amend the data to split into y and xreg.
 15. Lambda estimation
 16. Outliers parameter: identify/use/nothing + level=0.99
 17. Include the seasonal ARMA in the residuals
 18. Check df for BC vs lambda=0, 1
+19. Do harmonic selection for any pts(Z,Z,T) model. This should work either in selection or estimation scenarios.
 
 Diego:
-19. Check the residuals - make sure that they are returned for the whole sample to be comparable with other models.
-20. Make sure that likelihoods have the same dimensions (same length).
-21. Check the Discrete seasonality - it is shifted 3 steps ahead.
+1. Check the residuals - make sure that they are returned for the whole sample to be comparable with other models.
+2. Make sure that likelihoods have the same dimensions (same length).
+3. Check the Discrete seasonality - it is shifted 3 steps ahead.
+
+
+The calculations now (after the BCNorm fix) are much smaller than before. The model selection used to be done in approximately 1 second, not it takes 4:
+> pts(AirPassengers, "ZZZ", verbose=T, h=12, holdout=T)
+-----------------------------------------------------------------------------------
+ Identification of PTS models:
+-----------------------------------------------------------------------------------
+    Model          Lambda           AIC           BIC          AICc          BICc
+           (Lambda values marked with '*' were snapped to a fixed anchor.)
+-----------------------------------------------------------------------------------
+ (0.0, N, N)   0.00*:     1239.4180     1245.1836     1239.5110     1245.4107
+ (0.5, N, D)   0.50*:     1036.3956     1045.0440     1036.5831     1045.5018
+ (1.0, N, T)   1.00*:     1009.6808     1018.3292     1009.8683     1018.7870
+ (0.0, L, N)   0.00*:     1249.6589     1258.3073     1249.8464     1258.7650
+ (0.5, L, D)   0.50*:     1036.1677     1047.6989     1036.4827     1048.4679
+ (1.0, L, T)   1.00*:      983.7055      995.2367      984.0204      996.0056
+ (0.0, D, N)   0.00*:     1239.7635     1251.2947     1240.0785     1252.0636
+ (0.5, D, D)   0.50*:     1038.1507     1052.5647     1038.6269     1053.7273
+ (1.0, D, T)   1.00*:      992.6487     1007.0627      993.1249     1008.2253
+ (0.0, G, N)   0.00*:     1247.6589     1253.4245     1247.7519     1253.6516
+ (0.5, G, D)   0.50*:     1034.1678     1042.8162     1034.3553     1043.2739
+ (1.0, G, T)   1.00*:      982.4983      991.1467      982.6858      991.6045
+-----------------------------------------------------------------------------------
+  Identification time:    4.49862 seconds
+-----------------------------------------------------------------------------------
+Time elapsed: 4.56 seconds
+Model estimated using pts() function: PTS(1,G,T)
+With no Box-Cox transform (lambda = 1)
+Distribution assumed in the model: Normal
+Loss function type: likelihood; Loss function value: 488.2491
+Innovation variances:
+    Level Seas(All) Irregular 
+1.708e+01 9.848e-01 5.081e-05 
+
+Sample size: 132
+Number of estimated parameters: 3
+Number of degrees of freedom: 129
+Information criteria:
+     AIC     AICc      BIC     BICc 
+982.4983 982.6858 991.1467 991.6045 
+
+Profile the code to understand where the main slowdown happens and suggest how to speed things up.
