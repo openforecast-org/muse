@@ -195,6 +195,7 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         inputsBSM.lambda        = in.lambda;
         inputsSS.y              = BoxCox(inputsSS.y, inputsBSM.lambda);
     }
+    inputsSS.lambda = inputsBSM.lambda;   // initial sync; innerFit keeps it current
 
     BSMclass sysBSM(inputsSS, inputsBSM);
     if (skipEstim){

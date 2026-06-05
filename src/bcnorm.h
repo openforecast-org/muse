@@ -1,90 +1,104 @@
-// bcnorm.h — C++ analogue of greybox::dbcnorm (greybox/R/bcnorm.R:71-89),
-// aligned with the engine's BoxCox thresholds (src/boxcox.h:35-49) so the
-// caller doesn't need to special-case lambda == 1.
+// bcnorm.h — C++ implementation of the Box-Cox normal distribution,
+// matching greybox::dbcnorm (greybox/R/bcnorm.R).
 //
-// bcnormLogDensity returns the log-density of the Box-Cox-normal distribution
-// at every element of q, using the same three branches the engine itself
-// applies for BoxCox:
-//   * |lambda| < 0.02  (engine treats as log)
-//        log f(q) = -log(q) - log(sigma) - 0.5 log(2 pi)
-//                   - 0.5 * ((log q - mu) / sigma)^2
-//       (= dlnorm(q, meanlog = mu, sdlog = sigma, log = TRUE))
-//   * lambda > 0.98    (engine treats as identity, NOT formal Box-Cox lambda=1)
-//        log f(q) = -log(sigma) - 0.5 log(2 pi)
-//                   - 0.5 * ((q - mu) / sigma)^2
-//       (= dnorm(q, mean = mu, sd = sigma, log = TRUE))
-//   * otherwise (Box-Cox proper)
-//        log f(q) = (lambda - 1) * log(q) - log(sigma) - 0.5 log(2 pi)
-//                   - 0.5 * (((q^lambda - 1)/lambda - mu) / sigma)^2
+// The BCnorm density for an observation y with location mu, scale sigma,
+// and Box-Cox parameter lambda is
 //
-// The first term (lambda - 1) * log(q) is the Box-Cox Jacobian; summing this
-// log-density over the in-sample observations gives the joint log-likelihood
-// on the ORIGINAL response scale (comparable across lambdas and to
-// dbcnorm-based likelihoods elsewhere in the ecosystem).
+//   f(y; mu, sigma, lambda)
+//       = |g'(y; lambda)| * phi((g(y; lambda) - mu) / sigma) / sigma
 //
-// Used by the BSMclass estimation path in src/PTSmodel.h to compute the
-// reported LLIK on the original response scale, replacing the previous
-// hand-rolled Gaussian formula that lived on the BC scale.
+// where g(y; lambda) = BoxCox(y, lambda) is the Box-Cox transform and
+// phi is the standard normal density.
+//
+// Three branches, consistent with src/boxcox.h:
+//   lambda > 0.98  (identity)  g(y) = y,       g'(y) = 1     => log-Jacobian = 0
+//   |lambda| < 0.02 (log)      g(y) = log(y),  g'(y) = 1/y   => log-Jacobian = -log(y)
+//   otherwise       (general)  g(y) = (y^lambda-1)/lambda,
+//                               g'(y) = y^(lambda-1)          => log-Jacobian = (lambda-1)*log(y)
+//
+// The identity branch (lambda > 0.98) carries zero Jacobian because the
+// engine applies no transformation there, so the density is purely normal
+// on the original scale — consistent with greybox's lambda=1 special case.
+//
+// Public API
+// ----------
+// bcnormBoxCox(y, lambda)           scalar Box-Cox (mirrors src/boxcox.h)
+// bcnormLogJac(y, lambda)           log |dg/dy|: used to accumulate the
+//                                    per-observation BCnorm Jacobian in llik()
+// bcnormLogDensityScalar(y, mu,     log BCnorm density for one observation;
+//                        sigma,      mu is the KF-predicted BoxCox(y, lambda)
+//                        lambda)     value (= Z * a_t), sigma = sqrt(innVar*F)
+// bcnormLogDensity(q, mu, sigma,    vectorised version (kept for external use)
+//                  lambda)
 
 #ifndef MUSE_BCNORM_H
 #define MUSE_BCNORM_H
 
 #include <cmath>
+#include <limits>
 #include <armadillo>
 
-// Per-element log-density.  q, mu must have the same length; sigma is a
-// scalar.  Elements with q <= 0 are returned as -inf for lambda != 0,
-// matching greybox's "density = 0" -> log(0) = -inf convention.
+// -----------------------------------------------------------------------
+// Scalar Box-Cox transform — same three-branch logic as vec BoxCox() in
+// src/boxcox.h so the density is consistent with the KF data transform.
+// -----------------------------------------------------------------------
+inline double bcnormBoxCox(double y, double lambda){
+    if (lambda > 0.98)              return y;
+    if (std::abs(lambda) < 0.02)    return std::log(y);
+    return (std::pow(y, lambda) - 1.0) / lambda;
+}
+
+// -----------------------------------------------------------------------
+// Log Jacobian of the Box-Cox transform at y:  log |d(g(y))/dy|
+// Returns 0 for non-positive or non-finite y (density = 0 there).
+// -----------------------------------------------------------------------
+inline double bcnormLogJac(double y, double lambda){
+    if (y <= 0.0 || !std::isfinite(y)) return 0.0;
+    if (lambda > 0.98)               return 0.0;              // identity: g'=1
+    if (std::abs(lambda) < 0.02)     return -std::log(y);     // log: g'=1/y
+    return (lambda - 1.0) * std::log(y);                      // general: g'=y^(lambda-1)
+}
+
+// -----------------------------------------------------------------------
+// Log BCnorm density for one observation.
+//
+//   y_raw   original (pre-BoxCox) observation
+//   mu      KF-predicted value of g(y_raw) = BoxCox(y_raw, lambda), i.e. Z*a_t
+//   sigma   innovation std dev = sqrt(innVariance * F_t)
+//   lambda  Box-Cox parameter
+//
+// Returns log f(y_raw; mu, sigma, lambda)
+//       = bcnormLogJac(y_raw, lambda) + log phi((g(y_raw)-mu)/sigma) - log sigma
+// -----------------------------------------------------------------------
+inline double bcnormLogDensityScalar(double y_raw, double mu,
+                                      double sigma, double lambda){
+    static const double LN_SQRT_2PI = 0.5 * std::log(2.0 * M_PI);
+
+    if (y_raw <= 0.0 || !std::isfinite(y_raw) ||
+        !std::isfinite(mu) || sigma <= 0.0)
+        return -std::numeric_limits<double>::infinity();
+
+    const double g = bcnormBoxCox(y_raw, lambda);
+    if (!std::isfinite(g))
+        return -std::numeric_limits<double>::infinity();
+
+    const double z = (g - mu) / sigma;
+    return bcnormLogJac(y_raw, lambda)
+           - std::log(sigma) - LN_SQRT_2PI - 0.5 * z * z;
+}
+
+// -----------------------------------------------------------------------
+// Vectorised log BCnorm density (kept for external / validation use).
+// q and mu must be the same length; sigma is a scalar.
+// -----------------------------------------------------------------------
 inline arma::vec bcnormLogDensity(const arma::vec& q,
                                   const arma::vec& mu,
                                   double sigma,
                                   double lambda){
-    using namespace arma;
-    const uword n = q.n_elem;
-    vec out(n);
-    const double LN_SQRT_2PI = 0.5 * std::log(2.0 * M_PI);
-
-    if (std::abs(lambda) < 0.02){
-        // Engine's log/lognormal branch (matches src/boxcox.h:40).
-        // dlnorm(q, meanlog = mu, sdlog = sigma)
-        for (uword i = 0; i < n; ++i){
-            if (q(i) <= 0.0 || !std::isfinite(q(i)) || !std::isfinite(mu(i))){
-                out(i) = -datum::inf;
-            } else {
-                const double lq = std::log(q(i));
-                const double z  = (lq - mu(i)) / sigma;
-                out(i) = -lq - std::log(sigma) - LN_SQRT_2PI - 0.5 * z * z;
-            }
-        }
-    } else if (lambda > 0.98){
-        // Engine's identity branch (matches src/boxcox.h:35).
-        // dnorm(q, mean = mu, sd = sigma) -- NO mu + 1 shift, since the
-        // engine never transformed y in this band.
-        for (uword i = 0; i < n; ++i){
-            if (!std::isfinite(q(i)) || !std::isfinite(mu(i))){
-                out(i) = -datum::inf;
-            } else {
-                const double z = (q(i) - mu(i)) / sigma;
-                out(i) = -std::log(sigma) - LN_SQRT_2PI - 0.5 * z * z;
-            }
-        }
-    } else {
-        // General lambda:
-        //   log f(q) = (lambda-1)*log(q) - log(sigma) - 0.5*log(2 pi)
-        //              - 0.5 * ((q^lambda - 1)/lambda - mu)^2 / sigma^2
-        for (uword i = 0; i < n; ++i){
-            if (q(i) <= 0.0 || !std::isfinite(q(i)) || !std::isfinite(mu(i))){
-                out(i) = -datum::inf;
-            } else {
-                const double lq    = std::log(q(i));
-                const double qlam  = std::pow(q(i), lambda);
-                const double z     = ((qlam - 1.0) / lambda - mu(i)) / sigma;
-                out(i) = (lambda - 1.0) * lq
-                         - std::log(sigma) - LN_SQRT_2PI
-                         - 0.5 * z * z;
-            }
-        }
-    }
+    const arma::uword n = q.n_elem;
+    arma::vec out(n);
+    for (arma::uword i = 0; i < n; ++i)
+        out(i) = bcnormLogDensityScalar(q(i), mu(i), sigma, lambda);
     return out;
 }
 

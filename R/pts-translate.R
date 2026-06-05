@@ -80,15 +80,14 @@ uc_to_pts <- function(modelUC, lambda){
 }
 
 # .pts_ic_to_engine: map adam-style ic (AICc / AIC / BIC / BICc) to the
-# engine's lowercase criterion.  BICc collapses to BIC at the engine level;
-# the small-sample correction is computed in R via BICc.pts.
+# engine's lowercase criterion string.
 .pts_ic_to_engine <- function(ic){
     ic <- match.arg(ic, c("AICc", "AIC", "BIC", "BICc"))
     switch(ic,
            "AICc" = "aicc",
            "AIC"  = "aic",
            "BIC"  = "bic",
-           "BICc" = "bic")
+           "BICc" = "bicc")
 }
 
 # uc_to_arma: pull (p, q) out of "arma(p,q)" embedded in a UC string.

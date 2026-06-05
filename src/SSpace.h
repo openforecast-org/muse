@@ -2,6 +2,7 @@
  State Space systems class
  Needs Armadillo
 ***************************************/
+#include "bcnorm.h"
 /***************************************************
   * Data structures
 ****************************************************/
@@ -66,7 +67,9 @@ struct SSinputs{
         verbose,          // intermediate output verbose on / off
         augmented = false, // Augmented KF estimation on / off
         estimateLambda = false; // true when lambda is last element of p
-   vec y_raw;             // original (untransformed) y when estimateLambda
+   double lambda = 1.0;  // Box-Cox lambda; kept in sync with BSMmodel::lambda
+   double logJac  = 0.0; // BCnorm Jacobian  Σ log|g'(y_t)|; computed in llik()
+   vec y_raw;             // original (untransformed) y
    std::function <double (vec&, void*)> llikFUN; // LogLik to select llik or llikAug
 };
 /****************************************************
@@ -656,11 +659,28 @@ double llik(vec& p, void* opt_data){
       llikValue = (llikValue + v2F + logF) / nTrue;
   }
   data->objFunValue = llikValue(0, 0);
+  // BCnorm Jacobian: Σ log|g'(y_raw_t)| accumulated per observation.
+  // Kept SEPARATE from objFunValue so the BFGS objective is unchanged
+  // (the Jacobian is constant w.r.t. structural parameters for fixed lambda).
+  // Uses bcnormLogJac() from bcnorm.h, which applies the same three-branch
+  // thresholds as BoxCox() — in particular, no Jacobian for lambda > 0.98
+  // (identity branch) where the engine applies no actual transform.
+  // Combined with LLIK_BC in BSMclass::estim() to form the BCnorm LLIK.
+  {
+      double logJac = 0.0;
+      if (data->y_raw.n_elem == n){
+          for (uword t = 0; t < n; t++){
+              if (!std::isfinite(data->y(t))) continue;  // skip missing
+              logJac += bcnormLogJac(data->y_raw(t), data->lambda);
+          }
+      }
+      data->logJac = logJac;
+  }
   // System colapsed
   if ((uword)data->d_t < n){
       data->v.rows(0, data->d_t).fill(datum::nan);
   }
-  return llikValue(0, 0);
+  return data->objFunValue;
 }
 // Compute log-likelihood for model with eXogenous inputs
 double llikAug(vec& p, void* opt_data){

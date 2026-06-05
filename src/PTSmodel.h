@@ -651,7 +651,8 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
                 comps[1] = '+' + comps[1];
         model = comps[0] + "/" + comps[1] + "/" + comps[2] + "/" + comps[3];
         // Checking criterion
-        if (criterion != "aic" && criterion != "bic" && criterion != "aicc"){
+        if (criterion != "aic" && criterion != "bic" &&
+            criterion != "aicc" && criterion != "bicc"){
                 criterion = "aic";
         }
         // Building structures
@@ -883,6 +884,9 @@ void BSMclass::setModel(string model, vec periods, vec rhos, bool runFromConstru
                 // Convert to MSOE form
                 if (inputs.MSOE)
                         bsm2msoe();
+                // Keep SSinputs::lambda in sync so llik() can use it for the
+                // BCnorm Jacobian without needing to cast userInputs.
+                SSmodel::inputs.lambda = inputs.lambda;
         }
         // Making coherent h and size(u)
         if (SSmodel::inputs.u.n_elem > 0){
@@ -1029,11 +1033,13 @@ void BSMclass::estim(bool VERBOSE){
                         strReplace("?", "", inputs.cycle0);
                         ident("tail", VERBOSE);
                         // Now decide which is best
-                        int crit = 1;
+                        int crit = 1;  // "aic" default
                         if (inputs.criterion == "bic"){
                                 crit = 2;
                         } else if (inputs.criterion == "aicc"){
                                 crit = 3;
+                        } else if (inputs.criterion == "bicc"){
+                                crit = 4;
                         }
                         if (SSmodel::inputs.criteria(crit) > bestSS.criteria(crit)){
                                 SSmodel::inputs = bestSS;
@@ -1178,15 +1184,14 @@ void BSMclass::estim(vec p, bool VERBOSE){
         if (!std::isfinite(objFunValue)){
                 LLIK = datum::nan;
         } else {
-                double LLIK_BC = -0.5 * (log(2*datum::pi) * nNan2pi + nTrue * objFunValue);
-                double jac     = 0.0;
-                if (inputs.lambda <= 0.98){
-                        vec  y_orig = invBoxCox(SSmodel::inputs.y, inputs.lambda);
-                        uvec ok     = find(y_orig > 0);
-                        if (ok.n_elem > 0)
-                                jac = (inputs.lambda - 1.0) * accu(log(y_orig.elem(ok)));
-                }
-                LLIK = LLIK_BC + jac;
+                // LLIK_BC: concentrated KF log-likelihood on the BoxCox scale.
+                // logJac:  Σ log|g'(y_raw_t)| accumulated per observation in llik()
+                //          using bcnormLogJac() — consistent with the engine's
+                //          BoxCox branches (zero for lambda > 0.98 identity branch).
+                // Together they form the BCnorm log-likelihood on the original scale.
+                const double LLIK_BC = -0.5 * (log(2*datum::pi) * nNan2pi
+                                               + nTrue * objFunValue);
+                LLIK = LLIK_BC + SSmodel::inputs.logJac;
         }
         // k INCLUDES nonStationaryTerms (the Harvey-style diffuse initial-
         // state DoF), because estimUCs's selection and the ident()/outlier
@@ -1197,7 +1202,7 @@ void BSMclass::estim(vec p, bool VERBOSE){
         // the adam-style k (no nonStationaryTerms) in estimUCs so the
         // printed values still line up with stats::AIC / greybox::AICc on
         // the R side from the same LLIK.
-        infoCriteria(LLIK, p.n_elem - SSmodel::inputs.cLlik + SSmodel::inputs.u.n_rows + SSmodel::inputs.nonStationaryTerms,
+        infoCriteria(LLIK, p.n_elem + SSmodel::inputs.u.n_rows + SSmodel::inputs.nonStationaryTerms,
                      nNan2pi, AIC, BIC, AICc, BICc);
         vec criteria(5);
         criteria(0) = LLIK;
@@ -1273,8 +1278,9 @@ BSMclass::ProfileResult BSMclass::profileLambda(bool VERBOSE){
         // from the current SSmodel::inputs.p (or p0 if p is empty), and
         // return the negative LLIK so Brent's MINIMISES the objective.
         auto innerFit = [&](double lambda) -> double {
-                SSmodel::inputs.y    = BoxCox(SSmodel::inputs.y_raw, lambda);
-                inputs.lambda        = lambda;
+                SSmodel::inputs.y      = BoxCox(SSmodel::inputs.y_raw, lambda);
+                inputs.lambda          = lambda;
+                SSmodel::inputs.lambda = lambda;  // keep SSinputs in sync for llik()
                 vec pWarm;
                 if (SSmodel::inputs.p.n_elem > 0 &&
                     SSmodel::inputs.p.is_finite()){
@@ -1368,7 +1374,6 @@ BSMclass::ProfileResult BSMclass::profileLambda(bool VERBOSE){
         // Note: nonStationaryTerms cancels out in the AIC*/AIC^ comparison
         // (it's the same for both), so the snap decision is unaffected.
         int base_k = SSmodel::inputs.p.n_elem + SSmodel::inputs.u.n_rows;
-        double AIC_opt = -2.0 * llikStar + 2.0 * (base_k + 1);
 
         // Anchor snap: pick nearest a in {-2,-1,-0.5,0,0.5,1,2} ∩ domain.
         const double allAnchors[7] = {-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0};
@@ -1388,10 +1393,27 @@ BSMclass::ProfileResult BSMclass::profileLambda(bool VERBOSE){
         vec    pPreSnap = SSmodel::inputs.p;
         double fSnap    = innerFit(lambdaSnap);
         double llikSnap = -fSnap;
-        double AIC_snap = -2.0 * llikSnap + 2.0 * base_k;
+        // Compute IC for snap (k = base_k, lambda is fixed) and for
+        // lambda* (k = base_k + 1, lambda counts as a DoF) using the
+        // user-selected criterion.  n is the number of finite observations.
+        int n_ic = static_cast<int>(SSmodel::inputs.y.n_elem
+                                    - find_nonfinite(SSmodel::inputs.y).eval().n_elem);
+        double AIC_os, BIC_os, AICc_os, BICc_os;  // lambda* (k+1)
+        double AIC_sn, BIC_sn, AICc_sn, BICc_sn;  // snap (k)
+        infoCriteria(llikStar, base_k + 1, n_ic, AIC_os, BIC_os, AICc_os, BICc_os);
+        infoCriteria(llikSnap, base_k,     n_ic, AIC_sn, BIC_sn, AICc_sn, BICc_sn);
+        double crit_opt, crit_snap;
+        const char* crit_label;
+        if (inputs.criterion == "bic" || inputs.criterion == "bicc"){
+                crit_opt = BIC_os;   crit_snap = BIC_sn;   crit_label = "BIC";
+        } else if (inputs.criterion == "aicc"){
+                crit_opt = AICc_os;  crit_snap = AICc_sn;  crit_label = "AICc";
+        } else {  // "aic" (default)
+                crit_opt = AIC_os;   crit_snap = AIC_sn;   crit_label = "AIC";
+        }
 
         ProfileResult pr;
-        if (std::isfinite(AIC_snap) && AIC_snap <= AIC_opt){
+        if (std::isfinite(crit_snap) && crit_snap <= crit_opt){
                 // Anchor wins (ties to the anchor for parsimony).  inputs
                 // already at the anchor fit -- nothing more to do.
                 pr.lambda       = lambdaSnap;
@@ -1408,8 +1430,9 @@ BSMclass::ProfileResult BSMclass::profileLambda(bool VERBOSE){
         inputs.lambda          = pr.lambda;
         inputs.lambdaEstimated = pr.lambdaCounts;
         if (VERBOSE){
-                printf("    profile-lambda  lambda*=%6.3f  anchor=%4.1f  AIC*=%9.3f  AIC^=%9.3f  -> %s\n",
-                       lambdaStar, lambdaSnap, AIC_opt, AIC_snap,
+                printf("    profile-lambda  lambda*=%6.3f  anchor=%4.1f  %s*=%9.3f  %s^=%9.3f  -> %s\n",
+                       lambdaStar, lambdaSnap,
+                       crit_label, crit_opt, crit_label, crit_snap,
                        pr.lambdaCounts ? "keep lambda*" : "snap to anchor");
         }
         return pr;
@@ -1525,12 +1548,16 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                 //                 SSmodel::inputs.u.resize(0);
                 //         }
                 // }
-                // Model estimation.  Per-candidate ψ structure differs, so
-                // reset SSmodel::inputs.p before the profile-lambda call
-                // so its warm-start logic falls back to p0 on the first
-                // inner BFGS of this candidate.
+                // Model estimation.  Per-candidate ψ structure and lambda both
+                // start fresh so results do not depend on which candidate ran
+                // before.  Reset p so the warm-start falls back to p0, and
+                // reset lambda to 1 (neutral anchor) so Brent always starts
+                // from the same point regardless of any previous snap.
                 SSmodel::inputs.p.reset();
                 if (inputs.profileLambda){
+                        inputs.lambda          = 1.0;
+                        SSmodel::inputs.lambda = 1.0;
+                        SSmodel::inputs.y      = SSmodel::inputs.y_raw;
                         profileLambda(false);    // verbose handled at table-print time below
                 } else {
                         estim(SSmodel::inputs.verbose);
@@ -1585,12 +1612,14 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                                        AICp, BICp, AICcp, BICcp);
                         }
                 }
-                if (inputs.criterion == "aic"){
-                        curCrit = AIC;
-                } else if (inputs.criterion == "bic"){
+                if (inputs.criterion == "bic"){
                         curCrit = BIC;
-                } else {
+                } else if (inputs.criterion == "aicc"){
                         curCrit = AICc;
+                } else if (inputs.criterion == "bicc"){
+                        curCrit = BICc;
+                } else {  // "aic" (default)
+                        curCrit = AIC;
                 }
                 if ((curCrit < minCrit && !isnan(curCrit))){  // || i == 0){
                         minCrit = curCrit;
@@ -2172,15 +2201,18 @@ void BSMclass::estimOutlier(vec p0, bool VERBOSE){
                 }
                 // Final check
                 vec best(1);
-                if (inputs.criterion == "aic"){
-                        obj(0) = SSmodel::inputs.criteria(1);
-                        best(0) = bestSS.criteria(1);
-                } else if (inputs.criterion == "bic"){
+                if (inputs.criterion == "bic"){
                         obj(0) = SSmodel::inputs.criteria(2);
                         best(0) = bestSS.criteria(2);
-                } else {
+                } else if (inputs.criterion == "aicc"){
                         obj(0) = SSmodel::inputs.criteria(3);
                         best(0) = bestSS.criteria(3);
+                } else if (inputs.criterion == "bicc"){
+                        obj(0) = SSmodel::inputs.criteria(4);
+                        best(0) = bestSS.criteria(4);
+                } else {  // "aic" (default)
+                        obj(0) = SSmodel::inputs.criteria(1);
+                        best(0) = bestSS.criteria(1);
                 }
                 if ((!obj.is_finite()) || (obj(0) > best(0))){
                         // Model with outliers did not converge or is worse than initial
