@@ -79,6 +79,7 @@ pts <- function(data,
                 ic         = c("AICc", "AIC", "BIC", "BICc"),
                 h          = 0,
                 holdout    = FALSE,
+                p0         = NULL,
                 verbose    = FALSE){
     cl  <- match.call()
     tic <- proc.time()
@@ -123,6 +124,7 @@ pts <- function(data,
                     h = as.integer(h),
                     criterion = criterion,
                     armaIdent = ordersUC$select,
+                    p0        = p0,
                     verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).
     # When h == 0 we still populate $forecast with a 1-period NA placeholder

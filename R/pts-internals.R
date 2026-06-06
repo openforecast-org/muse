@@ -256,7 +256,8 @@
 # .pts_fit: estimate the model and post-process the C++ result into the
 # data shape that pts() uses for its returned object.  This replaces the
 # (now retired) PTSsetup + MSOEsetup + MSOE chain.
-.pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose){
+.pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose,
+                     p0 = NULL){
     modelU <- pts_to_uc(model)
     # When the series has no seasonal frequency, fix lambda = 1 (no Box-Cox).
     lambda <- modelU$lambda
@@ -265,6 +266,12 @@
     args <- .pts_uc_inputs(y = y, u = u, modelUC = modelU$modelU, h = h,
                            lambda = lambda, criterion = criterion, lags = lags,
                            verbose = verbose, armaIdent = armaIdent)
+    # Override the default p0 sentinel (-9999.9) when the user supplied
+    # an explicit starting vector.  Used by the loss-surface experiment
+    # to do multi-start optimisation.  Engine-scale (log-ratio
+    # variances + alpha pre-constrain transform), not natural scale.
+    if (!is.null(p0) && length(p0) > 0)
+        args$p <- as.numeric(p0)
     out <- .pts_call_uc("all", args)
     if (identical(out$model, "error"))
         stop("Estimation failed in the C++ engine.", call. = FALSE)

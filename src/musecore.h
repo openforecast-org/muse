@@ -62,6 +62,7 @@ struct MuseOutputs {
     std::string             estimOk;
     double                  lambda = 0.0;
     bool                    lambdaEstimated = false;  // true iff lambda kept (+1 DoF on R side)
+    double                  objFunValue = 0.0;        // concentrated objective from last llik() call
     arma::vec               periods;
     arma::vec               rhos;
     arma::vec               p;
@@ -154,10 +155,12 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     inputsBSM.seasonalOptions  = in.seasonalOptions;
     inputsBSM.irregularOptions = in.irregularOptions;
 
-    // forecastOnly / simulate: hide the user params from initParBsm (which
-    // would crash on zero / tiny variances), stash them, push them in via
-    // setEstimatedParams after construction.
-    const bool skipEstim = (command == "forecastOnly" || command == "simulate");
+    // forecastOnly / simulate / lossAt: hide the user params from
+    // initParBsm (which would crash on zero / tiny variances), stash
+    // them, push them in via setEstimatedParams / lossAtRatio after
+    // construction.
+    const bool isLossAt  = (command == "lossAt");
+    const bool skipEstim = (command == "forecastOnly" || command == "simulate" || isLossAt);
     vec userParams;
     if (skipEstim){
         userParams   = in.p0;
@@ -195,7 +198,9 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     }
 
     BSMclass sysBSM(inputsSS, inputsBSM);
-    if (skipEstim){
+    if (isLossAt){
+        sysBSM.lossAtRatio(userParams);
+    } else if (skipEstim){
         sysBSM.setEstimatedParams(userParams);
     } else {
         sysBSM.estim(inputsSS.verbose);
@@ -242,6 +247,7 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     out.estimOk  = inputs.estimOk;
     out.lambda          = inputs2.lambda;
     out.lambdaEstimated = inputs2.lambdaEstimated;
+    out.objFunValue     = inputs.objFunValue;
     out.periods  = inputs2.periods;
     out.rhos     = inputs2.rhos;
     out.p        = inputs.p;
