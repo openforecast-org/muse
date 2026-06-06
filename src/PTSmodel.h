@@ -1176,23 +1176,44 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 objFunValue = datum::nan;
         }
         // ----------------------------------------------------------------
-        // LLIK on the ORIGINAL response scale.
+        // Single source of truth for LLIK and IC formulas.
         //
-        // Fixed lambda (lambdaWasEstimated=false):
-        //   LLIK_BC = -0.5*(n*log2pi + nTrue*objFunValue)
-        //   LLIK = LLIK_BC + logJac   (Jacobian added post-hoc, constant w.r.t. psi)
+        // computeLLIK: turn the optimiser's concentrated objective into
+        //   the proper log-likelihood on the original response scale.
+        //   * jacFolded=true  ==> llik() already folded the BoxCox Jacobian
+        //                         into objFunValue (joint-lambda BFGS path).
+        //   * jacFolded=false ==> add logJac post-hoc (fixed-lambda path).
         //
-        // Joint lambda (lambdaWasEstimated=true):
-        //   llik() already folded logJac into objFunValue so that BFGS maximises
-        //   the BCnorm log-likelihood directly.  Therefore LLIK_BC IS LLIK_orig.
-        if (!std::isfinite(objFunValue)){
-                LLIK = datum::nan;
-        } else {
+        // computeCriteria: write LLIK / AIC / BIC / AICc / BICc into the
+        //   shared 5-vector with k matching R's nparam(m) -- p.n_elem
+        //   (concentrated variance counts, alm/adam convention) + outlier
+        //   dummies + lambda when free.
+        auto computeLLIK = [&](double obj, bool jacFolded) -> double {
+                if (!std::isfinite(obj)) return datum::nan;
                 const double LLIK_BC = -0.5 * (log(2*datum::pi) * nNan2pi
-                                               + nTrue * objFunValue);
-                LLIK = lambdaWasEstimated ? LLIK_BC
-                                          : LLIK_BC + SSmodel::inputs.logJac;
-        }
+                                               + nTrue * obj);
+                return jacFolded ? LLIK_BC
+                                 : LLIK_BC + SSmodel::inputs.logJac;
+        };
+        auto computeCriteria = [&](double llik, int k) -> vec {
+                vec ic(5);
+                ic(0) = llik;
+                if (std::isfinite(llik)){
+                        infoCriteria(llik, k, nNan2pi,
+                                     ic(1), ic(2), ic(3), ic(4));
+                } else {
+                        ic(1) = ic(2) = ic(3) = ic(4) = datum::nan;
+                }
+                return ic;
+        };
+        // k convention: optimised parameters (p.n_elem already counts the
+        // concentrated variance), outlier dummies, plus lambda when free.
+        auto kFor = [&](uword pSize) -> int {
+                return static_cast<int>(pSize + SSmodel::inputs.u.n_rows
+                                              + (inputs.lambdaEstimated ? 1 : 0));
+        };
+
+        LLIK = computeLLIK(objFunValue, lambdaWasEstimated);
         // ----------------------------------------------------------------
         // Anchor snap: run a second BFGS at the nearest anchor in
         // {-2,-1,-0.5,0,0.5,1,2} and compare IC.  The snap saves one DoF
@@ -1221,10 +1242,6 @@ void BSMclass::estim(vec p, bool VERBOSE){
                         if (dist < dBest){ dBest = dist; lambdaSnap = aA; }
                 }
 
-                // k for IC comparison (adam-style: no nonStationaryTerms)
-                int k_base = static_cast<int>(p_opt_struct.n_elem + SSmodel::inputs.u.n_rows);
-                int n_ic   = nNan2pi;
-
                 // Snap BFGS: fixed lambda at anchor, warm-started from psi*
                 SSmodel::inputs.estimateLambda = false;
                 inputs.estimateLambda          = false;
@@ -1238,28 +1255,18 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 quasiNewtonBSM(SSmodel::inputs.llikFUN, gradLlik, p_snap,
                                &(SSmodel::inputs), snapObjFun, snapGrad, snapHess, false);
 
-                double LLIK_snap = datum::nan;
-                if (std::isfinite(snapObjFun)){
-                        const double LLIK_BC_snap = -0.5 * (log(2*datum::pi) * nNan2pi
-                                                            + nTrue * snapObjFun);
-                        LLIK_snap = LLIK_BC_snap + SSmodel::inputs.logJac;
-                }
+                const double LLIK_snap = computeLLIK(snapObjFun, false);
 
-                // Compare IC using the selected criterion
-                double AIC_opt, BIC_opt, AICc_opt, BICc_opt;
-                double AIC_sn,  BIC_sn,  AICc_sn,  BICc_sn;
-                infoCriteria(LLIK_star, k_base + 1, n_ic,
-                             AIC_opt, BIC_opt, AICc_opt, BICc_opt);
-                infoCriteria(LLIK_snap, k_base,     n_ic,
-                             AIC_sn,  BIC_sn,  AICc_sn,  BICc_sn);
-                double crit_opt, crit_snap;
-                if (inputs.criterion == "bic" || inputs.criterion == "bicc"){
-                        crit_opt = BIC_opt; crit_snap = BIC_sn;
-                } else if (inputs.criterion == "aicc"){
-                        crit_opt = AICc_opt; crit_snap = AICc_sn;
-                } else {
-                        crit_opt = AIC_opt; crit_snap = AIC_sn;
-                }
+                // IC comparison: opt path keeps lambda (+1 DoF); snap path drops it.
+                inputs.lambdaEstimated = true;
+                vec ic_opt  = computeCriteria(LLIK_star, kFor(p_opt_struct.n_elem));
+                inputs.lambdaEstimated = false;
+                vec ic_snap = computeCriteria(LLIK_snap, kFor(p_snap.n_elem));
+                int critIdx = (inputs.criterion == "bic")  ? 2 :
+                              (inputs.criterion == "aicc") ? 3 :
+                              (inputs.criterion == "bicc") ? 4 : 1;
+                double crit_opt  = ic_opt(critIdx);
+                double crit_snap = ic_snap(critIdx);
 
                 if (std::isfinite(crit_snap) && crit_snap <= crit_opt){
                         // Snap wins: keep snap-BFGS state
@@ -1302,18 +1309,11 @@ void BSMclass::estim(vec p, bool VERBOSE){
         SSmodel::inputs.estimateLambda = false;
         inputs.estimateLambda          = false;
 
-        // k INCLUDES nonStationaryTerms (the Harvey-style diffuse initial-
-        // state DoF), because estimUCs's selection and the ident()/outlier
-        // paths need that penalty to rank candidates correctly.
-        infoCriteria(LLIK, p.n_elem + SSmodel::inputs.u.n_rows + SSmodel::inputs.nonStationaryTerms,
-                     nNan2pi, AIC, BIC, AICc, BICc);
-        vec criteria(5);
-        criteria(0) = LLIK;
-        criteria(1) = AIC;
-        criteria(2) = BIC;
-        criteria(3) = AICc;
-        criteria(4) = BICc;
-        SSmodel::inputs.criteria = criteria;
+        SSmodel::inputs.criteria = computeCriteria(LLIK, kFor(p.n_elem));
+        AIC  = SSmodel::inputs.criteria(1);
+        BIC  = SSmodel::inputs.criteria(2);
+        AICc = SSmodel::inputs.criteria(3);
+        BICc = SSmodel::inputs.criteria(4);
         if (flag == 1) {
                 SSmodel::inputs.estimOk = "Q-Newton: Gradient convergence\n";
         } else if (flag == 2){
@@ -1679,30 +1679,10 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                         AIC = BIC = AICc = BICc = datum::nan;
                 }
                 if (VERBOSE){
-                        // Recompute the printed ICs to match R-side nparam(m).
-                        // k counts ALL model parameters: p.n_elem (every
-                        // variance, including the concentrated one, by the
-                        // alm / adam convention) + outlier dummies + lambda
-                        // when it survived the snap.  Earlier this also
-                        // subtracted SSmodel::inputs.cLlik, which is the
-                        // "actually moved by BFGS" count -- correct for
-                        // bookkeeping, wrong for AIC.  See R/pts.R:179.
-                        double LLIK_print = SSmodel::inputs.criteria(0);
-                        int    n_print    = static_cast<int>(SSmodel::inputs.y.n_elem
-                                                             - find_nonfinite(SSmodel::inputs.y).eval().n_elem);
-                        int    k_print    = SSmodel::inputs.p.n_elem
-                                            + SSmodel::inputs.u.n_rows
-                                            + (inputs.lambdaEstimated ? 1 : 0);
-                        double AICp, BICp, AICcp, BICcp;
-                        if (std::isfinite(LLIK_print)){
-                                infoCriteria(LLIK_print, k_print, n_print,
-                                             AICp, BICp, AICcp, BICcp);
-                        } else {
-                                AICp = BICp = AICcp = BICcp = datum::nan;
-                        }
+                        // The displayed ICs are the same values selection
+                        // uses (estim() now populates criteria(1..4) with
+                        // the alm/adam k convention), so just print them.
                         string MODEL = allUCModels[i];
-                        // Mark snapped lambdas with a trailing '*' so users
-                        // can tell which candidates fit at an anchor.
                         char lambdaTag[16];
                         snprintf(lambdaTag, sizeof(lambdaTag), "%5.2f%s",
                                  inputs.lambda,
@@ -1711,11 +1691,11 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                                 MODEL = UC2PTS(allUCModels[i], inputs.lambda);
                                 printf(" %*s  %6s: %13.4f %13.4f %13.4f %13.4f\n",
                                        wide, MODEL.c_str(), lambdaTag,
-                                       AICp, BICp, AICcp, BICcp);
+                                       AIC, BIC, AICc, BICc);
                         } else {
                                 printf(" %*s  %6s: %8.4f %8.4f %8.4f %8.4f\n",
                                        wide, MODEL.c_str(), lambdaTag,
-                                       AICp, BICp, AICcp, BICcp);
+                                       AIC, BIC, AICc, BICc);
                         }
                 }
                 if (inputs.criterion == "bic"){
