@@ -43,6 +43,14 @@
 #' observations of \code{data} are withheld from estimation and returned in
 #' \code{$holdout} for later accuracy assessment.
 #' @param verbose logical: print intermediate optimisation output.
+#' @param ... advanced / undocumented passthroughs.  Supported keys:
+#' \itemize{
+#'   \item \code{B} - numeric vector of starting values for the optimiser
+#'     (natural-scale variances, in the order returned in \code{$B} by a
+#'     default fit).  Mirrors the same hatch in \code{smooth::adam()}.
+#'     The optimised vector is returned in the \code{$B} slot of the
+#'     output regardless of whether the user supplied one.
+#' }
 #'
 #' @return An object of class \code{c("pts", "smooth")}.  Slot names mirror
 #' \code{smooth::adam()}'s return list where the concept is shared; pts-only

@@ -8,7 +8,7 @@
 pts(data, model = "ZZZ", lags = stats::frequency(data), orders = list(ar
   = 0, ma = 0, select = FALSE), formula = NULL, regressors = c("use"),
   ic = c("AICc", "AIC", "BIC", "BICc"), h = 0, holdout = FALSE,
-  verbose = FALSE)
+  verbose = FALSE, ...)
 
 auto.pts(data, ...)
 }
@@ -58,6 +58,15 @@ observations of \code{data} are withheld from estimation and returned in
 \code{$holdout} for later accuracy assessment.}
 
 \item{verbose}{logical: print intermediate optimisation output.}
+
+\item{...}{advanced / undocumented passthroughs.  Supported keys:
+\itemize{
+  \item \code{B} - numeric vector of starting values for the optimiser
+    (natural-scale variances, in the order returned in \code{$B} by a
+    default fit).  Mirrors the same hatch in \code{smooth::adam()}.
+    The optimised vector is returned in the \code{$B} slot of the
+    output regardless of whether the user supplied one.
+}}
 }
 \value{
 An object of class \code{c("pts", "smooth")}.  Slot names mirror
