@@ -2388,6 +2388,12 @@ void BSMclass::components(){
                         inputs.comp.row(2) = sum(SSmodel::inputs.a.rows(ind));
                         inputs.compV.row(2) = sum(SSmodel::inputs.P.rows(ind));
                 } else {
+                        // Linear (dummy) seasonal: state[i1] = gamma_t under
+                        // the convention set by initMatricesBsm's T block.
+                        // The else-branch handles the augmented (xreg / TVP)
+                        // case where extra states are appended; the seasonal
+                        // there ends up at a.n_rows - 1.  Both branches now
+                        // agree with the Z fix at initMatricesBsm.
                         ind = nsCum(1);
                         if (SSmodel::inputs.a.n_rows > ns)
                                 ind = SSmodel::inputs.a.n_rows - 1;
@@ -3402,13 +3408,19 @@ void BSMclass::initMatricesBsm(vec periods, vec rhos, string trend, string cycle
                         bsm2ss(inputs.ns(0) + inputs.ns(1), inputs.ns(2), abs(periods(aux)),
                                abs(rhos(aux)), &SSmodel::inputs.system.T, &SSmodel::inputs.system.Z);
                 } else {
+                        // Linear (Harvey dummy) seasonal: ns(2) = seas - 1 states
+                        // with constraint gamma_t + gamma_{t-1} + ... + gamma_{t-(s-2)} = 0.
+                        //   state[i1]    = gamma_t       (current)
+                        //   state[i1+k]  = gamma_{t-k}   (k periods ago)
+                        // T's first row is the constraint (-1, -1, ..., -1), the
+                        // remaining rows shift past values down (sub-diagonal id).
+                        // Z must therefore pick state[i1] (current) -- not the last
+                        // state, which would index gamma_{t-(s-2)} and produce a
+                        // (s-2)-period seasonal phase shift in the observation.
                         uword i1 = inputs.ns(0) + inputs.ns(1), i2 = i1 + inputs.ns(2) - 1;
-                        SSmodel::inputs.system.Z(i1 + inputs.ns(2) - 1) = 1.0;
-                        //SSmodel::inputs.system.Z(SSmodel::inputs.system.Z.n_elem - 1) = 1.0;
+                        SSmodel::inputs.system.Z(i1) = 1.0;
                         SSmodel::inputs.system.T(arma::span(i1 + 1, i2), arma::span(i1, i2)) = eye(inputs.seas - 2, inputs.seas - 1);
                         SSmodel::inputs.system.T(arma::span(i1, i1), arma::span(i1, i2)).fill(-1.0);
-                        //SSmodel::inputs.system.T(i1, i2) = 1.0;
-                        //SSmodel::inputs.system.T(i1, i1) = 0.0;
                 }
         }
         // Irregular as ARMA
