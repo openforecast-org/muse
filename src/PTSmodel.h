@@ -1691,11 +1691,11 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                                 MODEL = UC2PTS(allUCModels[i], inputs.lambda);
                                 printf(" %*s  %6s: %13.4f %13.4f %13.4f %13.4f\n",
                                        wide, MODEL.c_str(), lambdaTag,
-                                       AIC, BIC, AICc, BICc);
+                                       AIC, AICc, BIC, BICc);
                         } else {
                                 printf(" %*s  %6s: %8.4f %8.4f %8.4f %8.4f\n",
                                        wide, MODEL.c_str(), lambdaTag,
-                                       AIC, BIC, AICc, BICc);
+                                       AIC, AICc, BIC, BICc);
                         }
                 }
                 if (inputs.criterion == "bic"){
@@ -1847,9 +1847,9 @@ void BSMclass::ident(string show, bool VERBOSE){
                 }
                 printf("-----------------------------------------------------------------------------------\n");
                 if (inputs.PTSnames)
-                        printf("    Model          Lambda           AIC           BIC          AICc          BICc\n");
+                        printf("    Model          Lambda           AIC          AICc           BIC          BICc\n");
                 else
-                        printf("          Model                     Lambda      AIC      BIC     AICc     BICc\n");
+                        printf("          Model                     Lambda      AIC     AICc      BIC     BICc\n");
                 printf("           (Lambda values marked with '*' were snapped to a fixed anchor.)\n");
                 printf("-----------------------------------------------------------------------------------\n");
         }
