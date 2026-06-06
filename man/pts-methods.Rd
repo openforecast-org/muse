@@ -3,7 +3,6 @@
 \name{pts-methods}
 \alias{pts-methods}
 \alias{print.pts}
-\alias{summary.pts}
 \alias{fitted.pts}
 \alias{residuals.pts}
 \alias{coef.pts}
@@ -15,8 +14,6 @@
 \title{S3 methods for objects of class \code{pts}}
 \usage{
 \method{print}{pts}(x, digits = 4, ...)
-
-\method{summary}{pts}(object, level = 0.95, ...)
 
 \method{fitted}{pts}(object, ...)
 
@@ -39,11 +36,11 @@
 
 \item{...}{further arguments passed to underlying generics.}
 
-\item{level}{confidence level for prediction intervals (default 0.95).}
-
 \item{newdata}{unused (reserved for forecast paths with new regressors).}
 
 \item{h}{forecast horizon (steps ahead).}
+
+\item{level}{confidence level for prediction intervals (default 0.95).}
 }
 \description{
 Standard accessors and printing for fitted \code{pts}
