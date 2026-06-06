@@ -55,7 +55,7 @@ for (i in seq_len(N)){
     p_init <- 10 ^ runif(3, log_var_range[1], log_var_range[2])
     init_mat[i, ] <- p_init
     m_i <- try(pts(AirPassengers, model = "1GT", h = 12, holdout = TRUE,
-                   p0 = p_init), silent = TRUE)
+                   B = p_init), silent = TRUE)
     if (inherits(m_i, "try-error")){
         if (i <= 3) cat("    [run", i, "] error:",
                         substr(attr(m_i, "condition")$message, 1, 200), "\n")

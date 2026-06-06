@@ -79,12 +79,18 @@ pts <- function(data,
                 ic         = c("AICc", "AIC", "BIC", "BICc"),
                 h          = 0,
                 holdout    = FALSE,
-                p0         = NULL,
-                verbose    = FALSE){
+                verbose    = FALSE,
+                ...){
     cl  <- match.call()
     tic <- proc.time()
     regressors <- match.arg(regressors)
     ic         <- match.arg(ic)
+    # Internal hatch (adam-style): if the caller passes B via ..., use it
+    # as the starting parameter vector for the optimiser.  Natural-scale
+    # (positive variances), matching the engine's userP0 branch.  Kept
+    # out of the documented signature on purpose.
+    dots <- list(...)
+    B    <- dots$B
     criterion  <- .pts_ic_to_engine(ic)
     ordersUC   <- .pts_orders_to_uc(orders)
     if (!is.numeric(h) || length(h) != 1 || h < 0)
@@ -124,7 +130,7 @@ pts <- function(data,
                     h = as.integer(h),
                     criterion = criterion,
                     armaIdent = ordersUC$select,
-                    p0        = p0,
+                    B         = B,
                     verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).
     # When h == 0 we still populate $forecast with a 1-period NA placeholder
