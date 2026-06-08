@@ -3,6 +3,7 @@
 \name{pts-methods}
 \alias{pts-methods}
 \alias{print.pts}
+\alias{plot.pts}
 \alias{fitted.pts}
 \alias{residuals.pts}
 \alias{coef.pts}
@@ -14,6 +15,8 @@
 \title{S3 methods for objects of class \code{pts}}
 \usage{
 \method{print}{pts}(x, digits = 4, ...)
+
+\method{plot}{pts}(x, which = c(1, 2, 4, 6), ...)
 
 \method{fitted}{pts}(object, ...)
 

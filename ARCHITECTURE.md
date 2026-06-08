@@ -48,8 +48,10 @@ driven by passing a `command` string to the same entry point.
 ## The pts object
 
 `pts()` returns an R list of class `c("pts", "smooth")`.  The `"smooth"` tail lets
-`plot.smooth`, `plot.smooth.forecast`, and several greybox generics dispatch without
-needing their own implementations here.
+`plot.smooth.forecast` and several greybox generics dispatch without needing their
+own implementations here.  `plot.pts` is a thin pre-processor for panel 12 (state
+decomposition) that prepends an `actuals` column to `$states` and then delegates to
+`plot.smooth` via `NextMethod()`; all other panels (1-11, 13-14) pass straight through.
 
 Key slots:
 
@@ -67,7 +69,7 @@ Key slots:
 | `nParam` | int | — | DoF count (structural params + λ if estimated) |
 | `fitted` | ts/zoo | original | In-sample fitted values |
 | `residuals` | ts/zoo | BC | Innovations (BC scale, white-noise sequence) |
-| `comp` | matrix | BC | Additive decomposition: Error, Fit, Level, Slope?, Seasonal? |
+| `comp` | matrix | BC | Additive decomposition: Error, Fit, Level, Slope?, Seasonal?, Irregular? |
 | `states` | matrix | BC | State evolution (nobs+1 rows, anchored at t=0) |
 | `forecast` | ts/zoo | original | Cached h-step forecast (or NA placeholder) |
 | `logLik` | double | — | Log-likelihood (BC-corrected) |

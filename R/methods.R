@@ -140,10 +140,40 @@ print.pts <- function(x, digits = 4, ...){
     invisible(x)
 }
 
-# plot.pts and plot.pts.forecast intentionally NOT defined.  With the
-# class chain c("pts", "smooth"), plot(m) dispatches to plot.smooth (a
-# 4-panel diagnostic) and plot(forecast(m, h)) dispatches to
-# plot.smooth.forecast.  See smooth/R/methods.R:1188 and :1880.
+# plot.pts.forecast intentionally NOT defined: c("pts.forecast",
+# "smooth.forecast") dispatches to plot.smooth.forecast.
+#
+# plot.pts is a thin pre-processor for panel 12 (state decomposition).
+# plot.smooth's non-ETS branch (smooth/R/methods.R:1680-1707) does
+# cbind(x$states, residuals(x)) without prepending actuals, so on the
+# raw pts $states the user sees [Level, Slope, Seasonal, residuals] but
+# no actuals row.  We prepend an "actuals" column (anchored with NA at
+# row 1 to align with the t = 0 row of $states) and delegate the rest
+# to plot.smooth via NextMethod.
+#' @rdname pts-methods
+#' @export
+plot.pts <- function(x, which = c(1, 2, 4, 6), ...){
+    if (12 %in% which){
+        states <- x$states
+        if (!is.null(states) && !is.null(colnames(states))){
+            mat    <- unclass(states)
+            actVec <- c(NA_real_, as.numeric(x$data))
+            n      <- nrow(mat)
+            if (length(actVec) > n) actVec <- actVec[seq_len(n)]
+            else if (length(actVec) < n)
+                actVec <- c(actVec, rep(NA_real_, n - length(actVec)))
+            newMat <- cbind(actuals = actVec, mat)
+            x$states <- if (is.ts(states))
+                            stats::ts(newMat,
+                                      start     = stats::start(states),
+                                      frequency = stats::frequency(states))
+                        else if (inherits(states, "zoo"))
+                            zoo::zoo(newMat, order.by = stats::time(states))
+                        else newMat
+        }
+    }
+    NextMethod()
+}
 
 #' @rdname pts-methods
 #' @export

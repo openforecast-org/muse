@@ -243,7 +243,7 @@
 # any subset and have them add up).
 .pts_build_comp <- function(raw, v){
     nm  <- colnames(raw)
-    ind <- c(1, which(nm == "Seasonal"), which(nm == "Slope"))
+    ind <- c(1, which(nm == "Slope"), which(nm == "Seasonal"))
     pos <- max(ind) + as.integer(any(nm == "Irregular"))
     if (pos > length(nm))
         ind <- c(ind, (pos + 1L) : length(nm))
