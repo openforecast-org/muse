@@ -1,6 +1,6 @@
 /**************************************
  State Space systems class
- Needs Armadillo
+ Needs Armadillo and many others
 ***************************************/
 #include "bcnorm.h"
 /***************************************************
