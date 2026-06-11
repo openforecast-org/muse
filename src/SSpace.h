@@ -41,6 +41,7 @@ struct SSinputs{
    mat a,                 // estimated states
        P,                 // variances of states
        eta,               // estimates of transition perturbations
+       betaAugVarMat,     // full covariance matrix of initial states
        covp;              // Covariance of parameters
    SSmatrix system;       // system matrices
    double objFunValue,    // value of objective function at optimum
@@ -65,6 +66,7 @@ struct SSinputs{
    double innVariance;    // innovations variance
    bool exact = true,     // exact or numerical gradient
         verbose,          // intermediate output verbose on / off
+        cleanInnovations = false, // cleaning innovations on/off
         augmented = false, // Augmented KF estimation on / off
         estimateLambda = false; // true when lambda is last element of p
    double lambda = 1.0;  // Box-Cox lambda; kept in sync with BSMmodel::lambda
@@ -150,6 +152,8 @@ vec gradLlik(vec&, void*, double, int&);
 mat hessLlik(void*);
 // True filter/smooth/disturb function
 void auxFilter(unsigned int, SSinputs&);
+// Calculating innovations from very beginning
+vec KFinnovations(SSinputs&);
 // solution to lyapunto equation P = Phi * P * Phi' + Q
 mat dlyap(mat Phi, mat Q);
 /****************************************************
@@ -390,11 +394,16 @@ void SSmodel::validate(bool estimateHess, double nPar){
   inputs.table.push_back(str);
   inputs.table.push_back("-------------------------------------------------------------\n");
   // Recovering innovations for tests
-  if (inputs.augmented)
-    llikAug(inputs.p, &inputs);
-  else
-    llik(inputs.p, &inputs);
+  // if (inputs.augmented)
+  //   llikAug(inputs.p, &inputs);
+  // else
+  //   llik(inputs.p, &inputs);
+  // filter();
+  inputs.cleanInnovations = true;
+  vec inn = KFinnovations(inputs);
   filter();
+  inputs.cleanInnovations = false;
+  inputs.v.rows(0, inn.n_elem - 1) = inn;
   //Second part of table
   inputs.table.push_back("   Summary statistics:\n");
   inputs.table.push_back("-------------------------------------------------------------\n");
@@ -812,7 +821,8 @@ double llikAug(vec& p, void* opt_data){
     llikValue = log(data->innVariance) + 1 + (log(det(Sn)) + logF) / nTrue;
     data->objFunValue = llikValue(0, 0);
     data->betaAug = beta;
-    data->betaAugVar = data->innVariance * iSn.diag();
+    data->betaAugVarMat = data->innVariance * iSn;
+    data->betaAugVar = data->betaAugVarMat.diag();
   }
   return llikValue(0, 0);
 }
@@ -1103,6 +1113,19 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     }
     // Storing information
     data.v.row(t) = vt;
+    // añadido copilot
+    // if (miss) {
+    //     data.v(t) = datum::nan;
+
+    // } else if (!colapsed && Finft(0,0) > 1e-8) {
+    //     // ---- FASE DIFUSA (correcta) ----
+    //     data.v(t) = vt(0) / std::sqrt(Finft(0,0));
+
+    // } else {
+    //     // ---- FASE ESTÁNDAR ----
+    //     data.v(t) = vt(0) / std::sqrt(Ft(0,0));
+    // }
+
     data_F.row(t) = Ft;
     data.iF.row(t) = iFt;
     if (smooth > 0){
@@ -1264,23 +1287,45 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   data.P *= innVar;
   data.FFor *= innVar; // * scale;
   // Cleaning innovations
-  if ((uword)data.d_t < n - 10){
-    data.v.rows(0, data.d_t).fill(datum::nan);
-  } else {
-    data.v.rows(0, sum(ns) + 1).fill(datum::nan);
+  // if ((uword)data.d_t < n - 10){
+  //   data.v.rows(0, data.d_t).fill(datum::nan);
+  // } else {
+  //   data.v.rows(0, sum(ns) + 1).fill(datum::nan);
+  // }
+
+  if (!data.cleanInnovations) {
+      if ((uword)data.d_t < n - 10){
+          data.v.rows(0, data.d_t).fill(datum::nan);
+      } else {
+          data.v.rows(0, sum(ns) + 1).fill(datum::nan);
+      }
   }
+
   uvec ind = find_finite(data.v);
-  if (ind.n_elem < 5){
-      ind = regspace<uvec>(sum(ns), data.v.n_elem - data.h - 1);
+
+  // Mantener tamaño completo (NO recortar, evita el shift con NaNs iniciales)
+  data.F = data_F;
+
+  // Normalizar solo los valores válidos
+  if (smooth != 3 && !data.cleanInnovations) {
+      for (uword i = 0; i < ind.n_elem; i++) {
+          uword t = ind(i);
+          data.v(t) = data.v(t) / std::sqrt(data.F(t));
+      }
   }
-  if (smooth == 3){
-    data.F = data_F.rows(0, max(ind)); // * data.innVariance;
-    data.v = data.v.rows(0, max(ind));
-  } else {
-    data.F = data_F.rows(min(ind), max(ind));
-    data.v = data.v.rows(min(ind), max(ind));
-    data.v = data.v / sqrt(data.F);
-  }
+
+  // uvec ind = find_finite(data.v);
+  // if (ind.n_elem < 5){
+  //     ind = regspace<uvec>(sum(ns), data.v.n_elem - data.h - 1);
+  // }
+  // if (smooth == 3){
+  //   data.F = data_F.rows(0, max(ind)); // * data.innVariance;
+  //   data.v = data.v.rows(0, max(ind));
+  // } else {
+  //   data.F = data_F.rows(min(ind), max(ind));
+  //   data.v = data.v.rows(min(ind), max(ind));
+  //   data.v = data.v / sqrt(data.F);
+  // }
   // Disturbances
   if (smooth == 2){
     data.eta = data.eta.t();
@@ -1292,6 +1337,124 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     data.eta.replace(datum::nan, 0);
     data.eta.replace(datum::inf, 0);
   }
+}
+// Calculating innovations from very beginning
+vec KFinnovations(SSinputs& data) {
+    // 1. Ejecutar KF aumentado para obtener estados iniciales óptimos
+    vec p = data.p;
+    llikAug(p, &data);
+
+    // Dimensiones
+    uword n  = data.y.n_elem;
+    uword ns = data.system.T.n_rows;
+    uword top_t = std::max((int)data.d_t, (int)ns) + 1;
+
+    vec inn(top_t);
+
+    // 2. Inicialización desde betaAug
+    vec at = data.betaAug.rows(0, ns - 1);
+    mat Pt = data.betaAugVarMat.submat(0, 0, ns - 1, ns - 1);
+
+    // Sin fase difusa
+    mat Pinft(ns, ns, fill::zeros);
+
+    // Precalcular matrices
+    mat RQRt = data.system.R * data.system.Q * data.system.R.t();
+    mat CHCt = data.system.C * data.system.H * data.system.C.t();
+
+    // Salidas
+    data.v.zeros(n);
+    data.F.zeros(n);
+    data.iF.zeros(n);
+
+    vec vt(1), Kt(ns);
+    mat Ft(1,1), iFt(1,1), Finft(1,1);
+
+    bool miss = false;
+    bool steadyState = false;
+    bool colapsed = true;   // clave: sin fase difusa
+
+    mat Z = data.system.Z.row(0);
+    bool TVP = (data.system.Z.n_rows > 1);
+
+    // Inputs exógenos
+    int k = data.u.n_rows;
+    rowvec Dt(n, fill::zeros);
+    if (k > 0 && data.system.Z.n_rows == 1) {
+        int nn = data.betaAug.n_rows;
+        data.system.D = data.betaAug.rows(nn - k, nn - 1).t();
+        Dt = data.system.D * data.u;
+    }
+
+    // ---- LOOP KF ----
+    for (uword t = 0; t < top_t; t++) {
+
+        if (TVP)
+            Z = data.system.Z.row(t);
+
+        // Missing
+        if (!std::isfinite(data.y(t))) {
+            miss = true;
+        } else {
+            miss = false;
+        }
+
+        // ----- CORRECCIÓN -----
+        KFcorrection(miss,
+                     colapsed,
+                     steadyState,
+                     false,
+                     &data,
+                     CHCt,
+                     Finft,
+                     vt,
+                     Dt(t),
+                     Ft,
+                     iFt,
+                     at,
+                     Pt,
+                     Pinft,
+                     Kt,
+                     t,
+                     data.Finf,
+                     data.Kinf,
+                     Z);
+
+        // Guardar innovación SIN eliminar nada
+        if (!miss) {
+            inn(t) = vt(0);
+            data.F(t) = Ft(0,0);
+            data.iF(t) = iFt(0,0);
+        } else {
+            inn(t) = datum::nan;
+        }
+
+        // ----- PREDICCIÓN -----
+        KFprediction(steadyState,
+                     colapsed,
+                     data.system.T,
+                     RQRt,
+                     at,
+                     Pt,
+                     Pinft);
+    }
+
+    // Normalización (opcional, como en tu framework)
+    // uvec ind = find_finite(data.v);
+    // for (uword i = 0; i < ind.n_elem; i++) {
+    //     uword t = ind(i);
+    //     data.v(t) = data.v(t) / std::sqrt(data.F(t));
+    // }
+    // uvec ind = find_finite(data.v);
+    // if (!data.cleanInnovations) {
+    //     for (uword t = 0; t < data.y.n_elem; t++) {
+    //          data.v(t) = data.v(t) * std::sqrt(data.iF(t));
+    //     }
+    // }
+    // Standardising
+    if (!data.cleanInnovations)
+        inn = inn * sqrt(data.iF.rows(0, inn.n_elem - 1));
+    return inn;
 }
 // solution to lyapunov equation P = Phi * P * Phi' + Q
 mat dlyap(mat T, mat Q){
