@@ -240,22 +240,32 @@ forecast.pts()                                R/methods.R
  │        a_{n+k} = T * a_{n+k-1}  (+ Gam * u_{n+k} if xreg)
  │        P_{n+k} = T * P_{n+k-1} * T' + R * Q * R'
  │        yFor[k] = Z * a_{n+k}
- │        FFor[k] = Z * P_{n+k} * Z' + H
- │    returns yFor (BC scale, length h), yForV (forecast variance, BC scale)
+ │        FFor[k] = Z * P_{n+k} * Z' + CHCt    (prediction variance)
+ │    returns yFor (BC scale, length h), yForV (prediction variance)
  │    ─────────────────────── R boundary ────────────────────────
  │
  ├─ .pts_wrap_oos(out$yFor, object$data)  attach time index
  ├─ .inv_box_cox(yFor_bc, lambda)         back-transform mean forecast
  │
- ├─ Prediction intervals (endpoint transform):
- │    z = qnorm(1 - (1-level)/2)
- │    lower = invBoxCox(yFor_bc - z * sqrt(yForV), lambda)
- │    upper = invBoxCox(yFor_bc + z * sqrt(yForV), lambda)
- │    (asymmetric on original scale when lambda ≠ 1)
+ ├─ Branch on `interval`:
+ │    "prediction" (default)  use yForV
+ │    "confidence"            use yForVconf = max(0, yForV - sigma^2_BC)
+ │                            (var(E[y|obs]) = var(y|obs) - sigma_obs^2;
+ │                            sigma^2 read off object$scale^2 — no reforecast)
+ │    "simulated"             empirical quantiles of simulate.pts() paths
+ │    "none"                  lower = upper = mean
+ │  Vector `level` -> lower/upper become (h × nLevels) matrices.
+ │  `side` (both / upper / lower) derives (qLow, qUp); qnorm(0) = -Inf
+ │  flows through .inv_box_cox to the BC support boundary (0 for
+ │  lambda > 0, -Inf for the identity transform).
+ │  If `cumulative = TRUE`: collapse to one row via simulation totals
+ │  (exact for "simulated"; approximation otherwise because the engine
+ │  does not expose cross-step state covariance).
  │
  └─ return list of class c("pts.forecast", "smooth.forecast")
-      mean, lower, upper (original scale)
-      variance (BC scale)
+      mean, lower, upper (original scale), variance (BC scale),
+      level, interval, side, cumulative,
+      scenarios (only when interval = "simulated" and scenarios = TRUE)
 ```
 
 `predict.pts()` is an alias for `fitted.pts()` — in-sample fitted values only.
@@ -400,7 +410,7 @@ confint.pts(object, parm, level)          R/pts-confint.R
 |-------|----------|-------------|
 | `model` | all | Resolved UC string |
 | `yFor` | all | BC-scale forecast (length h) |
-| `yForV` | all | BC-scale forecast variance (length h) |
+| `yForV` | all | BC-scale prediction variance: Z·Pt·Zᵀ + CHCt with Pt evolving with full RQRᵀ injection (length h).  R-side confidence variance is computed as `max(0, yForV - sigma^2)` -- no separate engine field. |
 | `lambda` | all | Final Box-Cox λ |
 | `lambdaEstimated` | all | TRUE if λ cost a DoF |
 | `p` | all | Final parameter vector |

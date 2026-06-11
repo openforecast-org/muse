@@ -227,8 +227,19 @@
 .inv_box_cox <- function(x, lambda){
     if (is.null(x) || length(x) == 0) return(x)
     if (lambda > 0.98) return(x)                       # identity, attrs intact
-    out <- if (abs(lambda) < 0.02) exp(as.numeric(x))
-           else                    (lambda * as.numeric(x) + 1) ^ (1 / lambda)
+    xv <- as.numeric(x)
+    if (abs(lambda) < 0.02){
+        out <- exp(xv)                                 # log case; -Inf -> 0, +Inf -> +Inf
+    } else {
+        # Box-Cox support: Y on the original scale requires
+        # 1 + lambda*X > 0.  When `xv` is at or below this boundary
+        # (e.g. -Inf from a one-sided "upper" interval), the original
+        # scale value is at the support boundary: 0 for lambda > 0
+        # (Y >= 0), or +Inf for lambda < 0 (Y unbounded below in BC).
+        arg <- lambda * xv + 1
+        out <- ifelse(arg > 0, arg ^ (1 / lambda),
+                      ifelse(lambda > 0, 0, Inf))
+    }
     if (inherits(x, "zoo"))
         out <- zoo::zoo(out, order.by = stats::time(x))
     else if (is.ts(x))

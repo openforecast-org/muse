@@ -222,6 +222,88 @@ test_that("plot(forecast(m)) dispatches to plot.smooth.forecast", {
     expect_silent(plot(f))
 })
 
+#### forecast.pts: interval / side / cumulative / scenarios ####
+test_that("forecast.pts supports interval = none / prediction / confidence / simulated", {
+    fNone <- forecast(m, h = 12, interval = "none")
+    expect_equal(as.numeric(fNone$lower), as.numeric(fNone$mean))
+    expect_equal(as.numeric(fNone$upper), as.numeric(fNone$mean))
+
+    fPred <- forecast(m, h = 12, interval = "prediction")
+    fConf <- forecast(m, h = 12, interval = "confidence")
+    # Confidence variance = prediction variance minus the BC-scale obs
+    # noise sigma^2: strictly less and non-negative.
+    expect_true(all(as.numeric(fConf$variance) <
+                    as.numeric(fPred$variance) - 1e-8))
+    expect_true(all(as.numeric(fConf$variance) >= 0))
+    # The confidence interval must not shrink: the BC-scale variance
+    # grows monotonically with h (state shocks accumulate; sigma^2 is
+    # a constant offset).
+    expect_true(all(diff(as.numeric(fConf$variance)) >= -1e-8))
+
+    set.seed(123)
+    fSim <- forecast(m, h = 12, interval = "simulated", nsim = 2000)
+    # Mean of simulated interval is the analytical point forecast; quantile
+    # bounds straddle the mean for h >= 2 (h = 1 is deterministic in pts
+    # because the obs noise is folded into the state variance, not H).
+    expect_equal(as.numeric(fSim$mean), as.numeric(fPred$mean))
+    expect_true(all(as.numeric(fSim$lower)[-1] <= as.numeric(fSim$mean)[-1]))
+    expect_true(all(as.numeric(fSim$upper)[-1] >= as.numeric(fSim$mean)[-1]))
+})
+
+test_that("forecast.pts: side = upper / lower set the absent tail to the BC boundary", {
+    # m was fit with model = "0NT" -> lambda = 0 (log Box-Cox).
+    # On the BC scale qnorm(0) = -Inf, qnorm(1) = +Inf; .inv_box_cox
+    # maps -Inf -> 0 (log support boundary) and +Inf -> +Inf.
+    fUp <- forecast(m, h = 12, side = "upper")
+    expect_true(all(as.numeric(fUp$lower) == 0))
+    expect_true(all(as.numeric(fUp$upper) >= as.numeric(fUp$mean) - 1e-8))
+
+    fLo <- forecast(m, h = 12, side = "lower")
+    expect_true(all(is.infinite(as.numeric(fLo$upper)) &
+                    as.numeric(fLo$upper) > 0))
+    expect_true(all(as.numeric(fLo$lower) <= as.numeric(fLo$mean) + 1e-8))
+})
+
+test_that("forecast.pts: level accepts a vector and returns matrix bounds", {
+    f <- forecast(m, h = 8, level = c(0.8, 0.95))
+    expect_equal(dim(as.matrix(f$lower)), c(8L, 2L))
+    expect_equal(dim(as.matrix(f$upper)), c(8L, 2L))
+    # Wider level must produce wider bounds at every step.
+    L <- as.matrix(f$lower); U <- as.matrix(f$upper)
+    expect_true(all(L[, 1] >= L[, 2] - 1e-8))   # 80% lower above 95% lower
+    expect_true(all(U[, 1] <= U[, 2] + 1e-8))   # 80% upper below 95% upper
+    # Level vector preserved on the returned object.
+    expect_equal(f$level, c(0.8, 0.95))
+})
+
+test_that("forecast.pts: cumulative collapses the horizon into a scalar total", {
+    set.seed(42)
+    fc <- forecast(m, h = 6, interval = "simulated", nsim = 2000,
+                   cumulative = TRUE)
+    expect_length(as.numeric(fc$mean), 1L)
+    expect_length(as.numeric(fc$lower), 1L)
+    expect_length(as.numeric(fc$upper), 1L)
+    # Point forecast must equal sum of per-step point forecasts.
+    perStep <- as.numeric(forecast(m, h = 6, interval = "none")$mean)
+    expect_equal(unname(as.numeric(fc$mean)), sum(perStep), tolerance = 1e-8)
+    expect_true(isTRUE(fc$cumulative))
+})
+
+test_that("forecast.pts: scenarios = TRUE returns the simulated path matrix", {
+    set.seed(7)
+    fc <- forecast(m, h = 8, interval = "simulated", nsim = 500,
+                   scenarios = TRUE)
+    expect_true(is.matrix(fc$scenarios))
+    expect_equal(dim(fc$scenarios), c(8L, 500L))
+    # Without scenarios = TRUE there is no $scenarios slot.
+    fc2 <- forecast(m, h = 8, interval = "simulated", nsim = 500)
+    expect_null(fc2$scenarios)
+})
+
+test_that("forecast.pts: invalid interval errors clearly", {
+    expect_error(forecast(m, h = 6, interval = "bogus"))
+})
+
 #### Box-Cox-corrected logLik (via bcnormLogDensity in C++) ####
 test_that("logLik is finite and on the original response scale", {
     # The C++ engine sums bcnormLogDensity (PTSmodel.h:1130), which carries

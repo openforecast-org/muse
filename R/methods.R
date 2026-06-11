@@ -223,53 +223,202 @@ predict.pts <- function(object, newdata = NULL, ...){
 #' @description \code{forecast.pts} uses the C++ \code{forecastOnly} entry
 #' point: it skips re-estimation and just propagates the Kalman filter
 #' \code{h} steps forward from the fitted state, so changing \code{h} is
-#' cheap.
+#' cheap.  \code{interval} selects the variance source:
+#' \describe{
+#'   \item{"prediction" (default)}{state propagation + future shocks
+#'     (the engine's \code{yForV}).  Bands the next observation.}
+#'   \item{"confidence"}{conditional-mean variance.  In a state-space
+#'     model \eqn{var(E[y_{t+h}\,|\,obs]) = var(y_{t+h}\,|\,obs) - \sigma^2},
+#'     where \eqn{\sigma^2} is the BC-scale residual variance: we read it
+#'     straight off the fitted scale, no reforecast needed.}
+#'   \item{"simulated"}{empirical quantiles of \code{nsim} forward
+#'     paths from \code{simulate.pts()}.  Returns the path matrix in
+#'     \code{$scenarios} when \code{scenarios = TRUE}.}
+#'   \item{"none"}{no bands; \code{lower = upper = mean}.}
+#' }
+#' \code{level} accepts a vector; \code{lower} / \code{upper} are then
+#' \eqn{h \times nLevels} matrices (or \eqn{1 \times nLevels} when
+#' \code{cumulative = TRUE}).  \code{side} produces two-sided
+#' / upper-only / lower-only intervals -- the absent side is set to
+#' \eqn{\mp\infty} on the BC scale and back-transformed to the
+#' original-scale support boundary (0 for \eqn{\lambda > 0}, \eqn{-\infty}
+#' for the identity transform).  \code{cumulative = TRUE} collapses the
+#' horizon into one total -- exact for \code{interval = "simulated"}
+#' (sum within each path); the engine does not expose cross-step state
+#' covariance, so the other intervals fall back to simulation totals.
+#' @param interval interval type; one of \code{"prediction"},
+#'   \code{"confidence"}, \code{"simulated"}, or \code{"none"}.
+#' @param side one of \code{"both"}, \code{"upper"}, \code{"lower"} --
+#'   selects two-sided vs one-sided intervals.
+#' @param cumulative if \code{TRUE}, return the cumulative h-step total.
+#' @param nsim number of simulated paths when
+#'   \code{interval = "simulated"} or under the cumulative fallback
+#'   (default \code{10000}).
+#' @param scenarios if \code{TRUE} and \code{interval = "simulated"},
+#'   return the simulated path matrix as \code{$scenarios}.
 #' @export
-forecast.pts <- function(object, h = 10, level = 0.95, newdata = NULL, ...){
+forecast.pts <- function(object, h = 10, newdata = NULL,
+                         interval = c("prediction", "confidence",
+                                      "simulated", "none"),
+                         level = 0.95,
+                         side = c("both", "upper", "lower"),
+                         cumulative = FALSE,
+                         nsim = NULL,
+                         scenarios = FALSE,
+                         ...){
     if (!is.numeric(h) || length(h) != 1 || h < 1)
         stop("`h` must be a positive integer.", call. = FALSE)
-    # Reconstruct the UCompC inputs from the fitted object's slots; no
-    # need for a separate $forecast_args cache.  When the model was fit
-    # with regressors, newdata supplies their future values for the
-    # forecast horizon (see .pts_forecast_inputs).
-    args <- .pts_forecast_inputs(object, h, newdata = newdata)
-    out  <- .pts_call_uc("forecastOnly", args)
+    interval <- match.arg(interval)
+    side     <- match.arg(side)
+    if (!is.numeric(level) || any(level <= 0) || any(level >= 1))
+        stop("`level` must be in (0, 1) (a scalar or numeric vector).", call. = FALSE)
+    if (is.null(nsim)) nsim <- 10000L
+    if (!is.numeric(nsim) || length(nsim) != 1 || nsim < 1)
+        stop("`nsim` must be a positive integer.", call. = FALSE)
+    nsim <- as.integer(nsim)
+    nLevels <- length(level)
 
-    # Engine returns yFor / yForV on the Box-Cox scale.  Build the
-    # prediction interval by endpoint transformation:
-    #   lower_orig = invBoxCox(yFor_bc - z*se),  upper_orig = invBoxCox(yFor_bc + z*se)
-    # This preserves coverage and gives asymmetric intervals on the
-    # original scale whenever lambda != 1.
-    yFor_bc <- .pts_wrap_oos(as.numeric(out$yFor),  object$data)
-    yForV   <- .pts_wrap_oos(as.numeric(out$yForV), object$data)
-    z       <- stats::qnorm(1 - (1 - level) / 2)
-    se      <- sqrt(yForV)
-    lambda  <- args$lambda
+    # Lower / upper tail probabilities -- vectors of length nLevels.
+    # Mirror smooth/R/adam.R:7333-7344.
+    qLow <- switch(side, both = (1 - level) / 2, upper = rep(0, nLevels),
+                   lower = 1 - level)
+    qUp  <- switch(side, both = (1 + level) / 2, upper = level,
+                   lower = rep(1, nLevels))
 
-    mean_out  <- .inv_box_cox(yFor_bc,          lambda)
-    lower_out <- .inv_box_cox(yFor_bc - z * se, lambda)
-    upper_out <- .inv_box_cox(yFor_bc + z * se, lambda)
+    # Engine call: yFor (BC point forecast) and yForV (prediction var).
+    args      <- .pts_forecast_inputs(object, h, newdata = newdata)
+    out       <- .pts_call_uc("forecastOnly", args)
+    yFor_bc   <- .pts_wrap_oos(as.numeric(out$yFor),  object$data)
+    yForVpred <- .pts_wrap_oos(as.numeric(out$yForV), object$data)
+    lambda    <- args$lambda
+    mean_out  <- .inv_box_cox(yFor_bc, lambda)
+    # Confidence variance = prediction variance minus the obs-noise
+    # contribution.  For a SSM y_t = Z a_t + eps with var(eps) = sigma^2,
+    # var(E[y_{t+h}|obs]) = var(y_{t+h}|obs) - sigma^2.  In PTS the
+    # irregular noise lives in Q, but the MLE residual variance
+    # `object$scale^2` (BC scale) is precisely the per-step obs-noise
+    # contribution to var(y).  Clamp at 0 to keep things sensible.
+    sigma2BC  <- as.numeric(object$scale) ^ 2
+    yForVconf <- pmax(0, .pts_wrap_oos(as.numeric(out$yForV) - sigma2BC,
+                                       object$data))
 
-    ret <- list(model    = object,
-                mean     = mean_out,
-                lower    = lower_out,
-                upper    = upper_out,
-                variance = yForV,           # documented: BC-scale variance
-                level    = level,
-                interval = "prediction",    # read by plot.smooth.forecast
-                method   = object$model)
+    # Simulated paths -- cached for cumulative / scenarios reuse.
+    pathsCache <- NULL
+    drawPaths  <- function(){
+        if (is.null(pathsCache))
+            pathsCache <<- as.matrix(simulate(object, nsim = nsim, h = h, ...)$data)
+        pathsCache
+    }
+
+    # Build a (h x nLevels) matrix on the original scale by evaluating
+    # `f(p)` per level p; preserves the time index of `template` (a
+    # length-h ts/zoo vector).
+    .mkBands <- function(f, probs, template){
+        mat <- matrix(NA_real_, nrow = length(template), ncol = nLevels)
+        for (j in seq_along(probs)) mat[, j] <- as.numeric(f(probs[j]))
+        if (is.ts(template))
+            stats::ts(mat, start = stats::start(template),
+                      frequency = stats::frequency(template))
+        else if (inherits(template, "zoo"))
+            zoo::zoo(mat, order.by = stats::time(template))
+        else mat
+    }
+
+    # Per-step intervals.  Cumulative collapse, if any, overwrites
+    # these below.
+    if (interval == "none"){
+        lower_out   <- .mkBands(function(p) mean_out, qLow, mean_out)
+        upper_out   <- .mkBands(function(p) mean_out, qUp,  mean_out)
+        varianceOut <- yForVpred
+    } else if (interval %in% c("prediction", "confidence")){
+        varianceOut <- if (interval == "prediction") yForVpred else yForVconf
+        se          <- sqrt(as.numeric(varianceOut))
+        # qnorm(0) = -Inf, qnorm(1) = +Inf -- pass through.  Where
+        # the BC-scale bound is +/- Inf, .inv_box_cox returns the
+        # support boundary (0 for lambda > 0, +/- Inf for identity).
+        bcQuant <- function(p) {
+            z <- stats::qnorm(p)
+            if (is.finite(z))
+                .inv_box_cox(yFor_bc + z * se, lambda)
+            else if (z == -Inf)
+                .inv_box_cox(stats::ts(rep(-Inf, h),
+                                       start = stats::start(yFor_bc),
+                                       frequency = stats::frequency(yFor_bc)),
+                             lambda)
+            else
+                stats::ts(rep(Inf, h), start = stats::start(yFor_bc),
+                          frequency = stats::frequency(yFor_bc))
+        }
+        lower_out <- .mkBands(bcQuant, qLow, mean_out)
+        upper_out <- .mkBands(bcQuant, qUp,  mean_out)
+    } else if (interval == "simulated"){
+        paths <- drawPaths()
+        qPaths <- function(p)
+            if (p <= 0) rep(-Inf, h)
+            else if (p >= 1) rep(Inf, h)
+            else apply(paths, 1, stats::quantile, probs = p, na.rm = TRUE)
+        lower_out   <- .mkBands(qPaths, qLow, mean_out)
+        upper_out   <- .mkBands(qPaths, qUp,  mean_out)
+        varianceOut <- .pts_wrap_oos(apply(paths, 1, stats::var, na.rm = TRUE),
+                                     object$data)
+    }
+
+    if (isTRUE(cumulative)){
+        # Cumulative collapse: 1 x nLevels matrices.  Point forecast is
+        # the sum of per-step point forecasts; the interval uses
+        # simulation totals (exact for "simulated", approximate
+        # otherwise since the engine does not expose cross-step state
+        # covariance).
+        meanScalar <- sum(as.numeric(mean_out), na.rm = TRUE)
+        if (interval == "none"){
+            mean_out    <- meanScalar
+            lower_out   <- matrix(meanScalar, nrow = 1, ncol = nLevels)
+            upper_out   <- matrix(meanScalar, nrow = 1, ncol = nLevels)
+            varianceOut <- 0
+        } else {
+            totals      <- colSums(drawPaths())
+            qTot <- function(p)
+                if (p <= 0) -Inf
+                else if (p >= 1) Inf
+                else unname(stats::quantile(totals, probs = p, na.rm = TRUE))
+            mean_out    <- meanScalar
+            lower_out   <- matrix(vapply(qLow, qTot, numeric(1)), nrow = 1)
+            upper_out   <- matrix(vapply(qUp,  qTot, numeric(1)), nrow = 1)
+            varianceOut <- stats::var(totals, na.rm = TRUE)
+        }
+    }
+
+    scenariosMat <- if (interval == "simulated" && isTRUE(scenarios)) drawPaths() else NULL
+
+    ret <- list(model      = object,
+                mean       = mean_out,
+                lower      = lower_out,
+                upper      = upper_out,
+                variance   = varianceOut,        # BC-scale variance source
+                level      = level,
+                interval   = interval,           # read by plot.smooth.forecast
+                side       = side,
+                cumulative = isTRUE(cumulative),
+                method     = object$model)
+    if (!is.null(scenariosMat)) ret$scenarios <- scenariosMat
     class(ret) <- c("pts.forecast", "smooth.forecast")
     ret
 }
 
 #' @export
 print.pts.forecast <- function(x, ...){
-    cat(x$method, "forecast,", length(x$mean), "steps ahead\n")
-    cat("  Confidence level:", format(100 * x$level, digits = 4), "%\n", sep = "")
-    df <- data.frame(`Point Forecast` = as.numeric(x$mean),
-                     Lo                = as.numeric(x$lower),
-                     Hi                = as.numeric(x$upper),
-                     check.names = FALSE)
+    cat(x$method, "forecast,", length(as.numeric(x$mean)), "steps ahead\n")
+    cat("  Confidence level: ",
+        paste0(format(100 * x$level, digits = 4), "%", collapse = ", "), "\n", sep = "")
+    lower <- as.matrix(x$lower); upper <- as.matrix(x$upper)
+    nLevels <- ncol(lower)
+    df <- data.frame(`Point Forecast` = as.numeric(x$mean), check.names = FALSE)
+    for (j in seq_len(nLevels)){
+        tag <- if (nLevels == 1) ""
+               else paste0(" ", format(100 * x$level[j], digits = 4), "%")
+        df[[paste0("Lo", tag)]] <- lower[, j]
+        df[[paste0("Hi", tag)]] <- upper[, j]
+    }
     print(round(df, 4))
     invisible(x)
 }

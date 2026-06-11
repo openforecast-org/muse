@@ -32,7 +32,10 @@
 
 \method{predict}{pts}(object, newdata = NULL, ...)
 
-\method{forecast}{pts}(object, h = 10, level = 0.95, newdata = NULL, ...)
+\method{forecast}{pts}(object, h = 10, newdata = NULL,
+  interval = c("prediction", "confidence", "simulated", "none"),
+  level = 0.95, side = c("both", "upper", "lower"), cumulative = FALSE,
+  nsim = NULL, scenarios = FALSE, ...)
 }
 \arguments{
 \item{x, object}{A fitted object of class \code{"pts"}.}
@@ -43,7 +46,22 @@
 
 \item{h}{forecast horizon (steps ahead).}
 
+\item{interval}{interval type; one of \code{"prediction"},
+\code{"confidence"}, \code{"simulated"}, or \code{"none"}.}
+
 \item{level}{confidence level for prediction intervals (default 0.95).}
+
+\item{side}{one of \code{"both"}, \code{"upper"}, \code{"lower"} --
+selects two-sided vs one-sided intervals.}
+
+\item{cumulative}{if \code{TRUE}, return the cumulative h-step total.}
+
+\item{nsim}{number of simulated paths when
+\code{interval = "simulated"} or under the cumulative fallback
+(default \code{10000}).}
+
+\item{scenarios}{if \code{TRUE} and \code{interval = "simulated"},
+return the simulated path matrix as \code{$scenarios}.}
 }
 \description{
 Standard accessors and printing for fitted \code{pts}
@@ -63,7 +81,29 @@ parameter vector).  The C++ validation diagnostics live on
 \code{forecast.pts} uses the C++ \code{forecastOnly} entry
 point: it skips re-estimation and just propagates the Kalman filter
 \code{h} steps forward from the fitted state, so changing \code{h} is
-cheap.
+cheap.  \code{interval} selects the variance source:
+\describe{
+  \item{"prediction" (default)}{state propagation + future shocks
+    (the engine's \code{yForV}).  Bands the next observation.}
+  \item{"confidence"}{conditional-mean variance.  In a state-space
+    model \eqn{var(E[y_{t+h}\,|\,obs]) = var(y_{t+h}\,|\,obs) - \sigma^2},
+    where \eqn{\sigma^2} is the BC-scale residual variance: we read it
+    straight off the fitted scale, no reforecast needed.}
+  \item{"simulated"}{empirical quantiles of \code{nsim} forward
+    paths from \code{simulate.pts()}.  Returns the path matrix in
+    \code{$scenarios} when \code{scenarios = TRUE}.}
+  \item{"none"}{no bands; \code{lower = upper = mean}.}
+}
+\code{level} accepts a vector; \code{lower} / \code{upper} are then
+\eqn{h \times nLevels} matrices (or \eqn{1 \times nLevels} when
+\code{cumulative = TRUE}).  \code{side} produces two-sided
+/ upper-only / lower-only intervals -- the absent side is set to
+\eqn{\mp\infty} on the BC scale and back-transformed to the
+original-scale support boundary (0 for \eqn{\lambda > 0}, \eqn{-\infty}
+for the identity transform).  \code{cumulative = TRUE} collapses the
+horizon into one total -- exact for \code{interval = "simulated"}
+(sum within each path); the engine does not expose cross-step state
+covariance, so the other intervals fall back to simulation totals.
 }
 \author{
 Diego J. Pedregal, \email{Diego.Pedregal@uclm.es}
