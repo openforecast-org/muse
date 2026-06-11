@@ -1175,7 +1175,7 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 inputs.lambda          = lambdaStar;
                 SSmodel::inputs.lambda = lambdaStar;
         }
-        double LLIK, AIC, BIC, AICc, BICc;
+        double LLIK; //, AIC, BIC, AICc, BICc;
         // Exception when function is nan
         if (flag > 6){
                 objFunValue = datum::nan;
@@ -1315,10 +1315,10 @@ void BSMclass::estim(vec p, bool VERBOSE){
         inputs.estimateLambda          = false;
 
         SSmodel::inputs.criteria = computeCriteria(LLIK, kFor(p.n_elem));
-        AIC  = SSmodel::inputs.criteria(1);
-        BIC  = SSmodel::inputs.criteria(2);
-        AICc = SSmodel::inputs.criteria(3);
-        BICc = SSmodel::inputs.criteria(4);
+        // AIC  = SSmodel::inputs.criteria(1);
+        // BIC  = SSmodel::inputs.criteria(2);
+        // AICc = SSmodel::inputs.criteria(3);
+        // BICc = SSmodel::inputs.criteria(4);
         if (flag == 1) {
                 SSmodel::inputs.estimOk = "Q-Newton: Gradient convergence\n";
         } else if (flag == 2){
@@ -2739,7 +2739,7 @@ void BSMclass::parLabels(){
 void BSMclass::validate(bool showTable){
         // SSpace validate
         SSmodel::validate(false, sum(inputs.nPar));
-        vec scores;
+        vec scores, innovations = SSmodel::inputs.v;
         mat iHess = parCov(scores);
         SSmodel::inputs.covp = iHess;
         // Parameter names
@@ -2904,6 +2904,7 @@ void BSMclass::validate(bool showTable){
                         printf("%s ", SSmodel::inputs.table[i].c_str());
                 }
         }
+        SSmodel::inputs.v = innovations;
 }
 // Disturbance smoother (to recover just trend and epsilons)
 void BSMclass::disturb(){
