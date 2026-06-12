@@ -89,7 +89,7 @@ Header-only, all included from `src/musecpp2R.cpp`:
 2. Add it to the `UCompC()` signature in `src/musecpp2R.cpp` and unpack into `MuseInputs`.
 3. Regenerate `R/RcppExports.R` and `src/RcppExports.cpp` with `Rcpp::compileAttributes()`.
 
-**Changing Box-Cox thresholds:** the R-side `.inv_box_cox()` (`R/pts-internals.R`) and the C++ `BoxCox()`/`invBoxCox()` (`src/boxcox.h`) must use identical thresholds (`|λ| < 0.02` → log; `λ > 0.98` → identity).
+**Changing Box-Cox branches:** the R-side `.inv_box_cox()` (`R/pts-internals.R`) and the C++ `BoxCox()`/`invBoxCox()` (`src/boxcox.h`) plus `bcnormBoxCox()`/`bcnormLogJac()` (`src/bcnorm.h`) must use identical branches.  Current convention is exact equality at the two singular points: `λ == 0` → log; `λ == 1` → identity; otherwise the general `(y^λ − 1)/λ` formula.  Do not reintroduce threshold-based shortcuts — they make AIC discontinuous in λ.
 
 **Changing parameter names:** `BSMclass::parLabels()` in `PTSmodel.h` sets names; the S3 methods in `R/methods.R` and `R/pts-summary.R` pattern-match on them (`grepl("^AR\\("`, `"^Beta"`, `"^Damping"`, `"^Irregular"`).  Update both sides.
 

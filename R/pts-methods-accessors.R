@@ -72,6 +72,33 @@ orders.pts <- function(object, ...){
     list(ar = ar, i = 0L, ma = ma)
 }
 
+#' Initial state values for a fitted \code{pts} object.
+#'
+#' Returns the smoothed structural states at the first observation, with
+#' the \code{"Error"} and \code{"Fit"} columns dropped.  For deterministic
+#' components -- e.g. the slope under the global (\code{G}) trend, where
+#' the slope is fixed throughout the horizon -- this equals the t = 0
+#' initial value; for stochastic components it is the smoother's
+#' estimate at t = 1, a close proxy to the t = 0 initial.
+#'
+#' @param object A fitted object of class \code{"pts"}.
+#' @param ... Unused.
+#' @return Named numeric vector of initial structural-state values.
+#' @export
+initials <- function(object, ...) UseMethod("initials")
+
+#' @rdname pts-methods
+#' @export
+initials.pts <- function(object, ...){
+    if (is.null(object$comp) || !is.matrix(object$comp))
+        return(numeric(0))
+    cols <- setdiff(colnames(object$comp), c("Error", "Fit"))
+    if (length(cols) == 0) return(numeric(0))
+    vals <- as.numeric(object$comp[1, cols])
+    names(vals) <- cols
+    vals
+}
+
 #' @export
 errorType.pts <- function(object, ...){
     # The state-space model fits additive innovations on the Box-Cox scale.

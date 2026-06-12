@@ -75,32 +75,55 @@ print.pts <- function(x, digits = 4, ...){
     if (!is.null(x$constant) && !is.na(x$constant))
         cat("\nIntercept/Drift value:", round(x$constant, digits))
 
-    # --- Parameters block: variance params shown as proportions (Tasks 1-3).
-    #     Structural variances (Level, Slope, Seas*) are divided by their sum
-    #     so they show the relative contribution of each component.
-    #     Irregular is dropped.  Damping is shown with its raw value.
-    #     ARMA and Beta (xreg) params get their own sections below. ---
+    # --- Variance parameters: one row per noise source, showing both the
+    #     absolute variance and the proportion of total noise it carries.
+    #     A single row per parameter (no separate footer for the
+    #     concentrated value) keeps the layout unambiguous.  Damping is
+    #     a [0, 1] coefficient, not a variance, so it stays on its own
+    #     line.  ARMA and Beta blocks come further below. ---
     B  <- coef(x)
     nm <- names(B)
     isArma  <- grepl("^(AR|MA)\\(", nm)
     isXreg  <- grepl("^Beta",       nm)
     isDamp  <- nm == "Damping"
-    isIrr   <- nm == "Irregular"
-    isVar   <- !(isArma | isXreg | isDamp | isIrr)
+    isVar   <- !(isArma | isXreg | isDamp)   # includes Irregular
 
     varVals <- B[isVar]
     dampVal <- B[isDamp]
 
+    # Concentrated parameter(s): NaN on vcov diagonal.
+    cv      <- x$vcov
+    concNms <- if (is.null(dim(cv))) character(0)
+               else nm[which(is.nan(diag(cv)))]
+
     if (length(varVals) > 0){
-        S <- sum(varVals)
+        S     <- sum(varVals)
         props <- if (S > 0) varVals / S else varVals
-        cat("\nParameters:\n")
-        print(signif(props, digits))
+        rn    <- names(varVals)
+        if (length(concNms) > 0){
+            mark <- rn %in% concNms
+            rn[mark] <- paste0(rn[mark], " (*)")
+        }
+        tbl <- cbind(Variance   = signif(varVals, digits),
+                     Proportion = signif(props,   digits))
+        rownames(tbl) <- rn
+
+        cat("\nVariance parameters:\n")
+        print(tbl, na.print = "-")
+        if (length(concNms) > 0)
+            cat("(*) concentrated out\n")
+
+        # Deterministic slope under the global ("G") trend is a constant
+        # drift, not a variance -- keep it out of the table above and
+        # report it on its own line.
+        if (!is.null(x$modelUC) && startsWith(x$modelUC, "td/") &&
+            is.matrix(x$comp) && "Slope" %in% colnames(x$comp)){
+            cat("\nDeterministic slope (drift per period): ",
+                signif(as.numeric(x$comp[1, "Slope"]), digits), "\n", sep = "")
+        }
     }
-    if (length(dampVal) > 0){
-        cat("\nDamping:\n")
-        print(round(dampVal, digits))
-    }
+    if (length(dampVal) > 0)
+        cat("\nDamping: ", round(unname(dampVal), digits), "\n", sep = "")
 
     # --- ARMA parameters of the irregular component (adam.R:5976-6013) ---
     if (!is.null(x$orders) && (x$orders$ar > 0 || x$orders$ma > 0)){

@@ -109,22 +109,26 @@ test_that("summary.pts coefficient table has the adam columns", {
     s <- summary(m)
     expect_s3_class(s, "summary.pts")
     expect_equal(colnames(s$coefficients),
-                 c("Estimate", "Std. Error", "t value", "Pr(>|t|)", "Lower", "Upper"))
+                 c("Estimate", "Std. Error", "Lower", "Upper"))
     df <- as.data.frame(s)
     expect_true("Parameter" %in% names(df))
-    # Irregular is excluded from the display; rows == structural params (no Irregular)
     expect_equal(nrow(df), nrow(s$coefficients))
-    expect_false("Irregular" %in% rownames(s$coefficients))
+    # Irregular is part of the table (it's a variance like any other).
+    expect_true("Irregular" %in% rownames(s$coefficients))
 })
 
 test_that("summary.pts numerical invariants", {
     s <- summary(m)
     cmat <- s$coefficients
-    # t = Estimate / Std. Error
-    finite <- complete.cases(cmat[, c("Estimate", "Std. Error", "t value")])
+    # Lower / Upper = Estimate +/- qnorm * Std. Error
+    finite <- complete.cases(cmat[, c("Estimate", "Std. Error", "Lower", "Upper")])
     if (any(finite)){
-        expect_equal(cmat[finite, "t value"],
-                     cmat[finite, "Estimate"] / cmat[finite, "Std. Error"],
+        z <- qnorm(0.975)   # default level = 0.95
+        expect_equal(cmat[finite, "Lower"],
+                     cmat[finite, "Estimate"] - z * cmat[finite, "Std. Error"],
+                     tolerance = 1e-10)
+        expect_equal(cmat[finite, "Upper"],
+                     cmat[finite, "Estimate"] + z * cmat[finite, "Std. Error"],
                      tolerance = 1e-10)
     }
 })
@@ -331,8 +335,8 @@ test_that("lambda counts as +1 parameter only when NOT snapped to an anchor", {
     # nearest anchor in {-2,-1,-0.5,0,0.5,1,2}.  If the snap fires, lambda
     # is treated as fixed and does NOT add a DoF; if the optimised value
     # wins, it counts as +1.  See BSMclass::profileLambda.
-    m_fixed <- pts(log(AirPassengers), model = "0NT", h = 0)   # lambda = 0
-    m_auto  <- pts(log(AirPassengers), model = "ZNT", h = 0)   # lambda free
+    m_fixed <- pts(AirPassengers, model = "0NT", h = 0)   # lambda = 0
+    m_auto  <- pts(AirPassengers, model = "ZNT", h = 0)   # lambda free
     expect_equal(nparam(m_fixed), length(coef(m_fixed)))
     anchors <- c(-2, -1, -0.5, 0, 0.5, 1, 2)
     if (m_auto$lambda %in% anchors){

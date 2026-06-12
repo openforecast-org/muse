@@ -30,14 +30,23 @@ double testBoxCox(vec, vec);
 /***************************************************
  * Function implementations
  ****************************************************/
-// Box-Cox transfomration using Guerrero (1993)
+// Box-Cox transformation.  Branches are exact-equality on lambda
+// (not threshold-based) so the LLIK / AIC is continuous in lambda and
+// the only shortcuts are the two singular points where the general
+// formula is undefined:
+//   lambda == 1  -> identity   (general formula gives (y - 1)/1 = y - 1,
+//                               which differs from y by a constant; we
+//                               drop that constant so the Kalman fit
+//                               matches greybox's `dbcnorm(lambda=1)`
+//                               convention -- see ARCHITECTURE.md)
+//   lambda == 0  -> log(y)     (general formula has 0/0)
 vec BoxCox(vec y, double lambda){
-  if (lambda > 0.98)
+  if (lambda == 1.0)
       return y;
   if (any(y < 0)){
     throw std::invalid_argument( "BoxCox transformation impossible: negative values encountered!!" );
   }
-  if (abs(lambda) < 0.02){
+  if (lambda == 0.0){
       return log(y);
   } else {
     // return (pow(sign(y) % abs(y), lambda) - 1) / lambda;
@@ -46,9 +55,9 @@ vec BoxCox(vec y, double lambda){
 }
 // Inverse of Box-Cox transformation
 vec invBoxCox(vec y, double lambda){
-  if (abs(lambda) < 0.02){
+  if (lambda == 0.0){
       return exp(y);
-  } else if (lambda > 0.98) {
+  } else if (lambda == 1.0) {
       return y;
   } else {
     //vec aux = y * lambda + 1;
@@ -57,9 +66,9 @@ vec invBoxCox(vec y, double lambda){
   }
 }
 mat invBoxCoxMat(mat y, double lambda){
-  if (abs(lambda) < 0.02){
+  if (lambda == 0.0){
       return exp(y);
-  } else if (lambda > 0.98) {
+  } else if (lambda == 1.0) {
       return y;
   } else {
     //vec aux = y * lambda + 1;

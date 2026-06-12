@@ -218,17 +218,19 @@
     zoo::zoo(unclass(M), order.by = ord)
 }
 
-# .inv_box_cox: inverse Box-Cox transform.  Thresholds must match exactly
-# what the C++ engine uses in BoxCox / invBoxCox (src/boxcox.h:34-58):
-#   |lambda| < 0.02  -> exp(x)        (engine treats this as the log case)
-#   lambda  > 0.98   -> x             (engine returns y unchanged)
-#   otherwise        -> (lambda*x + 1)^(1/lambda)
+# .inv_box_cox: inverse Box-Cox transform.  Branches must match the
+# C++ engine in BoxCox / invBoxCox (src/boxcox.h) and bcnorm.h exactly:
+# both sides use exact-equality switches at the two singular points
+# (lambda == 1 -> identity; lambda == 0 -> exp), not thresholds.
+#   lambda == 0  -> exp(x)
+#   lambda == 1  -> x
+#   otherwise    -> (lambda*x + 1)^(1/lambda)
 # Preserves ts attributes on the input.
 .inv_box_cox <- function(x, lambda){
     if (is.null(x) || length(x) == 0) return(x)
-    if (lambda > 0.98) return(x)                       # identity, attrs intact
+    if (lambda == 1) return(x)                         # identity, attrs intact
     xv <- as.numeric(x)
-    if (abs(lambda) < 0.02){
+    if (lambda == 0){
         out <- exp(xv)                                 # log case; -Inf -> 0, +Inf -> +Inf
     } else {
         # Box-Cox support: Y on the original scale requires

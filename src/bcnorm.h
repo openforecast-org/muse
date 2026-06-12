@@ -10,15 +10,14 @@
 // where g(y; lambda) = BoxCox(y, lambda) is the Box-Cox transform and
 // phi is the standard normal density.
 //
-// Three branches, consistent with src/boxcox.h:
-//   lambda > 0.98  (identity)  g(y) = y,       g'(y) = 1     => log-Jacobian = 0
-//   |lambda| < 0.02 (log)      g(y) = log(y),  g'(y) = 1/y   => log-Jacobian = -log(y)
-//   otherwise       (general)  g(y) = (y^lambda-1)/lambda,
-//                               g'(y) = y^(lambda-1)          => log-Jacobian = (lambda-1)*log(y)
-//
-// The identity branch (lambda > 0.98) carries zero Jacobian because the
-// engine applies no transformation there, so the density is purely normal
-// on the original scale — consistent with greybox's lambda=1 special case.
+// Three branches, consistent with src/boxcox.h.  Exact-equality
+// switches (not thresholds): the general formula is well-defined for
+// every lambda except the two singular points, and using thresholds
+// introduces an artificial AIC discontinuity near them.
+//   lambda == 1    (identity)  g(y) = y,       g'(y) = 1     => log-Jacobian = 0
+//   lambda == 0    (log)       g(y) = log(y),  g'(y) = 1/y   => log-Jacobian = -log(y)
+//   otherwise      (general)   g(y) = (y^lambda-1)/lambda,
+//                              g'(y) = y^(lambda-1)          => log-Jacobian = (lambda-1)*log(y)
 //
 // Public API
 // ----------
@@ -43,8 +42,8 @@
 // src/boxcox.h so the density is consistent with the KF data transform.
 // -----------------------------------------------------------------------
 inline double bcnormBoxCox(double y, double lambda){
-    if (lambda > 0.98)              return y;
-    if (std::abs(lambda) < 0.02)    return std::log(y);
+    if (lambda == 1.0)    return y;
+    if (lambda == 0.0)    return std::log(y);
     return (std::pow(y, lambda) - 1.0) / lambda;
 }
 
@@ -54,8 +53,8 @@ inline double bcnormBoxCox(double y, double lambda){
 // -----------------------------------------------------------------------
 inline double bcnormLogJac(double y, double lambda){
     if (y <= 0.0 || !std::isfinite(y)) return 0.0;
-    if (lambda > 0.98)               return 0.0;              // identity: g'=1
-    if (std::abs(lambda) < 0.02)     return -std::log(y);     // log: g'=1/y
+    if (lambda == 1.0)               return 0.0;              // identity: g'=1
+    if (lambda == 0.0)               return -std::log(y);     // log: g'=1/y
     return (lambda - 1.0) * std::log(y);                      // general: g'=y^(lambda-1)
 }
 
