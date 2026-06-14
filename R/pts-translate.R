@@ -2,12 +2,16 @@
 # that the C++ engine speaks. Not exported.
 
 # pts_to_uc: turn a PTS spec ("0NT", "ZZZ", "0.5LD") into a UC string and
-# a Box-Cox lambda. armaOrders sets the irregular ARMA(p,q) on the UC side.
-pts_to_uc <- function(model, armaOrders = c(0, 0)){
+# a Box-Cox lambda.  armaOrders sets the irregular ARMA(p,q) on the UC
+# side when armaSelect = FALSE; when armaSelect = TRUE the irregular slot
+# becomes the engine's "?" sentinel so ident() searches over the candidate
+# list passed in irregularOptions (see .pts_arma_candidates).
+pts_to_uc <- function(model, armaOrders = c(0, 0), armaSelect = FALSE){
     out <- list(modelU = "", lambda = 1.0)
     n   <- nchar(model)
     # ARMA(p,q) irregular component
-    modelU <- paste0("/arma(", armaOrders[1], ",", armaOrders[2], ")")
+    modelU <- if (isTRUE(armaSelect)) "/?"
+              else paste0("/arma(", armaOrders[1], ",", armaOrders[2], ")")
     # Seasonal
     aux <- tolower(substr(model, n, n))
     if      (aux == "z") modelU <- paste0("/?",     modelU)
@@ -88,6 +92,19 @@ uc_to_pts <- function(modelUC, lambda){
            "AIC"  = "aic",
            "BIC"  = "bic",
            "BICc" = "bicc")
+}
+
+# .pts_arma_candidates: build the slash-delimited candidate list the
+# engine validates in PTSmodel.h:493-505 ("none" or "arma(p,q)" entries).
+#   select = FALSE -> single fixed entry "arma(ar,ma)"
+#   select = TRUE  -> "none" plus every "arma(i,j)" with 0 <= i <= ar
+#                     and 0 <= j <= ma; ident() picks the best by IC.
+.pts_arma_candidates <- function(ar, ma, select){
+    ar <- as.integer(ar); ma <- as.integer(ma)
+    if (!isTRUE(select))
+        return(sprintf("arma(%d,%d)", ar, ma))
+    grid <- expand.grid(p = 0L:ar, q = 0L:ma, KEEP.OUT.ATTRS = FALSE)
+    paste(c("none", sprintf("arma(%d,%d)", grid$p, grid$q)), collapse = "/")
 }
 
 # uc_to_arma: pull (p, q) out of "arma(p,q)" embedded in a UC string.

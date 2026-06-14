@@ -41,7 +41,8 @@
 # argument list the C++ UCompC entry point expects. Returns a named list
 # that we pass to UCompC and also stash on the pts object for forecast.pts.
 .pts_uc_inputs <- function(y, u, modelUC, h, lambda, criterion, lags,
-                           verbose, armaIdent){
+                           verbose, armaIdent,
+                           irregularOptions = "arma(0,0)"){
     # u: NULL -> sentinel matrix; vector -> row matrix; otherwise pass through
     if (is.null(u)){
         u_mat <- matrix(0, 1, 2)
@@ -73,7 +74,7 @@
         seas             = lags,
         trendOptions     = "rw/llt/srw/td",
         seasonalOptions  = "none/linear/equal",
-        irregularOptions = "arma(0,0)"
+        irregularOptions = irregularOptions
     )
 }
 
@@ -270,15 +271,18 @@
 # data shape that pts() uses for its returned object.  This replaces the
 # (now retired) PTSsetup + MSOEsetup + MSOE chain.
 .pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose,
-                     B = NULL){
-    modelU <- pts_to_uc(model)
+                     ar = 0L, ma = 0L, B = NULL){
+    modelU <- pts_to_uc(model, armaOrders = c(ar, ma),
+                        armaSelect = armaIdent)
     # When the series has no seasonal frequency, fix lambda = 1 (no Box-Cox).
     lambda <- modelU$lambda
     if (stats::frequency(y) == 1) lambda <- 1
 
     args <- .pts_uc_inputs(y = y, u = u, modelUC = modelU$modelU, h = h,
                            lambda = lambda, criterion = criterion, lags = lags,
-                           verbose = verbose, armaIdent = armaIdent)
+                           verbose = verbose, armaIdent = armaIdent,
+                           irregularOptions =
+                               .pts_arma_candidates(ar, ma, armaIdent))
     # Override the default sentinel (-9999.9) when the caller supplied an
     # explicit starting vector via `B` (adam-style internal hatch, passed
     # through pts(... , B = ...) and used by the loss-surface experiment
@@ -440,6 +444,9 @@
         seas             = object$lags,
         trendOptions     = "rw/llt/srw/td",
         seasonalOptions  = "none/linear/equal",
-        irregularOptions = "arma(0,0)"
+        irregularOptions = .pts_arma_candidates(
+            if (is.null(object$orders$ar)) 0L else object$orders$ar,
+            if (is.null(object$orders$ma)) 0L else object$orders$ma,
+            FALSE)
     )
 }

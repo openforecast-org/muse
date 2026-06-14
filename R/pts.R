@@ -138,6 +138,8 @@ pts <- function(data,
                     h = as.integer(h),
                     criterion = criterion,
                     armaIdent = ordersUC$select,
+                    ar        = ordersUC$ar,
+                    ma        = ordersUC$ma,
                     B         = B,
                     verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).

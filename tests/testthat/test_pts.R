@@ -230,3 +230,32 @@ test_that("orders argument replaces the old armaIdent flag", {
     expect_s3_class(m_sel, "pts")
     expect_true(m_sel$orders$select)
 })
+
+test_that("orders$ar fits an AR(p) on the irregular component", {
+    m <- pts(AirPassengers, model = "1LT", h = 0,
+             orders = list(ar = 1, ma = 0))
+    expect_match(m$modelUC, "arma\\(1,0\\)")
+    expect_true("AR(1)" %in% names(coef(m)))
+    expect_equal(m$orders$ar, 1L)
+    expect_equal(m$orders$ma, 0L)
+})
+
+test_that("orders$ar and orders$ma fit a full ARMA(p,q)", {
+    m <- pts(AirPassengers, model = "1LT", h = 0,
+             orders = list(ar = 1, ma = 1))
+    expect_match(m$modelUC, "arma\\(1,1\\)")
+    cf <- names(coef(m))
+    expect_true("AR(1)" %in% cf)
+    expect_true("MA(1)" %in% cf)
+})
+
+test_that("select=TRUE searches up to the (ar, ma) cap and reports the choice", {
+    m <- pts(AirPassengers, model = "1LT", h = 0,
+             orders = list(ar = 2, ma = 2, select = TRUE))
+    expect_true(m$orders$ar <= 2L)
+    expect_true(m$orders$ma <= 2L)
+    # The chosen irregular shows up either as arma(p,q) or as the
+    # "none" candidate when no ARMA structure improves the IC.
+    expect_match(m$modelUC,
+                 "(arma\\([0-9]+,[0-9]+\\)|/none)$")
+})
