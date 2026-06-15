@@ -31,11 +31,17 @@ encode Power / Trend / Seasonal:
 
 \item{lags}{seasonal period (default \code{frequency(data)}).}
 
-\item{orders}{list \code{list(ar, ma, select)} controlling the ARMA part of
-the irregular component.  \code{ar} / \code{ma} are non-negative integers
-(default 0); \code{select = TRUE} asks the engine to search ARMA orders
-(replaces the old \code{armaIdent} flag).  PTS has no differencing, so
-\code{orders$i} must be 0 if supplied.}
+\item{orders}{ARMA spec for the irregular component.  Two forms accepted:
+\itemize{
+  \item Full list \code{list(ar, ma, select)} — \code{ar} / \code{ma} are
+    non-negative integers (default 0); \code{select = TRUE} asks the engine
+    to search ARMA orders up to that cap (replaces the old \code{armaIdent}
+    flag).
+  \item Numeric shortcut \code{c(p, q)} — equivalent to
+    \code{list(ar = p, ma = q, select = FALSE)}; \code{c(p)} is treated as
+    \code{c(p, 0)}.
+}
+PTS has no differencing, so \code{orders$i} must be 0 if supplied.}
 
 \item{formula}{optional formula \code{response ~ x1 + x2 + ...}; only
 meaningful when \code{data} is a matrix or \code{data.frame}.  Used to

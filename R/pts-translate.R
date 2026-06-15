@@ -65,12 +65,28 @@ uc_to_pts <- function(modelUC, lambda){
             seasonalLetter)
 }
 
-# .pts_orders_to_uc: turn adam-style orders = list(ar, ma, select) into the
-# (ar, ma) tuple + select flag that the UC engine consumes.  PTS has no
-# differencing (engine has no `i` flow) and ARMA only sits on the irregular
-# component, so we validate i == 0 (when supplied) and reject negatives.
+# .pts_orders_to_uc: turn adam-style orders into the (ar, ma) tuple + select
+# flag that the UC engine consumes.  Accepts two shapes:
+#
+#   * list(ar, ma, select) — the canonical adam form;
+#   * c(p, q) numeric vector — shorthand for list(ar = p, ma = q, select = FALSE).
+#     A scalar c(p) is treated as c(p, 0).
+#
+# PTS has no differencing (engine has no `i` flow) and ARMA only sits on the
+# irregular component, so we validate i == 0 (when supplied) and reject
+# negatives.
 .pts_orders_to_uc <- function(orders){
     if (is.null(orders)) orders <- list()
+    # Vector shorthand: c(p) or c(p, q) → list(ar = p, ma = q, select = FALSE)
+    if (is.numeric(orders) && !is.list(orders)){
+        if (length(orders) < 1 || length(orders) > 2)
+            stop("Numeric `orders` shortcut must be c(p) or c(p, q); ",
+                 "use list(ar = ..., ma = ..., select = ...) for full control.",
+                 call. = FALSE)
+        orders <- list(ar = orders[1],
+                       ma = if (length(orders) == 2) orders[2] else 0L,
+                       select = FALSE)
+    }
     ar <- if (is.null(orders$ar)) 0L else as.integer(orders$ar[1])
     ma <- if (is.null(orders$ma)) 0L else as.integer(orders$ma[1])
     sel <- isTRUE(orders$select)

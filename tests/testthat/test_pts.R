@@ -257,6 +257,24 @@ test_that("orders$ar and orders$ma fit a full ARMA(p,q)", {
     expect_true("MA(1)" %in% cf)
 })
 
+test_that("orders accepts a c(p, q) numeric shortcut", {
+    # c(p, q) is shorthand for list(ar = p, ma = q, select = FALSE).
+    m_v <- pts(AirPassengers, model = "1LT", h = 0, orders = c(1, 1))
+    m_l <- pts(AirPassengers, model = "1LT", h = 0,
+               orders = list(ar = 1, ma = 1))
+    expect_equal(m_v$modelUC, m_l$modelUC)
+    expect_equal(as.numeric(coef(m_v)), as.numeric(coef(m_l)),
+                 tolerance = 1e-10)
+    # Scalar shorthand: c(p) → ma = 0.
+    m_s <- pts(AirPassengers, model = "1LT", h = 0, orders = c(1))
+    expect_match(m_s$modelUC, "arma\\(1,0\\)")
+    expect_equal(m_s$orders$ma, 0L)
+    # Bad shapes are rejected.
+    expect_error(pts(AirPassengers, model = "1LT", h = 0,
+                     orders = c(1, 1, 1)),
+                 "c\\(p\\) or c\\(p, q\\)")
+})
+
 test_that("select=TRUE searches up to the (ar, ma) cap and reports the choice", {
     m <- pts(AirPassengers, model = "1LT", h = 0,
              orders = list(ar = 2, ma = 2, select = TRUE))
