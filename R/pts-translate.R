@@ -298,6 +298,86 @@ uc_to_pts <- function(modelUC, lambda){
              baseline_ic = as.numeric(baseline_ic))
 }
 
+# .pts_select_arma_at_lag: one rung of the cascade.  Runs an ARMA grid at
+# a single lag (lag = 1 → non-seasonal; lag = s > 1 → seasonal-only
+# SARMA(0,0)(P,Q)_s) over (0..ar_max) × (0..ma_max) cells, picks the
+# winner by IC, and returns the orders + the winner's residuals so the
+# next rung can feed off them.
+.pts_select_arma_at_lag <- function(residuals, ar_max, ma_max, lag, ic,
+                                    verbose = FALSE, banner = NULL){
+    ar_max <- as.integer(ar_max); ma_max <- as.integer(ma_max)
+    lag    <- as.integer(lag)
+    r      <- as.numeric(residuals)
+    r      <- r[is.finite(r)]
+    n      <- length(r)
+    if (n < 4L)
+        return(list(ar = 0L, ma = 0L, residuals = residuals))
+    grid <- expand.grid(p = 0L:ar_max, q = 0L:ma_max,
+                        KEEP.OUT.ATTRS = FALSE)
+    bar <- paste(rep("-", 83), collapse = "")
+    if (isTRUE(verbose)){
+        cat(bar, "\n")
+        if (!is.null(banner)) cat(" ", banner, "\n")
+        else if (lag == 1L)   cat(" Non-seasonal ARMA grid:\n")
+        else                  cat(sprintf(" Seasonal ARMA grid at lag %d:\n",
+                                          lag))
+        cat(bar, "\n")
+        cat(sprintf(" %-22s %13s %13s %13s %13s\n",
+                    "   Model", "AIC", "AICc", "BIC", "BICc"))
+        cat(bar, "\n")
+    }
+    label_one <- function(p, q){
+        if (lag == 1L) sprintf("arma(%d,%d)", p, q)
+        else           sprintf("arma(0,0,%d,%d,%d)", p, q, lag)
+    }
+    fit_results <- vector("list", nrow(grid))
+    ics <- numeric(nrow(grid))
+    for (i in seq_len(nrow(grid))){
+        p <- grid$p[i]; q <- grid$q[i]
+        if (lag == 1L){
+            res <- UCompARMAC(r, as.integer(p), as.integer(q), 1L, "aic")
+        } else {
+            res <- UCompARMAC(r,
+                              as.integer(c(0L, p)),
+                              as.integer(c(0L, q)),
+                              as.integer(c(1L, lag)), "aic")
+        }
+        fit_results[[i]] <- res
+        ics[i] <- if (isTRUE(res$succeed) && is.finite(res[[ic]]))
+            res[[ic]] else Inf
+        if (isTRUE(verbose)){
+            if (isTRUE(res$succeed))
+                cat(sprintf(" %-22s %13.4f %13.4f %13.4f %13.4f\n",
+                            label_one(p, q),
+                            res$AIC, res$AICc, res$BIC, res$BICc))
+            else
+                cat(sprintf(" %-22s   %s\n", label_one(p, q), "failed"))
+        }
+    }
+    best <- which.min(ics)
+    if (!length(best) || !is.finite(ics[best])){
+        # All cells failed — pass through with no model.
+        if (isTRUE(verbose)){
+            cat(bar, "\n")
+            cat(" All cells failed — falling back to no ARMA at this lag.\n")
+            cat(bar, "\n\n")
+        }
+        return(list(ar = 0L, ma = 0L, residuals = residuals))
+    }
+    p_best <- grid$p[best]; q_best <- grid$q[best]
+    if (isTRUE(verbose)){
+        cat(bar, "\n")
+        cat(sprintf(" Picked by %s: %s\n", ic, label_one(p_best, q_best)))
+        cat(bar, "\n\n")
+    }
+    # Pass the winner's residuals to the next rung.  When the winner is
+    # the (0, 0) cell the engine returns the centred input as residuals
+    # so the cascade keeps working without a special case.
+    list(ar        = as.integer(p_best),
+         ma        = as.integer(q_best),
+         residuals = as.numeric(fit_results[[best]]$residuals))
+}
+
 # .pts_select_pts_arma: PTS + ARMA selection done as two sequential
 # passes — PTS structurals first, then ARMA on the winning structural's
 # residuals only.
@@ -397,25 +477,63 @@ uc_to_pts <- function(modelUC, lambda){
         cat(bar, "\n\n")
     }
 
-    # Pass 2 — ARMA grid on the winning structural's residuals only.  The
-    # arma(0,0) cell is always in the grid; if no ARMA cell beats it on
-    # IC, the final fit drops back to pure PTS automatically.
-    ar_local <- ar_max
+    # Pass 2 — cascaded ARMA, peeling off the highest-frequency seasonality
+    # first.  At each rung we run a small (P_i × Q_i) grid at one lag,
+    # pick the IC winner, and feed its residuals to the next rung.  The
+    # last rung is the non-seasonal ARMA grid.  Each rung's grid contains
+    # the (0, 0) cell so "no model at this lag" is a valid choice — the
+    # pure-PTS-no-ARMA outcome falls out automatically when every rung's
+    # winner is (0, 0).
+    ar_local <- as.integer(ar_max)
+    ma_local <- as.integer(ma_max)
+    arma_lags <- as.integer(arma_lags)
     if (best$trend == "D") ar_local[] <- 0L     # (damped, AR > 0) exclusion
-    arma_pick <- .pts_select_arma(best$struct_fit$residuals,
-                                  ar_max = ar_local,
-                                  ma_max = ma_max,
-                                  lags   = arma_lags,
-                                  ic     = ic,
-                                  verbose = verbose)
+    if (length(arma_lags) != length(ar_local) ||
+        length(arma_lags) != length(ma_local))
+        stop("Internal error: lags and ar_max / ma_max must match in length.",
+             call. = FALSE)
+    # Cascade order: highest-period seasonal lag first, ..., non-seasonal
+    # (lag 1) last.  Sort descending by lag value.
+    cascade_order <- order(arma_lags, decreasing = TRUE)
+    ar_chosen <- integer(length(arma_lags))
+    ma_chosen <- integer(length(arma_lags))
+    resid_chain <- as.numeric(best$struct_fit$residuals)
+    for (k in cascade_order){
+        pick <- .pts_select_arma_at_lag(resid_chain,
+                                        ar_max = ar_local[k],
+                                        ma_max = ma_local[k],
+                                        lag    = arma_lags[k],
+                                        ic     = ic,
+                                        verbose = verbose)
+        ar_chosen[k] <- pick$ar
+        ma_chosen[k] <- pick$ma
+        resid_chain  <- pick$residuals
+    }
+
+    # Drop trailing zero blocks so the engine receives a tight spec:
+    #   c(0, 0) at a seasonal lag means "no SARMA contribution there".
+    keep <- ar_chosen > 0L | ma_chosen > 0L | arma_lags == 1L
+    if (!any(keep)){
+        out_ar   <- 0L
+        out_ma   <- 0L
+        out_lags <- 1L
+    } else if (sum(keep) == 1L && arma_lags[keep] == 1L){
+        out_ar   <- ar_chosen[keep]
+        out_ma   <- ma_chosen[keep]
+        out_lags <- 1L
+    } else {
+        out_ar   <- ar_chosen[keep]
+        out_ma   <- ma_chosen[keep]
+        out_lags <- arma_lags[keep]
+    }
 
     list(model_spec = best$model_spec,
          lambda     = best$lambda,
          trend      = best$trend,
          seasonal   = best$seasonal,
-         ar         = arma_pick$ar,
-         ma         = arma_pick$ma,
-         lags       = arma_pick$lags)
+         ar         = as.integer(out_ar),
+         ma         = as.integer(out_ma),
+         lags       = as.integer(out_lags))
 }
 
 # uc_to_arma: pull the ARMA orders out of an "arma(...)" block embedded in a

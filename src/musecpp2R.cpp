@@ -183,15 +183,22 @@ SEXP UCompARMAC(SEXP ys, SEXP arOrders_, SEXP maOrders_, SEXP armaLags_,
                             std::max(1, n_finite - k - 1);
         double bicc = bic + (std::log((double)n_finite) * k * (k + 1)) /
                             std::max(1, n_finite - k - 1);
+        // For ARMA(0, 0) the "residuals" are the input series minus its
+        // mean — no model, no innovations.  Return the centred series so
+        // the cascade can pass through cleanly.
+        double mu = arma::mean(yClean);
+        NumericVector resids(yClean.n_elem);
+        for (uword t = 0; t < yClean.n_elem; ++t) resids[t] = yClean(t) - mu;
         return List::create(
-            Named("logLik")  = LL,
-            Named("AIC")     = aic,
-            Named("AICc")    = aicc,
-            Named("BIC")     = bic,
-            Named("BICc")    = bicc,
-            Named("coef")    = NumericVector(),
-            Named("sigma2")  = sigma2,
-            Named("succeed") = true);
+            Named("logLik")    = LL,
+            Named("AIC")       = aic,
+            Named("AICc")      = aicc,
+            Named("BIC")       = bic,
+            Named("BICc")      = bicc,
+            Named("coef")      = NumericVector(),
+            Named("sigma2")    = sigma2,
+            Named("residuals") = resids,
+            Named("succeed")   = true);
     }
 
     // ACF/PACF asymmetric init — per-lag layout matching armaMatrices()'s
@@ -294,13 +301,20 @@ SEXP UCompARMAC(SEXP ys, SEXP arOrders_, SEXP maOrders_, SEXP armaLags_,
     }
     double sigma2 = sysOut.innVariance;
 
+    // Innovations (= one-step-ahead residuals).  Pack as a NumericVector
+    // so the R-side cascade can feed them back into the next-lag ARMA fit
+    // without round-tripping through a refit.
+    NumericVector resids(sysOut.v.n_elem);
+    for (uword t = 0; t < sysOut.v.n_elem; ++t) resids[t] = sysOut.v(t);
+
     return List::create(
-        Named("logLik")  = LL,
-        Named("AIC")     = aic,
-        Named("AICc")    = aicc,
-        Named("BIC")     = bic,
-        Named("BICc")    = bicc,
-        Named("coef")    = coef,
-        Named("sigma2")  = sigma2,
-        Named("succeed") = std::isfinite(LL));
+        Named("logLik")    = LL,
+        Named("AIC")       = aic,
+        Named("AICc")      = aicc,
+        Named("BIC")       = bic,
+        Named("BICc")      = bicc,
+        Named("coef")      = coef,
+        Named("sigma2")    = sigma2,
+        Named("residuals") = resids,
+        Named("succeed")   = std::isfinite(LL));
 }
