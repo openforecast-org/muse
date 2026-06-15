@@ -7,8 +7,8 @@
 \usage{
 pts(data, model = "ZZZ", lags = stats::frequency(data), orders = list(ar
   = 0, ma = 0, select = FALSE), formula = NULL, regressors = c("use"),
-  ic = c("AICc", "AIC", "BIC", "BICc"), h = 0, holdout = FALSE,
-  verbose = FALSE, ...)
+  outliers = c("ignore", "use", "select"), level = 0.99, ic = c("AICc",
+  "AIC", "BIC", "BICc"), h = 0, holdout = FALSE, verbose = FALSE, ...)
 
 auto.pts(data, ...)
 }
@@ -66,6 +66,25 @@ pick the response column + xreg columns explicitly.}
 \item{regressors}{handling of xregs.  Currently only \code{"use"}
 (apply all supplied xregs as fixed-coefficient covariates).  Adam's
 \code{"select"} and \code{"adapt"} modes are not yet implemented.}
+
+\item{outliers}{what to do about outliers, mirroring \code{adam()}'s
+interface: \code{"ignore"} (default — fit ignores the possibility of
+outliers) or \code{"use"} (run the engine's outlier detector once
+after the structural fit, classify each event as AO / LS / SC, and
+refit with the detected events as fixed regressor dummies).  Adam's
+\code{"select"} mode (IC-pruning of detected dummies) is not yet
+supported — passing it errors with a clear message.  When
+\code{outliers = "use"} the detected events are returned on the
+fitted object as \code{$outliersDetected} (a data frame with
+\code{time} and \code{type} columns) and the corresponding dummy
+coefficients appear in \code{coef(m)} as \code{Beta(...)} entries.}
+
+\item{level}{confidence level driving the outlier z-score threshold
+(default 0.99).  Translated to a two-sided z via
+\code{qnorm((1 + level) / 2)}: 0.99 → ≈ 2.576, 0.95 → ≈ 1.960.  The
+z drives the AO threshold; LS / SC scale proportionally to preserve
+the engine's relative stiffness (LS ≈ 1.087×z, SC ≈ 1.304×z).
+Ignored when \code{outliers = "ignore"}.}
 
 \item{ic}{information criterion for automatic model selection; one of
 \code{"AICc"} (default), \code{"AIC"}, \code{"BIC"}, \code{"BICc"}.
