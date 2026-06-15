@@ -49,9 +49,15 @@ print.pts <- function(x, digits = 4, ...){
         cat("\nWith Box-Cox lambda = ", round(lam, digits), sep = "")
     }
 
-    # --- Harmonic periods (only when seasonal) ---
-    if (!is.null(x$lagsAll) && length(x$lagsAll) > 1){
-        perStr <- paste(formatC(x$lagsAll, format = "f", digits = 1), collapse = " / ")
+    # --- Harmonic periods (only meaningful for the trigonometric "T"
+    #     seasonal — the engine's `equal` shape with a harmonic
+    #     expansion).  Discrete "D" and none "N" don't have a
+    #     multi-period decomposition; skip the line there. ---
+    seasLetter <- sub(".*,([A-Z])\\)$", "\\1", as.character(x$model))
+    if (identical(seasLetter, "T") &&
+        !is.null(x$lagsAll) && length(x$lagsAll) > 1){
+        perStr <- paste(formatC(x$lagsAll, format = "f", digits = 1),
+                        collapse = " / ")
         cat("\nPeriods:", perStr)
     }
 
