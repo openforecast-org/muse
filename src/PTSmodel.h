@@ -3655,11 +3655,106 @@ void BSMclass::initParBsm(){
                 inputs.typePar(aux).fill(3);
                 orders(0) = inputs.ar;
                 orders(1) = inputs.ma; //nPar(3) - inputs.ar - 1;
-                // "Intelligent" initial conditions for ARMA
-                //harmonicRegress(SSmodel::inputs.y, SSmodel::inputs.u, periods, betaHR, stdBeta, e);
-                //linearARMA(e, orders, inputs.beta0ARMA, stdBeta);
-                // 0 initial conditions for ARMA
+                // ACF/PACF initial conditions for ARMA, laid out block-by-
+                // block matching how armaMatrices() reads its BFGS slice.
+                // Per-lag layout (arOrders / maOrders / armaLags already set
+                // by setModel()):
+                //   block 0 (lag 1)   : AR — PACF[1..p],     MA — ACF[1..q]
+                //   block i (lag L_i) : AR — PACF[L_i, 2L_i,...]
+                //                       MA — ACF [L_i, 2L_i,...]
+                // MA is sign-flipped — in muse's (1 + θ·B) convention the
+                // empirical ACF (positive for positive autocorrelation) maps
+                // to a negative θ via -ACF, breaking the (φ_i, θ_i)
+                // cancellation symmetry the optimiser would otherwise drift
+                // into.  A final tie-breaker forces AR_i ≠ -MA_i so the
+                // BFGS isn't dropped on the alternative cancellation
+                // manifold either.  Fallbacks 0.1 / -0.1 (adam's defaults
+                // at smooth/R/adam.R:1541) when the empirical estimate is
+                // non-finite, clamped to [-0.85, 0.85] to stay clear of
+                // the polyStationary boundary at ±0.98.
                 inputs.beta0ARMA.zeros(inputs.ar + inputs.ma);
+                {
+                    arma::ivec arOrders = inputs.arOrders;
+                    arma::ivec maOrders = inputs.maOrders;
+                    arma::ivec armaLags = inputs.armaLags;
+                    if (arOrders.n_elem == 0){
+                        arOrders = arma::ivec(1); arOrders(0) = inputs.ar;
+                        armaLags = arma::ivec(1); armaLags(0) = 1;
+                    }
+                    if (maOrders.n_elem == 0){
+                        maOrders = arma::ivec(1); maOrders(0) = inputs.ma;
+                        if (armaLags.n_elem == 0){
+                            armaLags = arma::ivec(1); armaLags(0) = 1;
+                        }
+                    }
+                    int maxLag = 0;
+                    for (uword b = 0; b < arOrders.n_elem; ++b)
+                        maxLag = std::max(maxLag, arOrders(b) * armaLags(b));
+                    for (uword b = 0; b < maOrders.n_elem; ++b)
+                        maxLag = std::max(maxLag, maOrders(b) * armaLags(b));
+                    arma::vec pacf = (maxLag > 0)
+                        ? sampleYWpacf(SSmodel::inputs.y, maxLag)
+                        : arma::vec();
+                    arma::vec acf  = (maxLag > 0)
+                        ? sampleACF (SSmodel::inputs.y, maxLag)
+                        : arma::vec();
+                    auto clamp = [](double v, double fallback){
+                        if (!std::isfinite(v)) return fallback;
+                        if (v >  0.85) return  0.85;
+                        if (v < -0.85) return -0.85;
+                        return v;
+                    };
+                    // AR blocks.
+                    uword pos = 0;
+                    for (uword b = 0; b < arOrders.n_elem; ++b){
+                        int pi = arOrders(b);
+                        int Li = armaLags(b);
+                        for (int j = 0; j < pi; ++j){
+                            int lagIdx = (j + 1) * Li;
+                            double seed = (lagIdx <= (int)pacf.n_elem)
+                                ? pacf(lagIdx - 1) : 0.1;
+                            inputs.beta0ARMA(pos + j) = clamp(seed, 0.1);
+                        }
+                        pos += pi;
+                    }
+                    uword maStart = pos;
+                    // MA blocks — empirical ACF directly (matches muse's
+                    // (1 + θ·B) convention: a negative-ACF series wants
+                    // negative θ).
+                    for (uword b = 0; b < maOrders.n_elem; ++b){
+                        int qi = maOrders(b);
+                        int Li = armaLags(b);
+                        for (int j = 0; j < qi; ++j){
+                            int lagIdx = (j + 1) * Li;
+                            double seed = (lagIdx <= (int)acf.n_elem)
+                                ? acf(lagIdx - 1) : -0.1;
+                            inputs.beta0ARMA(pos + j) = clamp(seed, -0.1);
+                        }
+                        pos += qi;
+                    }
+                    // Tie-breaker: PACF and ACF on the same series often
+                    // agree numerically — when AR_i ≈ MA_i the BFGS sits
+                    // on the (φ_i − θ_i) cancellation manifold and drifts
+                    // there.  When the leading pair of each block collides
+                    // by < 0.1, push MA down by 0.2 (or up if MA is near
+                    // the upper clamp) to land in an asymmetric starting
+                    // basin.
+                    uword apos = 0, mpos = maStart;
+                    for (uword b = 0; b < arOrders.n_elem
+                                       && b < maOrders.n_elem; ++b){
+                        if (arOrders(b) > 0 && maOrders(b) > 0){
+                            double a = inputs.beta0ARMA(apos);
+                            double m = inputs.beta0ARMA(mpos);
+                            if (std::abs(a - m) < 0.1){
+                                double offset = (m > 0.0) ? -0.2 : 0.2;
+                                inputs.beta0ARMA(mpos) =
+                                    clamp(m + offset, -0.1);
+                            }
+                        }
+                        apos += arOrders(b);
+                        mpos += maOrders(b);
+                    }
+                }
                 vec beta0aux, beta0aux1;
                 uvec ind;
                 vec armas = p0(ind);

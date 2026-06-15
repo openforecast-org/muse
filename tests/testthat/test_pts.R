@@ -340,6 +340,30 @@ test_that("select=TRUE with cap (0,0) reduces to no ARMA", {
     expect_match(m$modelUC, "arma\\(0,0\\)")
 })
 
+test_that("ARMA recovers a pure AR(1) signal (no cancellation manifold)", {
+    # Regression: with zero ARMA init the BFGS used to stay at the start
+    # (AR(1) ≈ -0.02) on a synthetic AR(1) signal because the gradient was
+    # symmetric in (AR, MA).  Asymmetric ACF/PACF init breaks the symmetry
+    # — muse should land within 0.1 of the true φ.
+    set.seed(1)
+    n <- 500
+    y <- numeric(n); e <- rnorm(n); y[1] <- e[1]
+    for (t in 2:n) y[t] <- 0.7 * y[t-1] + e[t]
+    m <- pts(y, model = "1NN", orders = list(ar = 1, ma = 0))
+    expect_lt(abs(as.numeric(coef(m)["AR(1)"]) - 0.7), 0.1)
+})
+
+test_that("ARMA(2,2) on log(AirPassengers) escapes the AR=MA manifold", {
+    # The previous zero init left φ_i = θ_i to bit precision; ACF/PACF
+    # init plus the tiebreaker should put AR(i) clearly distinct from
+    # MA(i) — by at least 0.05 in absolute value.
+    m <- pts(log(AirPassengers), model = "1LT",
+             orders = list(ar = 2, ma = 2))
+    b <- coef(m)
+    expect_gt(abs(as.numeric(b["AR(1)"]) - as.numeric(b["MA(1)"])), 0.05)
+    expect_gt(abs(as.numeric(b["AR(2)"]) - as.numeric(b["MA(2)"])), 0.05)
+})
+
 test_that("select=TRUE searches up to the (ar, ma) cap and reports the choice", {
     m <- pts(AirPassengers, model = "1LT", h = 0,
              orders = list(ar = 2, ma = 2, select = TRUE))

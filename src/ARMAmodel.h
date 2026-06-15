@@ -106,6 +106,63 @@ void pacfToAr(vec& PAR){
     PAR.rows(0, i) = (PAR.rows(0, i) - PAR(i + 1) * flipud(PAR.rows(0, i)));
   }
 }
+// sampleACF: empirical autocorrelations rho_1..rho_K of a vector y.
+// Uses the standard ratio of mean-centred autocovariances; the lag-0 term
+// is divided out so rho_0 = 1 and is omitted from the return vector.
+// Skips non-finite entries (the engine's BC-scale y may carry early NaNs
+// from filter warm-up).
+inline arma::vec sampleACF(const arma::vec& y, int maxLag){
+    using arma::uword;
+    arma::uvec ok = arma::find_finite(y);
+    if (ok.n_elem < 2 || maxLag < 1)
+        return arma::vec(std::max(maxLag, 0), arma::fill::zeros);
+    arma::vec yc = y(ok) - arma::mean(y(ok));
+    double gamma0 = arma::dot(yc, yc);
+    if (!std::isfinite(gamma0) || gamma0 <= 0.0)
+        return arma::vec(maxLag, arma::fill::zeros);
+    int K = std::min<int>(maxLag, (int)yc.n_elem - 1);
+    arma::vec rho(maxLag, arma::fill::zeros);
+    for (int k = 1; k <= K; ++k){
+        arma::vec a = yc.rows(k, yc.n_elem - 1);
+        arma::vec b = yc.rows(0, yc.n_elem - 1 - k);
+        rho(k - 1) = arma::dot(a, b) / gamma0;
+    }
+    return rho;
+}
+
+// sampleYWpacf: empirical partial autocorrelations phi_kk for k = 1..maxLag.
+// Durbin-Levinson recursion run on the sample ACF — gives the Yule-Walker
+// AR(k) lead coefficient at each level k.  This is what stats::pacf
+// computes via ar.yw, just inlined so the engine doesn't need to call out.
+inline arma::vec sampleYWpacf(const arma::vec& y, int maxLag){
+    using arma::uword;
+    if (maxLag < 1) return arma::vec();
+    arma::vec rho = sampleACF(y, maxLag);
+    arma::vec phi(maxLag, arma::fill::zeros);
+    if (rho.n_elem == 0 || arma::any(arma::abs(rho) >= 1.0))
+        return phi;
+    // Durbin-Levinson on standardised autocovariances (= autocorrelations).
+    arma::vec aPrev(maxLag, arma::fill::zeros);
+    double v = 1.0;          // variance of order-0 process (normalised)
+    for (int k = 0; k < maxLag; ++k){
+        double num = rho(k);
+        for (int j = 0; j < k; ++j) num -= aPrev(j) * rho(k - 1 - j);
+        if (!std::isfinite(v) || std::abs(v) < 1e-12){
+            phi.rows(k, maxLag - 1).zeros();
+            break;
+        }
+        double phi_kk = num / v;
+        phi(k) = phi_kk;
+        arma::vec aNew(maxLag, arma::fill::zeros);
+        for (int j = 0; j < k; ++j)
+            aNew(j) = aPrev(j) - phi_kk * aPrev(k - 1 - j);
+        aNew(k) = phi_kk;
+        aPrev = aNew;
+        v = v * (1.0 - phi_kk * phi_kk);
+    }
+    return phi;
+}
+
 // Returns the PACF from the parameters of an AR model
 void arToPacf(vec& PAR){
   // y(t) = PAR(1) * y(t - 1) + PAR(2) * y(t - 2) + ...

@@ -189,16 +189,20 @@ uc_to_pts <- function(modelUC, lambda){
 }
 
 # .pts_select_arma: residual-based ARMA grid search.  Fits a standalone
-# stats::arima() at every (p, q [, P, Q]) tuple inside the supplied caps and
-# returns the winner by IC.  Replaces the old engine-side ident() grid path,
-# which used to re-fit the full PTS+ARMA state-space model for every
-# candidate.  Here the structural model is fit once upstream, and we score
-# ARMA candidates against its BC-scale residuals — same IC criterion as the
-# user-facing `ic` argument, just measured on the residual fit.
+# ARMA at every (p, q [, P, Q]) tuple inside the supplied caps and returns
+# the winner by IC.  Replaces the old engine-side ident() grid path that
+# used to re-fit the full PTS+ARMA state-space model for every candidate.
 #
-# `residuals` is the BC-scale residual vector from a structural-only PTS fit.
-# `lags` is length 1 (non-seasonal) or 2 (seasonal with seasonal period in
-# lags[2]).  Returns list(ar, ma, lags) with the winning per-lag vectors.
+# Non-seasonal grids go through the engine's own ARMA fitter `UCompARMAC`
+# (so the IC ranking shares the same MLE σ̂² convention and PACF param
+# space as the final PTS+ARMA fit).  Seasonal grids fall back to
+# stats::arima — the standalone engine fitter only supports non-seasonal
+# at the moment; extending it is a follow-up.
+#
+# `residuals` is the BC-scale residual vector from a structural-only PTS
+# fit.  `lags` is length 1 (non-seasonal) or 2 (seasonal with seasonal
+# period in lags[2]).  Returns list(ar, ma, lags) with the winning per-lag
+# vectors.
 .pts_select_arma <- function(residuals, ar_max, ma_max, lags, ic = "AICc"){
     ar_max <- as.integer(ar_max); ma_max <- as.integer(ma_max)
     lags   <- as.integer(lags)
@@ -209,8 +213,8 @@ uc_to_pts <- function(modelUC, lambda){
     if (n < 4L)
         stop("Not enough finite residuals (", n, ") to fit ARMA candidates.",
              call. = FALSE)
-    # Cap grid — same shape .pts_arma_candidates() used to emit.
-    grid <- if (length(lags) == 1L)
+    seasonal <- (length(lags) == 2L)
+    grid <- if (!seasonal)
         expand.grid(p = 0L:ar_max[1L], q = 0L:ma_max[1L],
                     P = 0L, Q = 0L,
                     KEEP.OUT.ATTRS = FALSE)
@@ -218,43 +222,50 @@ uc_to_pts <- function(modelUC, lambda){
         expand.grid(p = 0L:ar_max[1L], q = 0L:ma_max[1L],
                     P = 0L:ar_max[2L], Q = 0L:ma_max[2L],
                     KEEP.OUT.ATTRS = FALSE)
-    # IC scorer.  AIC and BIC come from stats::AIC/BIC directly; AICc and
-    # BICc add the standard small-sample corrections.
-    score <- function(fit){
-        if (is.null(fit) || inherits(fit, "try-error"))
-            return(Inf)
-        ll <- as.numeric(stats::logLik(fit))
-        if (!is.finite(ll)) return(Inf)
-        k  <- length(fit$coef) + 1L          # + sigma^2
-        switch(ic,
-               "AIC"  = -2 * ll + 2 * k,
-               "BIC"  = -2 * ll + log(n) * k,
-               "AICc" = -2 * ll + 2 * k + (2 * k * (k + 1)) / (n - k - 1),
-               "BICc" = -2 * ll + log(n) * k +
-                        (log(n) * k * (k + 1)) / (n - k - 1))
+    icKey <- ic   # one of {AIC, AICc, BIC, BICc}
+    # Non-seasonal path: engine's own ARMA fitter — IC values come straight
+    # off `UCompARMAC` (see src/musecpp2R.cpp).
+    if (!seasonal){
+        ics <- vapply(seq_len(nrow(grid)), function(i){
+            res <- UCompARMAC(r, grid$p[i], grid$q[i], "aic")
+            if (!isTRUE(res$succeed)) return(Inf)
+            val <- res[[icKey]]
+            if (is.null(val) || !is.finite(val)) Inf else val
+        }, numeric(1))
+    } else {
+        # Seasonal path keeps stats::arima for now.
+        fit_one <- function(p, q, P, Q){
+            seasArg <- if (P + Q > 0L)
+                list(order = c(P, 0L, Q), period = lags[2L])
+            else list(order = c(0L, 0L, 0L), period = 1L)
+            tryCatch(stats::arima(r, order = c(p, 0L, q),
+                                  seasonal = seasArg,
+                                  include.mean = FALSE,
+                                  method = "CSS-ML"),
+                     error = function(e) NULL,
+                     warning = function(w) NULL)
+        }
+        score <- function(fit){
+            if (is.null(fit) || inherits(fit, "try-error")) return(Inf)
+            ll <- as.numeric(stats::logLik(fit))
+            if (!is.finite(ll)) return(Inf)
+            k <- length(fit$coef) + 1L
+            switch(icKey,
+                   "AIC"  = -2*ll + 2*k,
+                   "BIC"  = -2*ll + log(n)*k,
+                   "AICc" = -2*ll + 2*k + (2*k*(k+1))/(n-k-1),
+                   "BICc" = -2*ll + log(n)*k + (log(n)*k*(k+1))/(n-k-1))
+        }
+        ics <- mapply(function(p, q, P, Q) score(fit_one(p, q, P, Q)),
+                      grid$p, grid$q, grid$P, grid$Q)
     }
-    fit_one <- function(p, q, P, Q){
-        seasArg <- if (P + Q > 0L && length(lags) == 2L)
-            list(order = c(P, 0L, Q), period = lags[2L])
-        else list(order = c(0L, 0L, 0L), period = 1L)
-        tryCatch(stats::arima(r, order = c(p, 0L, q),
-                              seasonal = seasArg,
-                              include.mean = FALSE,
-                              method = "CSS-ML"),
-                 error   = function(e) NULL,
-                 warning = function(w) NULL)
-    }
-    ics <- mapply(function(p, q, P, Q) score(fit_one(p, q, P, Q)),
-                  grid$p, grid$q, grid$P, grid$Q)
     best <- which.min(ics)
     if (!length(best) || !is.finite(ics[best])){
-        # Everything failed — degrade to the no-ARMA cell so the caller
-        # still gets a sensible final model.
         best_row <- list(p = 0L, q = 0L, P = 0L, Q = 0L)
     } else {
         best_row <- as.list(grid[best, ])
     }
-    if (length(lags) == 1L)
+    if (!seasonal)
         list(ar = as.integer(best_row$p), ma = as.integer(best_row$q),
              lags = 1L)
     else

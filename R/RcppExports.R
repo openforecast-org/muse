@@ -5,3 +5,7 @@ UCompC <- function(commands, ys, us, models, hs, lambdas, outliers, tTests, crit
     .Call('_muse_UCompC', PACKAGE = 'muse', commands, ys, us, models, hs, lambdas, outliers, tTests, criterions, periodss, rhoss, verboses, stepwises, p0s, armas, TVPs, seass, trendOptionss, seasonalOptionss, irregularOptionss, nsims, seeds)
 }
 
+UCompARMAC <- function(ys, ar_, ma_, criterion_) {
+    .Call('_muse_UCompARMAC', PACKAGE = 'muse', ys, ar_, ma_, criterion_)
+}
+
