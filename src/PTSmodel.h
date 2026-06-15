@@ -2494,6 +2494,20 @@ void BSMclass::components(){
                 inputs.comp.shed_rows(find(remove == 1));
                 inputs.compV.shed_rows(find(remove == 1));
         }
+        // Components that are (numerically) constant throughout the sample
+        // -- e.g. the slope of a global/deterministic trend -- are forced
+        // to be strictly constant, taking the last estimated value.
+        for (uword i = 0; i < inputs.comp.n_rows; i++){
+                rowvec r = inputs.comp.row(i);
+                uvec fin = find_finite(r);
+                if (fin.n_elem > 1 && r(fin).max() - r(fin).min() < 1e-10){
+                        inputs.comp.row(i).fill(r(fin(fin.n_elem - 1)));
+                        rowvec rv = inputs.compV.row(i);
+                        uvec finV = find_finite(rv);
+                        if (finV.n_elem > 0)
+                                inputs.compV.row(i).fill(rv(finV(finV.n_elem - 1)));
+                }
+        }
         /*
          // Correcting for lambda
          mat aux = sqrt(compV);
