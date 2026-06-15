@@ -1143,24 +1143,13 @@ void BSMclass::estim(vec p, bool VERBOSE){
                               objFunValue, grad, iHess, SSmodel::inputs.verbose);
         uvec indNan = find_nonfinite(SSmodel::inputs.y);
         int nNan2pi = SSmodel::inputs.y.n_elem - indNan.n_elem;
-        int nTrue;
+        // Track non-stationary state count (used downstream by validate() to
+        // size the Hessian penalty, NOT by the LL formula — LL now uses
+        // nNan2pi as the MLE sample size).
         if (SSmodel::inputs.augmented){
-                nTrue = nNan2pi - SSmodel::inputs.u.n_rows - SSmodel::inputs.system.T.n_rows;
                 uvec stat;
                 isStationary(SSmodel::inputs.system.T, stat);
                 SSmodel::inputs.nonStationaryTerms = SSmodel::inputs.system.T.n_rows - stat.n_elem;
-                // Correction for DT trend models
-                // if (inputs.model[0] == 'd' && stat.n_elem > 0 && stat[0] == 1){
-                //   SSmodel::inputs.nonStationaryTerms++;
-                // }
-        } else {
-                if (SSmodel::inputs.d_t < (int)(SSmodel::inputs.system.T.n_rows + 10)){
-                        // Colapsed KF
-                        nTrue = nNan2pi - 1 - SSmodel::inputs.d_t;
-                } else {
-                        // KF did not colapsed
-                        nTrue = nNan2pi - 1 - SSmodel::inputs.system.T.n_rows;
-                }
         }
         bool lambdaWasEstimated = SSmodel::inputs.estimateLambda;
         // Capture final lambda.  After quasiNewtonBSM, the converged value
@@ -1183,22 +1172,19 @@ void BSMclass::estim(vec p, bool VERBOSE){
         // ----------------------------------------------------------------
         // Single source of truth for LLIK and IC formulas.
         //
-        // computeLLIK: turn the optimiser's concentrated objective into
-        //   the proper log-likelihood on the original response scale.
-        //   * jacFolded=true  ==> llik() already folded the BoxCox Jacobian
-        //                         into objFunValue (joint-lambda BFGS path).
-        //   * jacFolded=false ==> add logJac post-hoc (fixed-lambda path).
+        // computeLLIK: convert the BFGS objective into the BCnorm marginal
+        //   log-likelihood on the original response scale.  llik()/llikAug()
+        //   now always fold the BoxCox Jacobian into objFunValue and use
+        //   the MLE σ̂² = SSR/n_finite (not the REML n-k divisor), so the
+        //   LL is directly available with one consistent formula.
         //
         // computeCriteria: write LLIK / AIC / BIC / AICc / BICc into the
         //   shared 5-vector with k matching R's nparam(m) -- p.n_elem
         //   (concentrated variance counts, alm/adam convention) + outlier
         //   dummies + lambda when free.
-        auto computeLLIK = [&](double obj, bool jacFolded) -> double {
+        auto computeLLIK = [&](double obj) -> double {
                 if (!std::isfinite(obj)) return datum::nan;
-                const double LLIK_BC = -0.5 * (log(2*datum::pi) * nNan2pi
-                                               + nTrue * obj);
-                return jacFolded ? LLIK_BC
-                                 : LLIK_BC + SSmodel::inputs.logJac;
+                return -0.5 * (log(2*datum::pi) * nNan2pi + nNan2pi * obj);
         };
         auto computeCriteria = [&](double llik, int k) -> vec {
                 vec ic(5);
@@ -1218,7 +1204,7 @@ void BSMclass::estim(vec p, bool VERBOSE){
                                               + (inputs.lambdaEstimated ? 1 : 0));
         };
 
-        LLIK = computeLLIK(objFunValue, lambdaWasEstimated);
+        LLIK = computeLLIK(objFunValue);
         // ----------------------------------------------------------------
         // Anchor snap: run a second BFGS at the nearest anchor in
         // {-2,-1,-0.5,0,0.5,1,2} and compare IC.  The snap saves one DoF
@@ -1260,7 +1246,7 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 quasiNewtonBSM(SSmodel::inputs.llikFUN, gradLlik, p_snap,
                                &(SSmodel::inputs), snapObjFun, snapGrad, snapHess, false);
 
-                const double LLIK_snap = computeLLIK(snapObjFun, false);
+                const double LLIK_snap = computeLLIK(snapObjFun);
 
                 // IC comparison: opt path keeps lambda (+1 DoF); snap path drops it.
                 inputs.lambdaEstimated = true;

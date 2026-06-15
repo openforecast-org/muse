@@ -496,7 +496,8 @@ by the model type; only the variance entries of Q (and H) are free parameters.
   **ratio**: σ²_i / σ²_concentrated.  After optimisation, `parameterValues()`
   (`PTSmodel.h`) multiplies all variance entries by `innVariance` — the analytical
   MLE of the concentrated variance computed from the Kalman filter residuals as
-  `Σ(v²_t / F_t) / n` — converting ratios to **absolute variances** on the BC scale.
+  `Σ(v²_t / F_t) / n_finite` (MLE divisor, NOT REML `n − k`) — converting ratios
+  to **absolute variances** on the BC scale.
   This is what ends up in `object$B`.  Consequence: the proportions printed by
   `print.pts` are proportions of absolute variances, not of ratios.  The concentrated
   parameter itself appears in `p` / `object$B` with its recovered absolute value, but
@@ -521,6 +522,20 @@ by the model type; only the variance entries of Q (and H) are free parameters.
   optimised λ does not snap to a fixed anchor, `lambdaEstimated = TRUE` and
   `nParam = length(B) + 1`.  When it snaps, `lambdaEstimated = FALSE` and `nParam
   = length(B)`.  The R side never re-counts; it just reads `lambdaEstimated`.
+
+- **MLE σ̂² and BCnorm consistency.**  Both `llik()` and `llikAug()` in
+  `src/SSpace.h` use the **MLE divisor** `n_finite` (= total finite observations)
+  for the residual variance estimator — not the REML / `n − k` divisor.  The
+  Box-Cox Jacobian (`Σ_t bcnormLogJac(y_raw_t, λ)`) is also summed over the
+  same `n_finite` observations and folded directly into `objFunValue` at the end
+  of each call, so the BFGS objective always corresponds to the **full BCnorm
+  marginal log-likelihood** on the original scale.  In `BSMclass::estim()`
+  (`PTSmodel.h`) the LL is recovered with a single formula:
+    `LL = -0.5 · (n_finite · log(2π) + n_finite · objFunValue)`
+  Closed-form equivalent of `Σ_t bcnormLogDensityScalar(y_raw_t, μ_t,
+  sqrt(σ̂²·F_t), λ)`.  Earlier versions used `n − k` for σ̂² together with the
+  full-n Jacobian, which biased the Box-Cox MLE toward λ = 1 by a constant ≈
+  `(n − k) · (1 − λ) · mean(log y)` whenever the state dimension was large.
 
 - **Harmonic periods.** `lagsAll = lags / (1 : floor(lags/2))` generates all
   candidate harmonic periods.  For `lags = 12` this gives 12, 6, 4, 3, 2.4, 2.

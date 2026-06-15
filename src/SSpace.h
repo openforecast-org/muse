@@ -656,28 +656,23 @@ double llik(vec& p, void* opt_data){
     data->Kinf = auxKinf;
   }
   // Computing llik value
-  int nTrue;
-  if (data->d_t < (int)(data->system.T.n_rows + 10)){
-    // Colapsed KF
-    nTrue = n - nMiss - 1 - data->d_t;
-  } else {
-    // KF did not colapsed
-    nTrue = n - nMiss - 1 - data->system.T.n_rows;
-  }
-  if (data->cLlik){         // Concentrated Likelihood
-      data->innVariance = v2F(0, 0) / nTrue;
-      llikValue = log(data->innVariance) + 1 + (llikValue + logF) / nTrue;
-  } else {                  // Crude Likelihood
-      llikValue = (llikValue + v2F + logF) / nTrue;
-  }
-  data->objFunValue = llikValue(0, 0);
-  // BCnorm Jacobian: Σ log|g'(y_raw_t)| accumulated per observation.
-  // Kept SEPARATE from objFunValue so the BFGS objective is unchanged
-  // (the Jacobian is constant w.r.t. structural parameters for fixed lambda).
-  // Uses bcnormLogJac() from bcnorm.h, which applies the same three-branch
-  // thresholds as BoxCox() — in particular, no Jacobian for lambda > 0.98
-  // (identity branch) where the engine applies no actual transform.
-  // Combined with LLIK_BC in BSMclass::estim() to form the BCnorm LLIK.
+  // MLE form: σ̂² = SSR / n_finite (not REML n-k).  Both the σ̂² estimator
+  // and the BoxCox Jacobian are summed over the SAME n_finite observations,
+  // so the BCnorm marginal log-likelihood is internally consistent and the
+  // BoxCox MLE in lambda lands at the right value.
+  //
+  // Resulting objFunValue is set so that
+  //   LL_BCnorm = -0.5 · (n_finite · log(2π) + n_finite · objFunValue)
+  // which expands to
+  //   LL_BCnorm = -n/2 · log(2π σ̂²) - n/2 - 1/2 · Σ log F + logJac
+  // i.e. the closed-form equivalent of Σ_t bcnormLogDensityScalar(y_t, μ_t,
+  // sqrt(σ̂²·F_t), λ), with the diffuse-phase log|Finf| terms accumulated
+  // inside llikValue acting as the log-determinant correction for the
+  // implicit initial-state integration.
+  int nFinite = (int)n - (int)nMiss;
+  if (nFinite < 1) nFinite = 1;  // guard against pathological all-NA
+  // BoxCox Jacobian — Σ log|g'(y_raw_t)| over the same n_finite observations
+  // as the Gaussian density.  Identity at λ=1 (Jacobian=0) and log at λ=0.
   {
       double logJac = 0.0;
       if (data->y_raw.n_elem == n){
@@ -688,15 +683,15 @@ double llik(vec& p, void* opt_data){
       }
       data->logJac = logJac;
   }
-  // Joint-lambda: fold the Jacobian directly into the BFGS objective so the
-  // optimiser maximises the BCnorm log-likelihood.  The adjustment is
-  //   objFunValue_adj = objFunValue - 2*logJac/nTrue
-  // which makes  -0.5*(n*log2pi + nTrue*objFunValue_adj) == LLIK_orig.
-  // For fixed lambda the Jacobian is constant and folding is unnecessary
-  // (BSMclass::estim adds it post-hoc), so we skip this branch.
-  if (data->estimateLambda && nTrue > 0) {
-      data->objFunValue -= 2.0 * data->logJac / nTrue;
+  if (data->cLlik){         // Concentrated Likelihood (MLE)
+      data->innVariance = v2F(0, 0) / nFinite;
+      llikValue = log(data->innVariance) + 1
+                  + (llikValue + logF) / nFinite
+                  - 2.0 * data->logJac / nFinite;
+  } else {                  // Crude Likelihood (forecast-only path)
+      llikValue = (llikValue + v2F + logF - 2.0 * data->logJac) / nFinite;
   }
+  data->objFunValue = llikValue(0, 0);
   // System colapsed
   if ((uword)data->d_t < n){
       data->v.rows(0, data->d_t).fill(datum::nan);
@@ -814,11 +809,31 @@ double llikAug(vec& p, void* opt_data){
     data->aEnd = at - AtiSn * sn;
     data->PEnd = Pt + AtiSn * At.t();
     beta = iSn * sn;
-    // Computing llik value
-    int nTrue = n - nMiss - k;
+    // MLE form: σ̂² = (SSR − sn'·iSn·sn) / n_finite, integrating β with flat
+    // prior.  Identical normalisation as llik() so both paths produce LLs on
+    // the same scale and the BoxCox MLE is consistent across model types.
+    //
+    //   LL_BCnorm = -n/2·log(2π σ̂²) - n/2 - 1/2·log det Sn - 1/2·Σ log F
+    //               + logJac
+    //
+    // Packaged into objFunValue so that
+    //   LL_BCnorm = -0.5·(n_finite·log(2π) + n_finite·objFunValue).
+    int nFinite = (int)n - (int)nMiss;
+    if (nFinite < 1) nFinite = 1;
+    // BoxCox Jacobian over the same n_finite observations.
+    double logJac = 0.0;
+    if (data->y_raw.n_elem == n){
+        for (uword t = 0; t < n; t++){
+            if (!std::isfinite(data->y(t))) continue;
+            logJac += bcnormLogJac(data->y_raw(t), data->lambda);
+        }
+    }
+    data->logJac = logJac;
     snBeta = sn.t() * beta;
-    data->innVariance = (v2F(0, 0) - snBeta(0)) / nTrue;
-    llikValue = log(data->innVariance) + 1 + (log(det(Sn)) + logF) / nTrue;
+    data->innVariance = (v2F(0, 0) - snBeta(0)) / nFinite;
+    llikValue = log(data->innVariance) + 1
+                + (log(det(Sn)) + logF) / nFinite
+                - 2.0 * logJac / nFinite;
     data->objFunValue = llikValue(0, 0);
     data->betaAug = beta;
     data->betaAugVarMat = data->innVariance * iSn;
@@ -1271,17 +1286,12 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     }
   }
   // Post-processing outputs
-  int nTrue;
-  if (data.d_t < (int)(data.system.T.n_rows + 10)){
-    // Colapsed KF
-    nTrue = n - nMiss - 1 - data.d_t;
-  } else {
-    // KF did not colapse
-    nTrue = n - nMiss - 1 - data.system.T.n_rows;
-  }
+  // MLE σ̂² = SSR / n_finite, matching llik() / llikAug().
+  int nFinite = (int)n - (int)nMiss;
+  if (nFinite < 1) nFinite = 1;
   double innVar = data.innVariance;
-  if (data.cLlik){         // Concentrated Likelihood
-    innVar = v2F(0, 0) / nTrue;
+  if (data.cLlik){         // Concentrated Likelihood (MLE)
+    innVar = v2F(0, 0) / nFinite;
   }
   data.y = data.y.rows(0, ny - 1);
   data_F *= innVar;
