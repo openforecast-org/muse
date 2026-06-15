@@ -49,7 +49,16 @@ struct BSMmodel{
         trendOptions = "none/rw/llt/td",          // trend options to select amongst (none/rw/llt/td/dt/srw)
         seasonalOptions = "none/linear/equal", // seasonal options to select amongst (none/equal/different/linear)
         irregularOptions = "arma(0,0)";      // irregular components (none/arma(p,q))
-        int ar = 0, ma = 0;         // AR and MA orders of irregular component
+        int ar = 0, ma = 0;         // number of FREE AR / MA coefficients
+                                    // (= sum of arOrders / maOrders entries)
+        int arDeg = 0, maDeg = 0;   // EXPANDED polynomial degree
+                                    // (= sum_i arOrders[i] * armaLags[i] ...)
+                                    // — sizes the ARMA state block.
+        ivec arOrders,              // per-lag AR block orders, e.g. [p, P]
+             maOrders,              // per-lag MA block orders, e.g. [q, Q]
+             armaLags;              // matching lags, e.g. [1, s].  Length 1
+                                    // for non-seasonal arma(p,q); length 2
+                                    // for SARMA(p,q)(P,Q)_s.
         double seas,                // seasonal period
         lambda = 1.0;              // Box-Cox transformation parameter
         vec rhos,                   // vector indicating whether period is cyclical or seasonal
@@ -2417,8 +2426,19 @@ void BSMclass::components(){
                 uvec aux = find_finite(v);
                 //inputs.comp.submat(3, 0, 3, SSmodel::inputs.y.n_elem - 1).replace(datum::nan, 0);
                 if (sum(abs(aux)) > 1e-7){
-                        inputs.compNames += "ARMA(" + to_string(inputs.ar) +
-                                "," + to_string(inputs.ma) + ")/";
+                        if (inputs.armaLags.n_elem == 2 &&
+                            (inputs.arOrders(1) > 0 || inputs.maOrders(1) > 0)){
+                                inputs.compNames += "SARMA(" +
+                                        to_string(inputs.arOrders(0)) + "," +
+                                        to_string(inputs.maOrders(0)) + ")(" +
+                                        to_string(inputs.arOrders(1)) + "," +
+                                        to_string(inputs.maOrders(1)) + ")_" +
+                                        to_string(inputs.armaLags(1)) + "/";
+                        } else {
+                                inputs.compNames += "ARMA(" +
+                                        to_string(inputs.ar) + "," +
+                                        to_string(inputs.ma) + ")/";
+                        }
                 } else
                         remove(3) = 1;
         }
@@ -2578,22 +2598,53 @@ vec BSMclass::parameterValues(vec p){
                 // Variances
                 // parValues(arma::span(pos, nparCum(1) - 1)) = exp(2 * pCycle(arma::span(nCycles + nn, 2 * nCycles + nn - 1)));
         }
-        // ARMA
-        if (inputs.ar >0 || inputs.ma > 0) {  // ARMA model
+        // ARMA — apply polyStationary per-lag block so seasonal coefficients
+        // round-trip correctly (the convolution lives in armaMatrices and
+        // must not be re-applied here; what user code sees are the raw per-
+        // block stationary coefficients).
+        if (inputs.ar > 0 || inputs.ma > 0) {  // ARMA model
                 uvec ind;
                 vec polyAux;
                 isVar(arma::span(nparCum(2) + 1, isVar.n_elem - 1)).fill(0);
+                uword offset = nparCum(2) + 1;
                 if (inputs.ar > 0){
-                        ind = regspace<uvec>(nparCum(2) + 1, nparCum(2) + inputs.ar);
-                        polyAux = p(ind);
-                        polyStationary(polyAux);
-                        parValues(ind) = polyAux; //(arma::span(1, polyAux.n_elem - 1));
+                        if (inputs.arOrders.n_elem > 0){
+                                uword pos = offset;
+                                for (uword b = 0; b < inputs.arOrders.n_elem; ++b){
+                                        int pi = inputs.arOrders(b);
+                                        if (pi == 0) continue;
+                                        ind = regspace<uvec>(pos, pos + pi - 1);
+                                        polyAux = p(ind);
+                                        polyStationary(polyAux);
+                                        parValues(ind) = polyAux;
+                                        pos += pi;
+                                }
+                        } else {
+                                ind = regspace<uvec>(offset, offset + inputs.ar - 1);
+                                polyAux = p(ind);
+                                polyStationary(polyAux);
+                                parValues(ind) = polyAux;
+                        }
                 }
                 if (inputs.ma > 0){
-                        ind = regspace<uvec>(nparCum(2) + inputs.ar + 1, nparCum(2) + inputs.ar + inputs.ma);
-                        polyAux = p(ind);
-                        polyStationary(polyAux);
-                        parValues(ind) = polyAux; //(arma::span(1, polyAux.n_elem - 1));
+                        uword startMA = offset + inputs.ar;
+                        if (inputs.maOrders.n_elem > 0){
+                                uword pos = startMA;
+                                for (uword b = 0; b < inputs.maOrders.n_elem; ++b){
+                                        int qi = inputs.maOrders(b);
+                                        if (qi == 0) continue;
+                                        ind = regspace<uvec>(pos, pos + qi - 1);
+                                        polyAux = p(ind);
+                                        polyStationary(polyAux);
+                                        parValues(ind) = polyAux;
+                                        pos += qi;
+                                }
+                        } else {
+                                ind = regspace<uvec>(startMA, startMA + inputs.ma - 1);
+                                polyAux = p(ind);
+                                polyStationary(polyAux);
+                                parValues(ind) = polyAux;
+                        }
                 }
         }
         // Inputs
@@ -2666,15 +2717,41 @@ void BSMclass::parLabels(){
         // Irregular
         if (inputs.irregular[0] != 'n')
                 inputs.parNames.push_back("Irregular");
-        if (inputs.irregular != "arma(0,0)" && inputs.irregular[0] != 'n'){
+        if ((inputs.ar > 0 || inputs.ma > 0) && inputs.irregular[0] != 'n'){
                 char arNames[20];
-                for (int i = 0; i < inputs.ar; i++){
-                        snprintf(arNames, 20, "AR(%d)", i + 1);
-                        inputs.parNames.push_back(arNames);
+                // Emit per-lag AR labels.  Block 0 (lag = 1) is "AR(i)";
+                // block 1 (lag = s) is "SAR(i)" — the R-side methods in
+                // R/methods.R and R/pts-summary.R already pattern-match on
+                // "^AR(" / "^MA(" so the leading "S" stays compatible.
+                if (inputs.arOrders.n_elem > 0){
+                        for (arma::uword b = 0; b < inputs.arOrders.n_elem; ++b){
+                                const char* prefix = (b == 0) ? "AR" : "SAR";
+                                for (int i = 0; i < inputs.arOrders(b); ++i){
+                                        snprintf(arNames, 20, "%s(%d)",
+                                                 prefix, i + 1);
+                                        inputs.parNames.push_back(arNames);
+                                }
+                        }
+                } else {
+                        for (int i = 0; i < inputs.ar; i++){
+                                snprintf(arNames, 20, "AR(%d)", i + 1);
+                                inputs.parNames.push_back(arNames);
+                        }
                 }
-                for (int i = 0; i < inputs.ma; i++){
-                        snprintf(arNames, 20, "MA(%d)", i + 1);
-                        inputs.parNames.push_back(arNames);
+                if (inputs.maOrders.n_elem > 0){
+                        for (arma::uword b = 0; b < inputs.maOrders.n_elem; ++b){
+                                const char* prefix = (b == 0) ? "MA" : "SMA";
+                                for (int i = 0; i < inputs.maOrders(b); ++i){
+                                        snprintf(arNames, 20, "%s(%d)",
+                                                 prefix, i + 1);
+                                        inputs.parNames.push_back(arNames);
+                                }
+                        }
+                } else {
+                        for (int i = 0; i < inputs.ma; i++){
+                                snprintf(arNames, 20, "MA(%d)", i + 1);
+                                inputs.parNames.push_back(arNames);
+                        }
                 }
         }
         // Inputs
@@ -3302,17 +3379,59 @@ void BSMclass::countStates(vec periods, string trend, string cycle, string seaso
         // Irregular
         inputs.ar = 0;
         inputs.ma = 0;
-        if (irregular[0] == 'a'){      // ARMA
+        inputs.arDeg = 0;
+        inputs.maDeg = 0;
+        inputs.arOrders = ivec();
+        inputs.maOrders = ivec();
+        inputs.armaLags = ivec();
+        if (irregular[0] == 'a'){      // ARMA / SARMA
+                // Parse "arma(p,q)" or "arma(p,q,P,Q,s)" — count commas to
+                // decide which grammar.  stoi-on-substring is used to stay
+                // dependency-free.
                 int ind1 = irregular.find("(");
-                int ind2 = irregular.find(",");
                 int ind3 = irregular.find(")");
-                inputs.ar = stoi(irregular.substr(ind1 + 1, ind2 - ind1 - 1));
-                inputs.ma = stoi(irregular.substr(ind2 + 1, ind3 - ind2 - 1));
+                string body = irregular.substr(ind1 + 1,
+                                                ind3 - ind1 - 1);
+                // Split on commas.
+                vector<int> parts;
+                size_t start = 0, pos;
+                while ((pos = body.find(',', start)) != string::npos){
+                        parts.push_back(stoi(body.substr(start, pos - start)));
+                        start = pos + 1;
+                }
+                parts.push_back(stoi(body.substr(start)));
+                int p_local, q_local, P_local = 0, Q_local = 0, s_local = 1;
+                if (parts.size() == 2){
+                        p_local = parts[0]; q_local = parts[1];
+                } else if (parts.size() == 5){
+                        p_local = parts[0]; q_local = parts[1];
+                        P_local = parts[2]; Q_local = parts[3];
+                        s_local = parts[4];
+                } else {
+                        // Bad encoding — fall back to non-seasonal arma(0,0)
+                        p_local = 0; q_local = 0;
+                }
+                inputs.arOrders = ivec(P_local > 0 || Q_local > 0 ? 2 : 1);
+                inputs.maOrders = ivec(inputs.arOrders.n_elem);
+                inputs.armaLags = ivec(inputs.arOrders.n_elem);
+                inputs.arOrders(0) = p_local; inputs.maOrders(0) = q_local;
+                inputs.armaLags(0) = 1;
+                if (inputs.arOrders.n_elem == 2){
+                        inputs.arOrders(1) = P_local;
+                        inputs.maOrders(1) = Q_local;
+                        inputs.armaLags(1) = s_local;
+                }
+                // ar / ma — free coef counts (BFGS-visible).
+                inputs.ar = p_local + P_local;
+                inputs.ma = q_local + Q_local;
+                // arDeg / maDeg — expanded polynomial degrees (state-block).
+                inputs.arDeg = p_local + P_local * s_local;
+                inputs.maDeg = q_local + Q_local * s_local;
                 if (inputs.ar == 0 && inputs.ma == 0){   // Just noise
                         inputs.ns(3) = 0;
                         inputs.nPar(3) = 1;
                 } else {                      // ARMA
-                        inputs.ns(3) = max(inputs.ar, inputs.ma + 1);
+                        inputs.ns(3) = max(inputs.arDeg, inputs.maDeg + 1);
                         inputs.nPar(3) = inputs.ar + inputs.ma + 1;
                         SSmodel::inputs.exact = false;
                         SSmodel::inputs.augmented = false;
@@ -3817,11 +3936,16 @@ void BSMclass::initParBsm(){
          } else if (inp->ar > 0 || inp->ma > 0) {  // ARMA model
                  SSmatrix mARMA;
                  ARMAinputs iARMA;
-                 iARMA.ar = inp->ar;
-                 iARMA.ma = inp->ma;
+                 iARMA.ar       = inp->ar;
+                 iARMA.ma       = inp->ma;
+                 iARMA.arDeg    = inp->arDeg;
+                 iARMA.maDeg    = inp->maDeg;
+                 iARMA.arOrders = inp->arOrders;
+                 iARMA.maOrders = inp->maOrders;
+                 iARMA.armaLags = inp->armaLags;
                  int aux4;
                  uvec aux2 = regspace<uvec>(nparCum(2), 1, nparCum(3) - 1);
-                 initMatricesArma(inp->ar, inp->ma, aux4, mARMA);
+                 initMatricesArma(inp->arDeg, inp->maDeg, aux4, mARMA);
                  armaMatrices(p(aux2), &mARMA, &iARMA);
                  uvec ind2 = regspace<uvec>(nsCum(2), 1, nsCum(3) - 1);
                  model->T(ind2, ind2) = mARMA.T;
@@ -3929,11 +4053,16 @@ void bsmMatricesTrue(vec p, SSmatrix* model, void* userInputs){
         } else if (inp->ar > 0 || inp->ma > 0) {  // ARMA model
                 SSmatrix mARMA;
                 ARMAinputs iARMA;
-                iARMA.ar = inp->ar;
-                iARMA.ma = inp->ma;
+                iARMA.ar       = inp->ar;
+                iARMA.ma       = inp->ma;
+                iARMA.arDeg    = inp->arDeg;
+                iARMA.maDeg    = inp->maDeg;
+                iARMA.arOrders = inp->arOrders;
+                iARMA.maOrders = inp->maOrders;
+                iARMA.armaLags = inp->armaLags;
                 int aux4;
                 uvec aux2 = regspace<uvec>(nparCum(2), 1, nparCum(3) - 1);
-                initMatricesArma(inp->ar, inp->ma, aux4, mARMA);
+                initMatricesArma(inp->arDeg, inp->maDeg, aux4, mARMA);
                 armaMatricesTrue(p(aux2), &mARMA, &iARMA);
                 uvec ind2 = regspace<uvec>(nsCum(2), 1, nsCum(3) - 1);
                 model->T(ind2, ind2) = mARMA.T;

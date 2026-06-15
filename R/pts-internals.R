@@ -271,8 +271,13 @@
 # data shape that pts() uses for its returned object.  This replaces the
 # (now retired) PTSsetup + MSOEsetup + MSOE chain.
 .pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose,
-                     ar = 0L, ma = 0L, B = NULL){
-    modelU <- pts_to_uc(model, armaOrders = c(ar, ma),
+                     ar = 0L, ma = 0L, armaLags = 1L, B = NULL){
+    # Flatten per-lag ar / ma vectors into the format pts_to_uc consumes:
+    #   length-1 lags → c(p, q)         (non-seasonal arma(p,q))
+    #   length-2 lags → c(p, q, P, Q, s) (sarma(p,q)(P,Q)_s)
+    armaOrders <- if (length(armaLags) == 1L) c(ar[1L], ma[1L])
+                  else c(ar[1L], ma[1L], ar[2L], ma[2L], armaLags[2L])
+    modelU <- pts_to_uc(model, armaOrders = armaOrders,
                         armaSelect = armaIdent)
     # When the series has no seasonal frequency, fix lambda = 1 (no Box-Cox).
     lambda <- modelU$lambda
@@ -282,7 +287,8 @@
                            lambda = lambda, criterion = criterion, lags = lags,
                            verbose = verbose, armaIdent = armaIdent,
                            irregularOptions =
-                               .pts_arma_candidates(ar, ma, armaIdent))
+                               .pts_arma_candidates(ar, ma, armaLags,
+                                                    armaIdent))
     # Override the default sentinel (-9999.9) when the caller supplied an
     # explicit starting vector via `B` (adam-style internal hatch, passed
     # through pts(... , B = ...) and used by the loss-surface experiment
@@ -445,8 +451,9 @@
         trendOptions     = "rw/llt/srw/td",
         seasonalOptions  = "none/linear/equal",
         irregularOptions = .pts_arma_candidates(
-            if (is.null(object$orders$ar)) 0L else object$orders$ar,
-            if (is.null(object$orders$ma)) 0L else object$orders$ma,
+            if (is.null(object$orders$ar))   0L else object$orders$ar,
+            if (is.null(object$orders$ma))   0L else object$orders$ma,
+            if (is.null(object$orders$lags)) 1L else object$orders$lags,
             FALSE)
     )
 }

@@ -21,16 +21,30 @@
 #'   \item Seasonal: \code{Z} (auto), \code{N} (none), \code{D} (discrete /
 #'     linear), \code{T} (trigonometric / equal).
 #' }
-#' @param lags seasonal period (default \code{frequency(data)}).
-#' @param orders ARMA spec for the irregular component.  Two forms accepted:
+#' @param lags seasonal period (default \code{frequency(data)}).  Scalar for
+#' the structural seasonal; may also be a vector \code{c(1, s)} mirroring
+#' \code{smooth::adam}'s convention — the last entry is the structural
+#' period, the full vector becomes the default lag set for the irregular's
+#' ARMA blocks (overridable per-fit via \code{orders$lags}).
+#' @param orders ARMA / SARMA spec for the irregular component.  Three forms:
 #' \itemize{
-#'   \item Full list \code{list(ar, ma, select)} — \code{ar} / \code{ma} are
-#'     non-negative integers (default 0); \code{select = TRUE} asks the engine
-#'     to search ARMA orders up to that cap (replaces the old \code{armaIdent}
-#'     flag).
+#'   \item Full list \code{list(ar, ma, select)} for a non-seasonal
+#'     \eqn{ARMA(p, q)} — \code{ar}, \code{ma} non-negative scalars (default
+#'     0); \code{select = TRUE} asks the engine to search ARMA orders up to
+#'     that cap.
 #'   \item Numeric shortcut \code{c(p, q)} — equivalent to
-#'     \code{list(ar = p, ma = q, select = FALSE)}; \code{c(p)} is treated as
-#'     \code{c(p, 0)}.
+#'     \code{list(ar = p, ma = q, select = FALSE)}; \code{c(p)} is treated
+#'     as \code{c(p, 0)}.
+#'   \item Seasonal \code{list(ar = c(p, P), ma = c(q, Q), lags = c(1, s))}
+#'     for \eqn{SARMA(p, q)(P, Q)_s} — \code{ar} / \code{ma} are length-L
+#'     vectors paired position-wise with \code{lags}, with \code{lags[1] =
+#'     1} (non-seasonal block) and \code{lags[2] = s} (seasonal block).
+#'     If \code{orders$lags} is omitted the default falls back to the
+#'     top-level \code{lags} argument (or \code{c(1, frequency(data))}).
+#'     The seasonal SARMA polynomial is multiplied internally, so the BFGS
+#'     only optimises the free \eqn{\phi_i, \Phi_j, \theta_i, \Theta_j}
+#'     coefficients.  \code{select = TRUE} is not yet supported with
+#'     seasonal orders.
 #' }
 #' PTS has no differencing, so \code{orders$i} must be 0 if supplied.
 #' @param formula optional formula \code{response ~ x1 + x2 + ...}; only
@@ -106,7 +120,17 @@ pts <- function(data,
     dots <- list(...)
     B    <- dots$B
     criterion  <- .pts_ic_to_engine(ic)
-    ordersUC   <- .pts_orders_to_uc(orders)
+    # `lags` historically is the scalar structural-seasonal period.  As an
+    # adam-style ergonomic, also accept a vector c(1, s, ...) — the last
+    # entry is taken as the structural period; the full vector becomes the
+    # default ARMA-block lag set when `orders$lags` is not supplied.
+    if (length(lags) > 1L){
+        lagsDefault <- as.integer(lags)
+        lags        <- as.integer(lags[length(lags)])
+    } else {
+        lagsDefault <- c(1L, as.integer(lags))
+    }
+    ordersUC <- .pts_orders_to_uc(orders, lagsDefault = lagsDefault)
     if (!is.numeric(h) || length(h) != 1 || h < 0)
         stop("`h` must be a non-negative integer.", call. = FALSE)
 
@@ -146,6 +170,7 @@ pts <- function(data,
                     armaIdent = ordersUC$select,
                     ar        = ordersUC$ar,
                     ma        = ordersUC$ma,
+                    armaLags  = ordersUC$lags,
                     B         = B,
                     verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).
@@ -173,9 +198,13 @@ pts <- function(data,
     # ARMA orders from the UC string (derived once so $orders is consistent
     # with what the orders.pts accessor returns).  We carry the user's
     # `select` flag through so a model fitted with orders$select = TRUE
-    # reports that in its $orders slot too.
+    # reports that in its $orders slot too.  `pq` carries per-lag vectors so
+    # SARMA specs round-trip cleanly.
     pq <- uc_to_arma(res$modelUC)
-    ordersList <- list(ar = as.integer(pq[1]), i = 0L, ma = as.integer(pq[2]),
+    ordersList <- list(ar     = as.integer(pq$ar),
+                       i      = 0L,
+                       ma     = as.integer(pq$ma),
+                       lags   = as.integer(pq$lags),
                        select = ordersUC$select)
 
     out <- list(

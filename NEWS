@@ -1,8 +1,13 @@
 muse v0.0.2.41001 (in development)
 =======
 
-
-
+* `pts()` accepts seasonal SARMA on the irregular component via per-lag
+  vectors in `orders` — e.g. `orders = list(ar = c(p, P), ma = c(q, Q),
+  lags = c(1, s))` fits SARMA(p, q)(P, Q)_s.  The seasonal lag may also be
+  supplied through the top-level `lags` argument as `c(1, s)` (adam-style).
+  Coefficients show up as `SAR(i)` / `SMA(i)` in print/summary.  The
+  seasonal polynomial is multiplied internally; the BFGS only optimises the
+  free φ_i, Φ_j, θ_i, Θ_j coefficients.
 
 muse v0.0.1.41005 (in development)
 =======

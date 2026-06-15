@@ -275,6 +275,55 @@ test_that("orders accepts a c(p, q) numeric shortcut", {
                  "c\\(p\\) or c\\(p, q\\)")
 })
 
+test_that("orders accepts seasonal SARMA via per-lag vectors", {
+    # Seasonal AR only: SARMA(0,0)(1,0)_12 — coef table should show SAR(1)
+    # but no AR(1).
+    m_s <- pts(AirPassengers, model = "1LT", h = 0,
+               orders = list(ar = c(0, 1), ma = c(0, 0), lags = c(1, 12)))
+    expect_match(m_s$modelUC, "arma\\(0,0,1,0,12\\)")
+    cf <- names(coef(m_s))
+    expect_true("SAR(1)"  %in% cf)
+    expect_false("AR(1)"  %in% cf)
+    # $orders round-trips the seasonal spec
+    expect_equal(m_s$orders$ar,   c(0L, 1L))
+    expect_equal(m_s$orders$ma,   c(0L, 0L))
+    expect_equal(m_s$orders$lags, c(1L, 12L))
+})
+
+test_that("orders supports mixed SARMA(1,0)(1,0)_12", {
+    m <- pts(AirPassengers, model = "1LT", h = 0,
+             orders = list(ar = c(1, 1), ma = c(0, 0), lags = c(1, 12)))
+    cf <- names(coef(m))
+    expect_true("AR(1)"  %in% cf)
+    expect_true("SAR(1)" %in% cf)
+    # Forecast should be finite and roughly in the data range
+    f <- forecast(m, h = 12)
+    expect_true(all(is.finite(as.numeric(f$mean))))
+    expect_true(min(f$mean) > 100 && max(f$mean) < 1000)
+})
+
+test_that("orders uses frequency(data) as default seasonal lag when missing", {
+    # Implicit lag = c(1, frequency(data)); for AirPassengers that's
+    # c(1, 12) — should match the explicit form above.
+    m_exp <- pts(AirPassengers, model = "1LT", h = 0,
+                 orders = list(ar = c(0, 1), ma = c(0, 0), lags = c(1, 12)))
+    m_imp <- pts(AirPassengers, model = "1LT", h = 0,
+                 orders = list(ar = c(0, 1), ma = c(0, 0)))
+    expect_equal(m_exp$modelUC, m_imp$modelUC)
+})
+
+test_that("orders rejects mismatched lengths and select=TRUE + seasonal", {
+    expect_error(
+        pts(AirPassengers, model = "1LT", h = 0,
+            orders = list(ar = c(1, 1), ma = c(0, 0), lags = c(1))),
+        "must match")
+    expect_error(
+        pts(AirPassengers, model = "1LT", h = 0,
+            orders = list(ar = c(1, 1), ma = c(0, 0),
+                          lags = c(1, 12), select = TRUE)),
+        "not yet supported")
+})
+
 test_that("select=TRUE searches up to the (ar, ma) cap and reports the choice", {
     m <- pts(AirPassengers, model = "1LT", h = 0,
              orders = list(ar = 2, ma = 2, select = TRUE))
