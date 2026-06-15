@@ -1,4 +1,60 @@
-muse v0.0.1 (Release data: 2025-02-19)
+muse v0.0.2.41001 (in development)
+=======
+
+
+
+
+muse v0.0.1.41005 (in development)
+=======
+
+User-facing
+* Single user-facing entry point: pts(), with auto.pts() as a thin "ZZZ"
+  wrapper.  The legacy ctll() and PTS/PTSforecast/MSOE API have been
+  removed.
+* pts() now mirrors smooth::adam()'s calling convention — data,
+  formula, ic, orders, h, holdout, regressors — and returns an object
+  with adam-aligned slot names so plot.smooth and other smooth/greybox
+  methods just work.
+* orders accepts both the full list(ar, ma, select) and a numeric
+  shortcut c(p, q) (or c(p)) — the irregular component's ARMA(p,q) is
+  wired through to the C++ engine via either form.
+* forecast.pts() supports prediction, simulated, and confidence
+  intervals; one- or two-sided bounds; cumulative forecasts; and level
+  as a vector (producing matrix bounds).
+* New / updated S3 methods: print, summary, plot (actuals + reordered
+  states), fitted, residuals, predict, coef, vcov, logLik, nobs,
+  sigma, AIC/BIC/AICc/BICc, rstandard, rstudent, pointLik,
+  outlierdummy, accuracy, simulate, confint, update, initials,
+  modelType, lags, orders, errorType.
+* summary.pts and print.pts now use an adam-style header/footer and
+  print variance proportions; the analytically concentrated variance
+  gets an analytical SE and a "*" marker.
+
+Estimation / likelihood
+* Box-Cox normal log-likelihood is now consistent across BFGS, AIC/BIC
+  computation, and profile-lambda search.  σ̂² uses the MLE divisor n
+  (not REML n − k), and the Box-Cox Jacobian is summed over the same
+  observations — this removes a state-dim-proportional bias that
+  pushed the auto-selected λ toward 1.  On AirPassengers, λ now lands
+  near -0.3, matching forecast::BoxCox.lambda.
+* Profile-lambda (Brent + anchor snap to {-2, -1, -0.5, 0, 0.5, 1, 2})
+  is run per candidate during model selection.  λ counts as +1 DoF
+  only when the optimised value beats the nearest anchor.
+* Box-Cox transform uses exact equality at λ = 0 / λ = 1 (not
+  threshold shortcuts), so AIC is continuous in λ across those points.
+
+Internals
+* C++ side reorganised: musecore.h hosts the SEXP-free dispatch;
+  PTSmodel.h owns BSMclass (matrices, likelihood, ident, components);
+  SSpace.h owns the generic Kalman filter / smoother / optimiser.
+* Dedicated forecastOnly command on UCompC re-uses cached parameters
+  without re-estimating.
+* Box-Cox Jacobian shared between R and C++ via bcnorm.h /
+  .inv_box_cox(); identical branches on both sides.
+* ARCHITECTURE.md documents call graphs, data structures, coupling
+  rules, and key invariants; kept in sync with the code.
+
+muse v0.0.1 (Release date: 2025-02-19)
 =======
 
 Changes:

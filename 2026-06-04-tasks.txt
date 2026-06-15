@@ -12,9 +12,9 @@
 +12. Add Periods:  12.0 /  6.0 /  4.0 /  3.0 /  2.4 to print/summary
 +13. summary - add stars to show which is concentrated out
 14. Amend the data to split into y and xreg.
-15. Lambda estimation
++15. Lambda estimation
 16. Outliers parameter: identify/use/nothing + level=0.99
-17. ARMA residuals do not work. Check
++17. ARMA residuals do not work. Check
 18. Include the seasonal ARMA in the residuals
 +19. Check df for BC vs lambda=0, 1
 20. Do harmonic selection for any pts(Z,Z,T) model. This should work either in selection or estimation scenarios.

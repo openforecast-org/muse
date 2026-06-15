@@ -20,6 +20,12 @@ structures, parameter naming, or cross-file coupling, update the relevant sectio
 must be added in two places), update the "Coupling rules" table.  If a new invariant
 is discovered, add it to "Key invariants".  Stale documentation is worse than none.
 
+## NEWS
+
+Any user-visible change (new function, new argument, behaviour change, bug fix,
+deprecation) gets one line in `NEWS` under the in-development version, in the
+same commit.  Internal refactors with no user-visible effect can be skipped.
+
 ## Common commands
 
 R package development uses `R CMD` and `devtools`/`roxygen2`. From the package root:
