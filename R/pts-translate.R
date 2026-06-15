@@ -200,7 +200,8 @@ uc_to_pts <- function(modelUC, lambda){
 # fit.  `lags` is length 1 (non-seasonal) or 2 (seasonal with seasonal
 # period in lags[2]).  Returns list(ar, ma, lags) with the winning per-lag
 # vectors.
-.pts_select_arma <- function(residuals, ar_max, ma_max, lags, ic = "AICc"){
+.pts_select_arma <- function(residuals, ar_max, ma_max, lags, ic = "AICc",
+                             verbose = FALSE){
     ar_max <- as.integer(ar_max); ma_max <- as.integer(ma_max)
     lags   <- as.integer(lags)
     ic     <- match.arg(ic, c("AICc", "AIC", "BIC", "BICc"))
@@ -219,6 +220,23 @@ uc_to_pts <- function(modelUC, lambda){
         expand.grid(p = 0L:ar_max[1L], q = 0L:ma_max[1L],
                     P = 0L:ar_max[2L], Q = 0L:ma_max[2L],
                     KEEP.OUT.ATTRS = FALSE)
+
+    # Verbose header — matches the formatting of the engine's PTS ident
+    # table (PTSmodel.h around line 1867) so the two grid traces sit
+    # nicely on top of one another in the console.
+    bar <- paste(rep("-", 83), collapse = "")
+    if (isTRUE(verbose)){
+        cat(bar, "\n")
+        cat(" ARMA grid search on structural residuals:\n")
+        cat(bar, "\n")
+        cat(sprintf(" %-22s %13s %13s %13s %13s\n",
+                    "   Model", "AIC", "AICc", "BIC", "BICc"))
+        cat(bar, "\n")
+    }
+    label_one <- function(p, q, P, Q){
+        if (!seasonal) sprintf("arma(%d,%d)", p, q)
+        else           sprintf("arma(%d,%d,%d,%d,%d)", p, q, P, Q, lags[2L])
+    }
     icKey <- ic   # one of {AIC, AICc, BIC, BICc}
     score_one <- function(p, q, P, Q){
         if (!seasonal){
@@ -231,6 +249,16 @@ uc_to_pts <- function(modelUC, lambda){
             armaLagsV <- as.integer(lags)
         }
         res <- UCompARMAC(r, arOrders, maOrders, armaLagsV, "aic")
+        if (isTRUE(verbose)){
+            if (isTRUE(res$succeed)){
+                cat(sprintf(" %-22s %13.4f %13.4f %13.4f %13.4f\n",
+                            label_one(p, q, P, Q),
+                            res$AIC, res$AICc, res$BIC, res$BICc))
+            } else {
+                cat(sprintf(" %-22s   %s\n",
+                            label_one(p, q, P, Q), "failed"))
+            }
+        }
         if (!isTRUE(res$succeed)) return(Inf)
         val <- res[[icKey]]
         if (is.null(val) || !is.finite(val)) Inf else val
@@ -241,6 +269,13 @@ uc_to_pts <- function(modelUC, lambda){
         best_row <- list(p = 0L, q = 0L, P = 0L, Q = 0L)
     } else {
         best_row <- as.list(grid[best, ])
+    }
+    if (isTRUE(verbose)){
+        cat(bar, "\n")
+        cat(sprintf(" Selected by %s: %s\n", ic,
+                    label_one(best_row$p, best_row$q,
+                              best_row$P, best_row$Q)))
+        cat(bar, "\n")
     }
     if (!seasonal)
         list(ar = as.integer(best_row$p), ma = as.integer(best_row$q),

@@ -182,10 +182,11 @@ pts <- function(data,
                                ar = 0L, ma = 0L, armaLags = 1L,
                                B = NULL, verbose = FALSE)
         chosen <- .pts_select_arma(struct_fit$residuals,
-                                   ar_max = ordersUC$ar,
-                                   ma_max = ordersUC$ma,
-                                   lags   = ordersUC$lags,
-                                   ic     = ic)
+                                   ar_max  = ordersUC$ar,
+                                   ma_max  = ordersUC$ma,
+                                   lags    = ordersUC$lags,
+                                   ic      = ic,
+                                   verbose = verbose)
         ordersUC$ar     <- chosen$ar
         ordersUC$ma     <- chosen$ma
         ordersUC$lags   <- chosen$lags
