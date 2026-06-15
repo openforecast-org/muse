@@ -55,17 +55,31 @@ summary.pts <- function(object, level = 0.95, ...){
     # patch the joint vcov so the delta method on proportions works (we
     # treat the concentrated variance as independent of the others at the
     # asymptotic level; the joint Hessian does not expose the cross terms).
-    if (is.null(dim(cv))){
-        ses     <- rep(NA_real_, length(est))
-        concIdx <- integer(0)
-    } else {
-        ses     <- sqrt(diag(cv))
-        concIdx <- which(is.nan(diag(cv)))
+    #
+    # `cv` may carry FEWER rows than `est`: under outliers = "use" the
+    # engine's outlier dummies (named AO<t> / LS<t> / SC<t>) are appended
+    # to the coefficient vector but the Hessian-derived SE block covers
+    # only the structural parameters.  Build `ses` aligned to `est` by
+    # name; missing rows fall to NA so the downstream interval table
+    # still has a sensible row per coefficient.
+    ses     <- rep(NA_real_, length(est))
+    names(ses) <- nm
+    concIdx <- integer(0)
+    if (!is.null(dim(cv))){
+        cvNames <- rownames(cv)
+        if (is.null(cvNames)) cvNames <- nm[seq_len(nrow(cv))]
+        shared  <- intersect(nm, cvNames)
+        cvDiag  <- diag(cv)
+        ses[shared] <- sqrt(cvDiag[match(shared, cvNames)])
+        concRows <- which(is.nan(cvDiag))
+        concIdx  <- match(cvNames[concRows], nm)
+        concIdx  <- concIdx[!is.na(concIdx)]
         if (length(concIdx) > 0 && is.finite(n) && n > 0){
             seConc       <- abs(est[concIdx]) * sqrt(2 / n)
             ses[concIdx] <- seConc
-            diag(cv)[concIdx] <- seConc ^ 2
-            for (i in concIdx){
+            cvRowConc <- match(nm[concIdx], cvNames)
+            diag(cv)[cvRowConc] <- seConc ^ 2
+            for (i in cvRowConc){
                 other <- setdiff(seq_len(nrow(cv)), i)
                 cv[i, other] <- 0
                 cv[other, i] <- 0
@@ -105,10 +119,11 @@ summary.pts <- function(object, level = 0.95, ...){
     }
 
     # Variance proportions including Irregular so they sum to 1.
-    isArma  <- grepl("^S?(AR|MA)\\(", nm)    # matches AR/MA + SAR/SMA
-    isXreg  <- grepl("^Beta",       nm)
-    isDamp  <- nm == "Damping"
-    isVar   <- !(isArma | isXreg | isDamp)
+    isArma   <- grepl("^S?(AR|MA)\\(", nm)   # matches AR/MA + SAR/SMA
+    isXreg   <- grepl("^Beta",       nm)
+    isOutlier<- grepl("^(AO|LS|SC)[0-9]+$", nm)   # engine outlier dummies
+    isDamp   <- nm == "Damping"
+    isVar    <- !(isArma | isXreg | isDamp | isOutlier)
     varVals <- est[isVar]
     S       <- sum(varVals)
     props   <- if (length(varVals) > 0 && S > 0) varVals / S else varVals

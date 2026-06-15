@@ -83,10 +83,11 @@ print.pts <- function(x, digits = 4, ...){
     #     line.  ARMA and Beta blocks come further below. ---
     B  <- coef(x)
     nm <- names(B)
-    isArma  <- grepl("^S?(AR|MA)\\(", nm)    # matches AR/MA + SAR/SMA
-    isXreg  <- grepl("^Beta",       nm)
-    isDamp  <- nm == "Damping"
-    isVar   <- !(isArma | isXreg | isDamp)   # includes Irregular
+    isArma   <- grepl("^S?(AR|MA)\\(", nm)   # matches AR/MA + SAR/SMA
+    isXreg   <- grepl("^Beta",       nm)
+    isOutlier<- grepl("^(AO|LS|SC)[0-9]+$", nm)   # engine outlier dummies
+    isDamp   <- nm == "Damping"
+    isVar    <- !(isArma | isXreg | isDamp | isOutlier)   # includes Irregular
 
     varVals <- B[isVar]
     dampVal <- B[isDamp]
@@ -149,6 +150,14 @@ print.pts <- function(x, digits = 4, ...){
         print(signif(B[isXreg], digits))
     }
 
+    # --- Outlier-dummy coefficients (only when outliers were used).
+    #     One-liner above already says how many of each type; this is the
+    #     per-event breakdown so the user can see magnitudes.
+    if (any(isOutlier)){
+        cat("\nOutlier coefficients:\n")
+        print(signif(B[isOutlier], digits))
+    }
+
     # --- sample size / nparam / df (adam.R:6024-6026) ---
     # --- missing-values + outlier-detection one-liners (skip when none) ---
     nMissing <- if (!is.null(x$data)) sum(!is.finite(as.numeric(x$data))) else 0L
@@ -169,6 +178,7 @@ print.pts <- function(x, digits = 4, ...){
         if (tally[["SC"]] > 0L)
             bits <- c(bits, sprintf("%d SC", tally[["SC"]]))
         cat("\nOutliers detected: ", paste(bits, collapse = ", "), sep = "")
+        cat("\n")
     }
 
     cat("\nSample size:", nobs(x))
