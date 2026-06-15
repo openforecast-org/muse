@@ -1908,17 +1908,14 @@ void BSMclass::ident(string show, bool VERBOSE){
         }
         if (runAll){    // no stepwise
                 if (inputTrend == "?"){
-                        if (inputIrregular != "none" && inputIrregular != "arma(0,0)"
-                                    && inputIrregular != "?"){
-                                // Avoiding identification problems between arma(p,q) and dt trend
-                                trendTypes = inputs.trendOptions;
-                                strReplace("/dt", "", trendTypes);
-                                strReplace("dt/", "", trendTypes);
-                                strReplace("/srw", "", trendTypes);
-                                strReplace("srw/", "", trendTypes);
-                        } else {
-                                trendTypes = inputs.trendOptions;
-                        }
+                        // PTS structural part comes first; ARMA refines it.
+                        // The historical strip of `srw` / `dt` when an ARMA
+                        // term was present was over-broad — it killed every
+                        // damped/Hyndman trend rather than just the
+                        // (trend, ARMA) combos that genuinely collide.
+                        // Let every trend × irregular combination through;
+                        // ICs flag the ill-identified ones via degraded LL.
+                        trendTypes = inputs.trendOptions;
                 }
                 if (inputSeasonal == "?")
                         seasTypes = inputs.seasonalOptions;
