@@ -84,8 +84,12 @@ struct BSMmodel{
         cycleLimits;            // limits for period of cycle estimation
         bool pureARMA = false,      // Pure ARMA model flag
                 Drift = false,         // trend with drift
-                estimateLambda = false, // deprecated; joint-lambda path is off
-                profileLambda = false,  // run outer profile-lambda search inside ident()
+                estimateLambda = false, // joint-BFGS includes lambda as last
+                                        // element of `p` when true
+                profileLambda = false,  // enable joint-BFGS lambda estimation
+                                        // inside ident() / estimUCs() — name
+                                        // is a vestige of an earlier Brent
+                                        // implementation (now removed)
                 lambdaEstimated = false;// engine's authoritative DoF flag for lambda
                                         // (true => lambda* kept; false => snapped to anchor)
         vector<string> parNames;    // Parameter names
@@ -123,19 +127,6 @@ public:
         //Estimation
         void estim(bool);
         void estim(vec, bool);
-        // Profile-lambda outer Brent search; called from estimUCs when
-        // inputs.profileLambda is true.  Returns the selected lambda
-        // (either lambda* or a snap anchor in {-2,-1,-0.5,0,0.5,1,2})
-        // and a flag indicating whether the optimised lambda counts as
-        // a free parameter (true) or was snapped (false).  Side effect:
-        // leaves SSmodel::inputs in the state of the chosen final fit
-        // (inputs.criteria populated, inputs.p / .v / etc. populated).
-        struct ProfileResult {
-                double lambda;          // selected lambda
-                bool   lambdaCounts;    // true => +1 DoF; false => snapped
-                double llik;            // LLIK on the original response scale
-        };
-        ProfileResult profileLambda(bool VERBOSE);
         // Plug in a previously-estimated parameter vector and warm up the
         // filter so forecast() can run without re-optimisation.
         void setEstimatedParams(vec);
@@ -283,8 +274,8 @@ void BSMaux(vec y, mat u, string model, int h, double outlier, bool tTest, strin
         inputsBSM.arma = arma;
 
         // BoxCox transformation; mirror musecore.h::runMuseCommand.  y_raw
-        // is always preserved so BSMclass::profileLambda can re-transform
-        // per outer step.
+        // is always preserved so joint-BFGS can re-transform at each
+        // candidate lambda inside the inner llik / llikAug loop.
         inputsSS.y_raw           = inputsSS.y;
         inputsSS.estimateLambda  = false;
         inputsBSM.estimateLambda = false;
@@ -1347,195 +1338,6 @@ void BSMclass::estim(vec p, bool VERBOSE){
         SSmodel::inputs.v.reset();
         inputs.harmonics = regspace<uvec>(0, inputs.periods.n_elem - 1);
         SSmodel::inputs.verbose = verboseCopy;
-}
-// ----------------------------------------------------------------------
-// profileLambda: outer 1-D Brent search over lambda with the inner BFGS
-// (estim(p, false)) called at each candidate lambda.  ψ is warm-started
-// across outer steps via SSmodel::inputs.p left in place.  After Brent
-// converges to lambda*, the nearest anchor in {-2,-1,-0.5,0,0.5,1,2} is
-// refit; the anchor is preferred on AIC ties (saves +1 DoF for lambda).
-//
-//   * The inner BFGS never sees lambda (trick 1) -- estimateLambda is
-//     wired off everywhere; bsmMatrices no longer sheds a trailing slot.
-//   * ψ warm-starts (trick 2) by leaving SSmodel::inputs.p in place
-//     between calls; estim() reuses that vector as p0 if non-finite is
-//     absent.
-//   * Jacobian (trick 3) is added inside estim() by the closed-form
-//     correction at the LLIK reporting block (the criteria(0) value).
-//     Brent ranks on -criteria(0) so the Jacobian moves with the
-//     comparison.
-//   * Domain (trick 4): lambdaMin = -2 if all y_raw > 0, else 0.
-BSMclass::ProfileResult BSMclass::profileLambda(bool VERBOSE){
-        using arma::vec;
-        using arma::uvec;
-        vec y_raw = SSmodel::inputs.y_raw;
-        uvec okRaw = arma::find_finite(y_raw);
-        double yMin = okRaw.n_elem > 0 ? y_raw.elem(okRaw).min() : 1.0;
-        double lambdaMin = (yMin > 0.0) ? -2.0 : 0.0;
-        double lambdaMax = 2.0;
-
-        // Inner closure: install BoxCox at lambda, run estim() warm-started
-        // from the current SSmodel::inputs.p (or p0 if p is empty), and
-        // return the negative LLIK so Brent's MINIMISES the objective.
-        auto innerFit = [&](double lambda) -> double {
-                SSmodel::inputs.y      = BoxCox(SSmodel::inputs.y_raw, lambda);
-                inputs.lambda          = lambda;
-                SSmodel::inputs.lambda = lambda;  // keep SSinputs in sync for llik()
-                vec pWarm;
-                if (SSmodel::inputs.p.n_elem > 0 &&
-                    SSmodel::inputs.p.is_finite()){
-                        pWarm = SSmodel::inputs.p;
-                } else {
-                        pWarm = SSmodel::inputs.p0;
-                }
-                estim(pWarm, false);    // inner BFGS (silent)
-                double llik = (SSmodel::inputs.criteria.n_elem >= 1)
-                              ? SSmodel::inputs.criteria(0) : arma::datum::nan;
-                return std::isfinite(llik) ? -llik : arma::datum::inf;
-        };
-
-        // Brent's method (Press et al, Numerical Recipes 10.2) on
-        // [lambdaMin, lambdaMax] with the testBoxCox warm-start as the
-        // initial best point.
-        const double CGOLD = 0.3819660113;
-        const double ZEPS  = 1.0e-10;
-        const double tol   = 1.0e-4;
-        const int    ITMAX = 25;
-
-        double a = lambdaMin, c = lambdaMax;
-        double xInit = std::max(lambdaMin + 1e-3,
-                                std::min(lambdaMax - 1e-3, inputs.lambda));
-        double x = xInit, w = xInit, v = xInit;
-        double fx = innerFit(x);
-        vec    pStar = SSmodel::inputs.p;   // best ψ so far
-        double fw = fx, fv = fx;
-        double e = 0.0, d = 0.0;
-
-        for (int iter = 0; iter < ITMAX; iter++){
-                double xm   = 0.5 * (a + c);
-                double tol1 = tol * std::abs(x) + ZEPS;
-                double tol2 = 2.0 * tol1;
-                if (std::abs(x - xm) <= tol2 - 0.5 * (c - a))
-                        break;
-                bool useGold = true;
-                if (std::abs(e) > tol1){
-                        double r = (x - w) * (fx - fv);
-                        double q = (x - v) * (fx - fw);
-                        double p = (x - v) * q - (x - w) * r;
-                        q = 2.0 * (q - r);
-                        if (q > 0.0) p = -p;
-                        q = std::abs(q);
-                        double etemp = e;
-                        e = d;
-                        if (!(std::abs(p) >= std::abs(0.5 * q * etemp) ||
-                              p <= q * (a - x) || p >= q * (c - x))){
-                                d = p / q;
-                                double utry = x + d;
-                                if (utry - a < tol2 || c - utry < tol2)
-                                        d = (xm - x >= 0.0 ? tol1 : -tol1);
-                                useGold = false;
-                        }
-                }
-                if (useGold){
-                        e = (x >= xm ? a - x : c - x);
-                        d = CGOLD * e;
-                }
-                double u = (std::abs(d) >= tol1)
-                           ? x + d
-                           : x + (d >= 0.0 ? tol1 : -tol1);
-                if (u < a) u = a;
-                if (u > c) u = c;
-                double fu = innerFit(u);
-                if (fu <= fx){
-                        if (u >= x) a = x; else c = x;
-                        v = w; w = x; x = u;
-                        fv = fw; fw = fx; fx = fu;
-                        pStar = SSmodel::inputs.p;
-                } else {
-                        if (u < x) a = u; else c = u;
-                        if (fu <= fw || w == x){
-                                v = w; w = u;
-                                fv = fw; fw = fu;
-                        } else if (fu <= fv || v == x || v == w){
-                                v = u; fv = fu;
-                        }
-                }
-        }
-        double lambdaStar = x;
-        double llikStar   = -fx;
-
-        // Restore the inputs state to the optimiser's best ψ and refit at
-        // lambdaStar so SSmodel::inputs.criteria is consistent with it.
-        SSmodel::inputs.p = pStar;
-        innerFit(lambdaStar);
-        // Use the adam-style k (= p.n_elem + u.n_rows, no nonStationaryTerms
-        // or cLlik correction) so that AIC*/AIC^ in the verbose line match
-        // the final R-side AIC computed from nParam = length(res$p).
-        // Note: nonStationaryTerms cancels out in the AIC*/AIC^ comparison
-        // (it's the same for both), so the snap decision is unaffected.
-        int base_k = SSmodel::inputs.p.n_elem + SSmodel::inputs.u.n_rows;
-
-        // Anchor snap: pick nearest a in {-2,-1,-0.5,0,0.5,1,2} ∩ domain.
-        const double allAnchors[7] = {-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0};
-        double lambdaSnap = 0.0;
-        double dBest = arma::datum::inf;
-        for (int i = 0; i < 7; ++i){
-                double aA = allAnchors[i];
-                if (aA < lambdaMin || aA > lambdaMax) continue;
-                double dist = std::abs(aA - lambdaStar);
-                if (dist < dBest ||
-                    (dist == dBest && std::abs(aA) < std::abs(lambdaSnap))){
-                        dBest = dist;
-                        lambdaSnap = aA;
-                }
-        }
-        // Fit at the anchor, warm-started from ψ*.
-        vec    pPreSnap = SSmodel::inputs.p;
-        double fSnap    = innerFit(lambdaSnap);
-        double llikSnap = -fSnap;
-        // Compute IC for snap (k = base_k, lambda is fixed) and for
-        // lambda* (k = base_k + 1, lambda counts as a DoF) using the
-        // user-selected criterion.  n is the number of finite observations.
-        int n_ic = static_cast<int>(SSmodel::inputs.y.n_elem
-                                    - find_nonfinite(SSmodel::inputs.y).eval().n_elem);
-        double AIC_os, BIC_os, AICc_os, BICc_os;  // lambda* (k+1)
-        double AIC_sn, BIC_sn, AICc_sn, BICc_sn;  // snap (k)
-        infoCriteria(llikStar, base_k + 1, n_ic, AIC_os, BIC_os, AICc_os, BICc_os);
-        infoCriteria(llikSnap, base_k,     n_ic, AIC_sn, BIC_sn, AICc_sn, BICc_sn);
-        double crit_opt, crit_snap;
-        const char* crit_label;
-        if (inputs.criterion == "bic" || inputs.criterion == "bicc"){
-                crit_opt = BIC_os;   crit_snap = BIC_sn;   crit_label = "BIC";
-        } else if (inputs.criterion == "aicc"){
-                crit_opt = AICc_os;  crit_snap = AICc_sn;  crit_label = "AICc";
-        } else {  // "aic" (default)
-                crit_opt = AIC_os;   crit_snap = AIC_sn;   crit_label = "AIC";
-        }
-
-        ProfileResult pr;
-        if (std::isfinite(crit_snap) && crit_snap <= crit_opt){
-                // Anchor wins (ties to the anchor for parsimony).  inputs
-                // already at the anchor fit -- nothing more to do.
-                pr.lambda       = lambdaSnap;
-                pr.lambdaCounts = false;
-                pr.llik         = llikSnap;
-        } else {
-                // Optimised wins; refit at lambdaStar to restore inputs.
-                SSmodel::inputs.p = pPreSnap;
-                innerFit(lambdaStar);
-                pr.lambda       = lambdaStar;
-                pr.lambdaCounts = true;
-                pr.llik         = llikStar;
-        }
-        inputs.lambda          = pr.lambda;
-        inputs.lambdaEstimated = pr.lambdaCounts;
-        if (VERBOSE){
-                printf("    profile-lambda  lambda*=%6.3f  anchor=%4.1f  %s*=%9.3f  %s^=%9.3f  -> %s\n",
-                       lambdaStar, lambdaSnap,
-                       crit_label, crit_opt, crit_label, crit_snap,
-                       pr.lambdaCounts ? "keep lambda*" : "snap to anchor");
-        }
-        return pr;
 }
 // Forecast-only path: skip optimisation and run one Kalman pass with the
 // user-supplied (natural-scale) parameters so that aEnd / PEnd are
