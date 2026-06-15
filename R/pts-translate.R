@@ -298,22 +298,25 @@ uc_to_pts <- function(modelUC, lambda){
              baseline_ic = as.numeric(baseline_ic))
 }
 
-# .pts_select_pts_arma: nested PTS + ARMA grid search.  Outer loop walks
-# the structural PTS candidates (trend × seasonal at the user's lambda
-# spec); inner loop is the ARMA cap grid scored on that structural's
-# residuals.
+# .pts_select_pts_arma: PTS + ARMA selection done as two sequential
+# passes — PTS structurals first, then ARMA on the winning structural's
+# residuals only.
 #
-# Ranking is by *structural* IC alone — PTS is the primary model; ARMA is
-# a refinement applied per-structural to the residuals.  This matches the
-# "PTS first, ARMA refines" principle: the structural that explains the
-# most variance via its own state-space form wins; whatever residual
-# autocorrelation remains is then captured by the per-structural ARMA
-# grid winner.  No combined IC is formed (combining likelihoods across
-# very different state-space dimensions is fragile and was producing
-# spurious −1e5 scores for badly-mismatched structurals).
+# A naive nested loop (ARMA grid INSIDE the structural loop) would re-run
+# the full ARMA cap grid up to N_PTS times.  On a typical SARMA cap of
+# (2,2)(2,2)_12 that's 12 × 81 = 972 SARMA fits, each ≈ 3 s — about an
+# hour.  All but one of those grids is thrown away.
 #
-# Damped trend (D = srw) is paired with AR-less ARMA only — matches the
-# engine-side (damped, AR > 0) exclusion in findUCmodels().
+# The sequential pass does:
+#   1. Fit every PTS structural shape (≈ 12 cheap fits).  Rank by IC.
+#   2. Run the ARMA cap grid on the winning structural's residuals ONCE.
+#      The grid already includes the arma(0,0) baseline, so the IC
+#      ranking inside the grid naturally falls back to "no ARMA" when
+#      the ARMA refinement doesn't justify its extra DoF — i.e. pure-PTS
+#      vs ARMA gets compared fairly inside the grid, not above it.
+#
+# Damped trend (D = srw) is paired with AR-less ARMA candidates only —
+# matches the engine-side (damped, AR > 0) exclusion in findUCmodels().
 .pts_select_pts_arma <- function(y, u, model_template, lags,
                                  ar_max, ma_max, arma_lags,
                                  ic, criterion, verbose = FALSE){
@@ -347,23 +350,18 @@ uc_to_pts <- function(modelUC, lambda){
     bar <- paste(rep("-", 83), collapse = "")
     if (isTRUE(verbose)){
         cat(bar, "\n")
-        cat(" PTS + ARMA selection (PTS outer, ARMA inner):\n")
+        cat(" PTS structural shapes (no ARMA):\n")
         cat(bar, "\n")
-        cat(sprintf(" %-14s %8s %14s %26s\n",
-                    "   PTS shape", "Lambda", "Struct IC", "Best ARMA on residuals"))
+        cat(sprintf(" %-16s %8s %14s\n",
+                    "    PTS shape", "Lambda", "Struct IC"))
         cat(bar, "\n")
     }
 
+    # Pass 1 — fit every PTS structural shape, rank by IC.
     best <- list(struct_ic = Inf)
     for (tr in trend_cands){
         for (se in seas_cands){
             spec <- paste0(lambda_str, tr, se)
-            # Targeted (damped, AR > 0) exclusion: srw + AR cells are
-            # pre-filtered so the per-structural ARMA grid only tries
-            # AR-less candidates with the damped trend.
-            ar_local <- ar_max
-            if (tr == "D") ar_local[] <- 0L
-            # Structural-only fit at this (trend, seasonal).
             struct <- tryCatch(
                 .pts_fit(y = y, u = u, model = spec, lags = lags, h = 0L,
                          criterion = criterion, armaIdent = FALSE,
@@ -375,59 +373,49 @@ uc_to_pts <- function(modelUC, lambda){
                         as.integer(isTRUE(struct$lambdaEstimated))
             struct_ic <- ic_from_LL(as.numeric(struct$logLik), k_struct)
             if (!is.finite(struct_ic)) next
-            # ARMA grid on the residuals at this structural.  We pick the
-            # best ARMA here purely as the refinement that pairs with
-            # *this* structural; ranking across structurals is by struct
-            # IC alone.
-            arma_pick <- .pts_select_arma(struct$residuals,
-                                          ar_max = ar_local,
-                                          ma_max = ma_max,
-                                          lags   = arma_lags,
-                                          ic     = ic,
-                                          verbose = FALSE)
-            arma_label <- if (length(arma_pick$lags) == 1L)
-                sprintf("arma(%d,%d)",
-                        arma_pick$ar, arma_pick$ma)
-            else
-                sprintf("arma(%d,%d,%d,%d,%d)",
-                        arma_pick$ar[1L], arma_pick$ma[1L],
-                        arma_pick$ar[2L], arma_pick$ma[2L],
-                        arma_pick$lags[2L])
             if (isTRUE(verbose)){
-                cat(sprintf(" (%5.2f, %1s, %1s) %22.4f %26s\n",
-                            struct$lambda, tr, se,
-                            struct_ic, arma_label))
+                cat(sprintf(" (%5.2f, %1s, %1s) %22.4f\n",
+                            struct$lambda, tr, se, struct_ic))
             }
             if (struct_ic < best$struct_ic){
-                best <- list(struct_ic = struct_ic,
-                             model_spec = spec,
-                             lambda    = struct$lambda,
-                             trend     = tr,
-                             seasonal  = se,
-                             ar        = arma_pick$ar,
-                             ma        = arma_pick$ma,
-                             lags      = arma_pick$lags)
+                best <- list(struct_ic   = struct_ic,
+                             model_spec  = spec,
+                             lambda      = struct$lambda,
+                             trend       = tr,
+                             seasonal    = se,
+                             struct_fit  = struct)
             }
         }
     }
+    if (!is.finite(best$struct_ic))
+        stop("PTS + ARMA selection failed: no structural candidate produced ",
+             "a finite IC.", call. = FALSE)
     if (isTRUE(verbose)){
         cat(bar, "\n")
-        cat(sprintf(" Selected (PTS by %s, ARMA = best on its residuals):\n", ic))
-        cat(sprintf("   PTS(%.2f, %s, %s) + %s\n",
-                    best$lambda, best$trend, best$seasonal,
-                    if (length(best$lags) == 1L)
-                        sprintf("arma(%d,%d)", best$ar, best$ma)
-                    else
-                        sprintf("arma(%d,%d,%d,%d,%d)",
-                                best$ar[1L], best$ma[1L],
-                                best$ar[2L], best$ma[2L],
-                                best$lags[2L])))
-        cat(bar, "\n")
+        cat(sprintf(" Best PTS structural by %s: PTS(%.2f, %s, %s)\n",
+                    ic, best$lambda, best$trend, best$seasonal))
+        cat(bar, "\n\n")
     }
-    if (!is.finite(best$struct_ic))
-        stop("PTS + ARMA selection failed: no candidate produced a finite IC.",
-             call. = FALSE)
-    best
+
+    # Pass 2 — ARMA grid on the winning structural's residuals only.  The
+    # arma(0,0) cell is always in the grid; if no ARMA cell beats it on
+    # IC, the final fit drops back to pure PTS automatically.
+    ar_local <- ar_max
+    if (best$trend == "D") ar_local[] <- 0L     # (damped, AR > 0) exclusion
+    arma_pick <- .pts_select_arma(best$struct_fit$residuals,
+                                  ar_max = ar_local,
+                                  ma_max = ma_max,
+                                  lags   = arma_lags,
+                                  ic     = ic,
+                                  verbose = verbose)
+
+    list(model_spec = best$model_spec,
+         lambda     = best$lambda,
+         trend      = best$trend,
+         seasonal   = best$seasonal,
+         ar         = arma_pick$ar,
+         ma         = arma_pick$ma,
+         lags       = arma_pick$lags)
 }
 
 # uc_to_arma: pull the ARMA orders out of an "arma(...)" block embedded in a
