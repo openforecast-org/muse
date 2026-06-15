@@ -76,10 +76,11 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
         Named("criteria") = out.criteria);
 
     if (out.hasValidate){
-        output("table") = out.table;
-        output("v")     = out.v;
-        output("covp")  = out.covp;
-        output("coef")  = out.coef;
+        output("table")        = out.table;
+        output("v")            = out.v;
+        output("covp")         = out.covp;
+        output("coef")         = out.coef;
+        output("typeOutliers") = out.typeOutliers;
     }
     if (out.hasFilter){
         output("a")          = out.a;

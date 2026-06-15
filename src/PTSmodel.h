@@ -1965,7 +1965,18 @@ void BSMclass::estimOutlier(vec p0, bool VERBOSE){
                                 abs(SSmodel::inputs.v / sqrt(SSmodel::inputs.F)));
                 eps.replace(datum::nan, 0);
         }
-        uvec indAO = find(eps > 2.3);
+        // Per-type thresholds scale with the user-supplied z-score
+        // (SSmodel::inputs.outlier).  The historical defaults — AO 2.3,
+        // LS 2.5, SC 3.0 — set the relative stiffness; level=0.99 →
+        // z≈2.576 → AO 2.576 / LS 2.80 / SC 3.36.  The engine flags the
+        // "final fit with detection" path via a *negative* outlier
+        // value (PTSmodel.h:1874), so take std::abs to recover the
+        // user's z-score in either sign.
+        const double zUser = std::abs(SSmodel::inputs.outlier);
+        const double thrAO = zUser;
+        const double thrLS = zUser * (2.5 / 2.3);
+        const double thrSC = zUser * (3.0 / 2.3);
+        uvec indAO = find(eps > thrAO);
         vec  valAO = eps(indAO);
         uvec sortInd;
         // Correction in case there are too many AO's
@@ -1980,7 +1991,7 @@ void BSMclass::estimOutlier(vec p0, bool VERBOSE){
         vec  valLS;
         if (inputs.nPar(0) > 0){ // && SSmodel::inputs.eta.row(0).max() > 2.5){
                 valLS = abs(SSmodel::inputs.eta.row(0).t());
-                indLS = selectOutliers(valLS, 3, 2.5);
+                indLS = selectOutliers(valLS, 3, thrLS);
                 eps = abs(SSmodel::inputs.eta.row(0).t());
                 valLS = eps(indLS);
         }
@@ -1989,7 +2000,7 @@ void BSMclass::estimOutlier(vec p0, bool VERBOSE){
         vec  valSC;
         if (inputs.ns(0) > 1 && inputs.nPar(0) > 0){ // && SSmodel::inputs.eta.row(1).max() > 3){
                 valSC = abs(SSmodel::inputs.eta.row(1).t());
-                indSC = selectOutliers(valSC, 3, 3.0);
+                indSC = selectOutliers(valSC, 3, thrSC);
                 eps = abs(SSmodel::inputs.eta.row(1).t());
                 valSC = eps(indSC);
         }

@@ -55,6 +55,23 @@
 #' @param regressors handling of xregs.  Currently only \code{"use"}
 #' (apply all supplied xregs as fixed-coefficient covariates).  Adam's
 #' \code{"select"} and \code{"adapt"} modes are not yet implemented.
+#' @param outliers what to do about outliers, mirroring \code{adam()}'s
+#' interface: \code{"ignore"} (default — fit ignores the possibility of
+#' outliers) or \code{"use"} (run the engine's outlier detector once
+#' after the structural fit, classify each event as AO / LS / SC, and
+#' refit with the detected events as fixed regressor dummies).  Adam's
+#' \code{"select"} mode (IC-pruning of detected dummies) is not yet
+#' supported — passing it errors with a clear message.  When
+#' \code{outliers = "use"} the detected events are returned on the
+#' fitted object as \code{$outliersDetected} (a data frame with
+#' \code{time} and \code{type} columns) and the corresponding dummy
+#' coefficients appear in \code{coef(m)} as \code{Beta(...)} entries.
+#' @param level confidence level driving the outlier z-score threshold
+#' (default 0.99).  Translated to a two-sided z via
+#' \code{qnorm((1 + level) / 2)}: 0.99 → ≈ 2.576, 0.95 → ≈ 1.960.  The
+#' z drives the AO threshold; LS / SC scale proportionally to preserve
+#' the engine's relative stiffness (LS ≈ 1.087×z, SC ≈ 1.304×z).
+#' Ignored when \code{outliers = "ignore"}.
 #' @param ic information criterion for automatic model selection; one of
 #' \code{"AICc"} (default), \code{"AIC"}, \code{"BIC"}, \code{"BICc"}.
 #' Matches the adam option set.
@@ -106,6 +123,8 @@ pts <- function(data,
                 orders     = list(ar = 0, ma = 0, select = FALSE),
                 formula    = NULL,
                 regressors = c("use"),
+                outliers   = c("ignore", "use", "select"),
+                level      = 0.99,
                 ic         = c("AICc", "AIC", "BIC", "BICc"),
                 h          = 0,
                 holdout    = FALSE,
@@ -115,6 +134,20 @@ pts <- function(data,
     tic <- proc.time()
     regressors <- match.arg(regressors)
     ic         <- match.arg(ic)
+    outliers   <- match.arg(outliers)
+    if (outliers == "select")
+        stop("`outliers = 'select'` is not yet supported; use 'use'.",
+             call. = FALSE)
+    if (!is.numeric(level) || length(level) != 1L ||
+        level <= 0 || level >= 1)
+        stop("`level` must be a length-1 numeric in (0, 1).",
+             call. = FALSE)
+    # Engine takes a z-score threshold (positive → enable outlier
+    # detection); adam-style `level` converts to a two-sided z via the
+    # standard normal quantile at (1 + level)/2.  At the default 0.99 →
+    # ≈ 2.576 ≈ qnorm(0.995, 0, 1).
+    outlier_z <- if (outliers == "ignore") 0
+                 else stats::qnorm((1 + level) / 2)
     # Internal hatch (adam-style): if the caller passes B via ..., use it
     # as the starting parameter vector for the optimiser.  Natural-scale
     # (positive variances), matching the engine's userP0 branch.  Kept
@@ -196,6 +229,30 @@ pts <- function(data,
         ordersUC$select <- FALSE
     }
 
+    # The engine's outlier-injection path has a parameter-vector
+    # dimensionality bug when joint-BFGS is also estimating lambda (the
+    # extra lambda slot doesn't survive the dummy-injection refit).
+    # Sidestep by pinning lambda *before* outlier detection: when
+    # `outliers = "use"` and the model spec still has the auto-lambda
+    # `Z` letter, run a quick no-outlier fit, read its chosen lambda
+    # back, and rewrite the model spec with that lambda as a number.
+    if (outliers == "use" && outlier_z > 0){
+        nmod <- nchar(model)
+        if (toupper(substr(model, 1L, nmod - 2L)) == "Z"){
+            pre <- .pts_fit(y = y, u = u, model = model, lags = lags,
+                            h = 0L,
+                            criterion = criterion,
+                            armaIdent = FALSE,
+                            ar = ordersUC$ar, ma = ordersUC$ma,
+                            armaLags = ordersUC$lags,
+                            outlier = 0,
+                            B = NULL, verbose = FALSE)
+            lambda_chosen <- round(as.numeric(pre$lambda), 4)
+            model <- paste0(format(lambda_chosen, scientific = FALSE),
+                            substr(model, nmod - 1L, nmod))
+        }
+    }
+
     res <- .pts_fit(y = y, u = u, model = model, lags = lags,
                     h = as.integer(h),
                     criterion = criterion,
@@ -203,6 +260,7 @@ pts <- function(data,
                     ar        = ordersUC$ar,
                     ma        = ordersUC$ma,
                     armaLags  = ordersUC$lags,
+                    outlier   = outlier_z,
                     B         = B,
                     verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).
@@ -259,6 +317,9 @@ pts <- function(data,
         formula      = parsed$formula,
         responseName = parsed$responseName,
         regressors   = regressors,       # adam-aligned: "use" only for now
+        outliers     = outliers,         # adam-aligned: "ignore" or "use"
+        level        = level,            # confidence level for outlier z-threshold
+        outliersDetected = res$outliersDetected,
         ic           = ic,               # adam-style criterion name (AICc/...)
         model      = uc_to_pts(res$modelUC, res$lambda),
         modelUC    = res$modelUC,       # pts-specific UC string

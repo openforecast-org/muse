@@ -42,7 +42,8 @@
 # that we pass to UCompC and also stash on the pts object for forecast.pts.
 .pts_uc_inputs <- function(y, u, modelUC, h, lambda, criterion, lags,
                            verbose, armaIdent,
-                           irregularOptions = "arma(0,0)"){
+                           irregularOptions = "arma(0,0)",
+                           outlier = 0){
     # u: NULL -> sentinel matrix; vector -> row matrix; otherwise pass through
     if (is.null(u)){
         u_mat <- matrix(0, 1, 2)
@@ -61,7 +62,7 @@
         model            = modelUC,
         h                = as.integer(h),
         lambda           = lambda,
-        outlier          = 0,
+        outlier          = as.numeric(outlier),
         tTest            = FALSE,
         criterion        = criterion,
         periods          = periods,
@@ -271,7 +272,8 @@
 # data shape that pts() uses for its returned object.  This replaces the
 # (now retired) PTSsetup + MSOEsetup + MSOE chain.
 .pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose,
-                     ar = 0L, ma = 0L, armaLags = 1L, B = NULL){
+                     ar = 0L, ma = 0L, armaLags = 1L, outlier = 0,
+                     B = NULL){
     # Flatten per-lag ar / ma vectors into the format pts_to_uc consumes:
     #   length-1 lags → c(p, q)         (non-seasonal arma(p,q))
     #   length-2 lags → c(p, q, P, Q, s) (sarma(p,q)(P,Q)_s)
@@ -288,7 +290,8 @@
                            verbose = verbose, armaIdent = armaIdent,
                            irregularOptions =
                                .pts_arma_candidates(ar, ma, armaLags,
-                                                    armaIdent))
+                                                    armaIdent),
+                           outlier = outlier)
     # Override the default sentinel (-9999.9) when the caller supplied an
     # explicit starting vector via `B` (adam-style internal hatch, passed
     # through pts(... , B = ...) and used by the loss-surface experiment
@@ -373,6 +376,25 @@
     logLik <- if (length(crit) >= 1) unname(crit[1]) else NA_real_
     if (length(crit) == 4L) names(crit) <- c("logLik", "AIC", "BIC", "AICc")
 
+    # Outlier detection — engine emits a (nDetected x 2) matrix with
+    # columns (type, time) where type ∈ {0 = AO, 1 = LS, 2 = SC} and time
+    # is the 0-based index in y.  Convert to a user-friendly data frame.
+    detected <- out$typeOutliers
+    outliersDetected <- if (!is.null(detected) && length(detected) > 0L &&
+                            nrow(detected) > 0L){
+        types <- c("AO", "LS", "SC")[as.integer(detected[, 1L]) + 1L]
+        # Times come back zero-indexed from the engine; flip to 1-based
+        # to match R conventions / the user's series positions.
+        data.frame(time = as.integer(detected[, 2L]) + 1L,
+                   type = factor(types, levels = c("AO", "LS", "SC")),
+                   stringsAsFactors = FALSE)
+    } else {
+        data.frame(time = integer(0),
+                   type = factor(character(0),
+                                 levels = c("AO", "LS", "SC")),
+                   stringsAsFactors = FALSE)
+    }
+
     list(
         modelUC      = out$model,
         lambda       = out$lambda,
@@ -389,7 +411,8 @@
         table        = out$table,
         logLik       = logLik,
         lambdaEstimated = lambdaEstimated,
-        IC           = if (length(crit) >= 4) crit[2:4]       else NA_real_
+        IC           = if (length(crit) >= 4) crit[2:4]       else NA_real_,
+        outliersDetected = outliersDetected
     )
 }
 

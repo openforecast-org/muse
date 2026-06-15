@@ -98,6 +98,12 @@ struct MuseOutputs {
     // simulate
     bool                    hasSimulate = false;
     arma::mat               simPaths;    // h x nsim, on the original (post-invBoxCox) scale
+
+    // outlier detection (populated by `all` when in.outlier > 0).  Each
+    // row is (type, time): type ∈ {0 = AO, 1 = LS, 2 = SC}, time is the
+    // 0-based observation index of the detected event.  Zero-row matrix
+    // when in.outlier == 0 or nothing was detected.
+    arma::mat               typeOutliers;
 };
 
 // runMuseCommand: end-to-end dispatch. Mirrors what the old UCompC body
@@ -267,6 +273,9 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         out.v     = inputs.v;
         out.covp  = inputs.covp;
         out.coef  = inputs.coef;
+        // Outlier detection populated by estimOutlier() — empty matrix
+        // when in.outlier == 0 or nothing was detected.
+        out.typeOutliers = inputs2.typeOutliers;
     }
 
     // -- filter / smooth / disturb / all --

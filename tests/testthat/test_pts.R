@@ -374,3 +374,44 @@ test_that("select=TRUE searches up to the (ar, ma) cap and reports the choice", 
     expect_match(m$modelUC,
                  "(arma\\([0-9]+,[0-9]+\\)|/none)$")
 })
+
+#### outliers + level ####
+test_that("outliers = 'ignore' produces no detection and round-trips slot", {
+    m <- pts(AirPassengers, model = "0NT", h = 0)
+    expect_equal(m$outliers, "ignore")
+    expect_equal(m$level, 0.99)
+    expect_s3_class(m$outliersDetected, "data.frame")
+    expect_equal(nrow(m$outliersDetected), 0L)
+    expect_equal(names(m$outliersDetected), c("time", "type"))
+})
+
+test_that("outliers = 'use' detects an injected spike", {
+    # Plant an obvious additive spike at t = 100.
+    y <- AirPassengers
+    y[100] <- 3 * y[100]
+    m <- pts(y, model = "0NT", h = 0, outliers = "use", level = 0.99)
+    expect_equal(m$outliers, "use")
+    expect_gt(nrow(m$outliersDetected), 0L)
+    # The planted spike must land in the detected set.
+    expect_true(100L %in% m$outliersDetected$time)
+    # And its dummy must show up in coef(m) (engine names them AO<t> /
+    # LS<t> / SC<t>).
+    cn <- names(coef(m))
+    expect_true(any(grepl("(AO|LS|SC)100", cn)))
+})
+
+test_that("outliers = 'select' errors with 'not yet supported'", {
+    expect_error(
+        pts(AirPassengers, model = "0NT", h = 0, outliers = "select"),
+        "not yet supported")
+})
+
+test_that("level is validated as a length-1 numeric in (0, 1)", {
+    expect_error(pts(AirPassengers, model = "0NT", h = 0,
+                     outliers = "use", level = 1),    "in \\(0, 1\\)")
+    expect_error(pts(AirPassengers, model = "0NT", h = 0,
+                     outliers = "use", level = 0),    "in \\(0, 1\\)")
+    expect_error(pts(AirPassengers, model = "0NT", h = 0,
+                     outliers = "use", level = c(0.9, 0.95)),
+                 "length-1")
+})
