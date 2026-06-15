@@ -4247,6 +4247,22 @@ void bsm2ss(int ns0, int nsSeas, vec P, vec rhos, mat* T, mat* Z){
         (*T)(aux2 + ns0, aux2 + ns0) = aux(aux2, aux2);
 }
 // Combining models for components
+// Parse the AR order out of an "arma(...)" candidate string.  Sums the
+// non-seasonal `p` and seasonal `P` fields (the 1st and 3rd commaseparated
+// entries in arma(p,q[,P,Q,s])); returns 0 for "none" / non-arma tokens.
+inline int armaARorder(const string& irr){
+    if (irr.size() < 5 || irr.compare(0, 5, "arma(") != 0) return 0;
+    size_t open  = irr.find('(');
+    size_t close = irr.find(')');
+    if (open == string::npos || close == string::npos) return 0;
+    string body = irr.substr(open + 1, close - open - 1);
+    vector<string> parts;
+    chopString(body, ",", parts);
+    int p_field = (parts.size() >= 1) ? stoi(parts[0]) : 0;
+    int P_field = (parts.size() >= 3) ? stoi(parts[2]) : 0;
+    return p_field + P_field;
+}
+
 void findUCmodels(string trend, string cycle, string seasonal, string irregular, vector<string>& allModels){
         int nTrendModels, nCycleModels, nSeasonalModels, nIrregularModels;
         vector <string> trendModels, cycleModels, seasonalModels, irrModels;
@@ -4266,15 +4282,24 @@ void findUCmodels(string trend, string cycle, string seasonal, string irregular,
         // int count = 0;
         string cModel;
         for (int i = 0; i < nTrendModels; i++){
+                // Damped-style trends (srw, dt) share their persistence
+                // parameter with an AR component — fitting them jointly
+                // leads to an unidentified joint optimum.  Skip the
+                // specific (damped trend, AR > 0) cells here; MA-only
+                // ARMA candidates with the same trend remain allowed.
+                bool dampedTrend = (trendModels[i] == "srw" ||
+                                    trendModels[i] == "dt");
                 for (int l = 0; l < nCycleModels; l++){
                         for (int j = 0; j < nSeasonalModels; j++){
                                 for (int k = 0; k < nIrregularModels; k++){
                                         if (trendModels[i] == "none" && cycleModels[l] == "none" && seasonalModels[j] == "none" && irrModels[k] == "none"){
-                                        } else {
-                                                cModel = trendModels[i];
-                                                cModel.append("/").append(cycleModels[l]).append("/").append(seasonalModels[j]).append("/").append(irrModels[k]);
-                                                allModels.push_back(cModel);
+                                                continue;
                                         }
+                                        if (dampedTrend && armaARorder(irrModels[k]) > 0)
+                                                continue;
+                                        cModel = trendModels[i];
+                                        cModel.append("/").append(cycleModels[l]).append("/").append(seasonalModels[j]).append("/").append(irrModels[k]);
+                                        allModels.push_back(cModel);
                                 }
                         }
                 }

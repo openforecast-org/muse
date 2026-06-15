@@ -44,23 +44,24 @@ BEGIN_RCPP
 END_RCPP
 }
 // UCompARMAC
-SEXP UCompARMAC(SEXP ys, SEXP ar_, SEXP ma_, SEXP criterion_);
-RcppExport SEXP _muse_UCompARMAC(SEXP ysSEXP, SEXP ar_SEXP, SEXP ma_SEXP, SEXP criterion_SEXP) {
+SEXP UCompARMAC(SEXP ys, SEXP arOrders_, SEXP maOrders_, SEXP armaLags_, SEXP criterion_);
+RcppExport SEXP _muse_UCompARMAC(SEXP ysSEXP, SEXP arOrders_SEXP, SEXP maOrders_SEXP, SEXP armaLags_SEXP, SEXP criterion_SEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< SEXP >::type ys(ysSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type ar_(ar_SEXP);
-    Rcpp::traits::input_parameter< SEXP >::type ma_(ma_SEXP);
+    Rcpp::traits::input_parameter< SEXP >::type arOrders_(arOrders_SEXP);
+    Rcpp::traits::input_parameter< SEXP >::type maOrders_(maOrders_SEXP);
+    Rcpp::traits::input_parameter< SEXP >::type armaLags_(armaLags_SEXP);
     Rcpp::traits::input_parameter< SEXP >::type criterion_(criterion_SEXP);
-    rcpp_result_gen = Rcpp::wrap(UCompARMAC(ys, ar_, ma_, criterion_));
+    rcpp_result_gen = Rcpp::wrap(UCompARMAC(ys, arOrders_, maOrders_, armaLags_, criterion_));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
     {"_muse_UCompC", (DL_FUNC) &_muse_UCompC, 22},
-    {"_muse_UCompARMAC", (DL_FUNC) &_muse_UCompARMAC, 4},
+    {"_muse_UCompARMAC", (DL_FUNC) &_muse_UCompARMAC, 5},
     {NULL, NULL, 0}
 };
 

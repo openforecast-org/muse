@@ -23,6 +23,8 @@ class ARMAmodel : public SSmodel{
     int ns;
   public:
     ARMAmodel(SSinputs, int, int);
+    ARMAmodel(SSinputs, arma::ivec arOrders, arma::ivec maOrders,
+              arma::ivec armaLags);
 };
 /***************************************************
  * Auxiliar function declarations
@@ -50,13 +52,15 @@ void armaMatricesTrue(vec, SSmatrix*, void*);
 // Constructors
 ARMAmodel::ARMAmodel(SSinputs data, int ar, int ma) : SSmodel(data){
   //int ns;
-  
+
   // Initialising matrices
   initMatricesArma(ar, ma, ns, data.system);
   // Storing information
   this->inputs.system = data.system;
   this->dataARMA.ar = ar;
   this->dataARMA.ma = ma;
+  this->dataARMA.arDeg = ar;
+  this->dataARMA.maDeg = ma;
   if (ar == 0){
     this->inputs.exact = true;
   } else {
@@ -67,6 +71,35 @@ ARMAmodel::ARMAmodel(SSinputs data, int ar, int ma) : SSmodel(data){
   this->inputs.userModel = armaMatrices;
   // Initializing parameters of ARMA model
   this->inputs.p0.zeros(ar + ma + 1);
+  this->inputs.p0(0) = -1;
+}
+// Per-lag SARMA constructor.  arOrders / maOrders / armaLags are paired
+// position-wise: arOrders[i] AR coefs at lag armaLags[i], similarly for MA.
+// armaMatrices() consumes the same per-lag layout via the polyMult-based
+// buildARMApoly().
+ARMAmodel::ARMAmodel(SSinputs data,
+                     arma::ivec arOrders, arma::ivec maOrders,
+                     arma::ivec armaLags) : SSmodel(data){
+  int arFree = (arOrders.n_elem > 0) ? (int)arma::sum(arOrders) : 0;
+  int maFree = (maOrders.n_elem > 0) ? (int)arma::sum(maOrders) : 0;
+  int arDeg  = 0, maDeg = 0;
+  for (arma::uword b = 0; b < arOrders.n_elem; ++b)
+    arDeg += arOrders(b) * armaLags(b);
+  for (arma::uword b = 0; b < maOrders.n_elem; ++b)
+    maDeg += maOrders(b) * armaLags(b);
+  initMatricesArma(arDeg, maDeg, ns, data.system);
+  this->inputs.system    = data.system;
+  this->dataARMA.ar      = arFree;
+  this->dataARMA.ma      = maFree;
+  this->dataARMA.arDeg   = arDeg;
+  this->dataARMA.maDeg   = maDeg;
+  this->dataARMA.arOrders = arOrders;
+  this->dataARMA.maOrders = maOrders;
+  this->dataARMA.armaLags = armaLags;
+  this->inputs.exact     = (arFree == 0);
+  this->inputs.userInputs = &this->dataARMA;
+  this->inputs.userModel  = armaMatrices;
+  this->inputs.p0.zeros(arFree + maFree + 1);
   this->inputs.p0(0) = -1;
 }
 /*************************************************************

@@ -104,36 +104,55 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
     return output;
 }
 
-// Standalone ARMA fitter — used by R/pts-translate.R::.pts_select_arma()
-// in place of stats::arima.  Fits a (non-seasonal) ARMA(ar, ma) to the
-// supplied vector via the same SSmodel / quasi-Newton machinery PTS uses,
-// with the same MLE σ̂² convention and BFGS objective shape.  ACF/PACF
-// asymmetric init is applied so the optimiser doesn't drift to the
-// cancellation manifold (the same fix used in PTSmodel.h:3662).
+// Standalone ARMA / SARMA fitter — used by R/pts-translate.R::
+// .pts_select_arma() in place of stats::arima.  Fits any per-lag ARMA
+// (non-seasonal arma(p, q) when length(arOrders) == 1, SARMA(p, q)(P, Q)_s
+// when length == 2) to the supplied vector via the same SSmodel /
+// quasi-Newton machinery PTS uses, with the same MLE σ̂² convention and
+// BFGS objective shape.  ACF/PACF asymmetric init is applied so the
+// optimiser doesn't drift to the cancellation manifold.
+//
+// ARMA(0, 0) short-circuits to var(y) with the same IC formula
+// (k = 1 + 0 + 0 = 1) as a fitted ARMA(p, q) — so the grid search can
+// rank the no-ARMA cell against any ARMA cell on equal terms.
 //
 // Inputs:
-//   ys        — numeric vector (the BC-scale residuals from PTS).
-//   ar, ma    — non-negative scalars.
-//   criterion — "aic" / "aicc" / "bic" / "bicc" (unused inside; the wrapper
-//                returns all four ICs and R picks the relevant one).
-// Output: List with logLik / AIC / AICc / BIC / BICc / coef (AR coefs first,
-// then MA coefs, both natural scale) / sigma2 / succeed.
+//   ys        — numeric vector (BC-scale residuals from PTS).
+//   arOrders  — integer vector, AR orders per lag block.
+//   maOrders  — integer vector, MA orders per lag block.
+//   armaLags  — integer vector of lags (always c(1) or c(1, s)).
+//   criterion — accepted for API symmetry, unused (all four ICs are
+//                returned).
+// Output: List with logLik / AIC / AICc / BIC / BICc / coef (AR blocks
+// concatenated, then MA blocks, both natural scale) / sigma2 / succeed.
 //
 // [[Rcpp::export]]
-SEXP UCompARMAC(SEXP ys, SEXP ar_, SEXP ma_, SEXP criterion_){
+SEXP UCompARMAC(SEXP ys, SEXP arOrders_, SEXP maOrders_, SEXP armaLags_,
+                SEXP criterion_){
     (void)criterion_;     // unused — wrapper returns all four ICs, R picks
     NumericVector yr(ys);
     vec y(yr.begin(), yr.size(), false);
-    int ar = as<int>(ar_);
-    int ma = as<int>(ma_);
-    if (ar < 0) ar = 0;
-    if (ma < 0) ma = 0;
+    IntegerVector arOrdersR(arOrders_);
+    IntegerVector maOrdersR(maOrders_);
+    IntegerVector armaLagsR(armaLags_);
+    ivec arOrders(arOrdersR.size()), maOrders(maOrdersR.size()),
+         armaLags(armaLagsR.size());
+    for (R_xlen_t i = 0; i < arOrdersR.size(); ++i) arOrders(i) = arOrdersR[i];
+    for (R_xlen_t i = 0; i < maOrdersR.size(); ++i) maOrders(i) = maOrdersR[i];
+    for (R_xlen_t i = 0; i < armaLagsR.size(); ++i) armaLags(i) = armaLagsR[i];
+
+    int arFree = (arOrders.n_elem > 0) ? (int)arma::sum(arOrders) : 0;
+    int maFree = (maOrders.n_elem > 0) ? (int)arma::sum(maOrders) : 0;
+    if (arFree < 0) arFree = 0;
+    if (maFree < 0) maFree = 0;
 
     // Drop non-finite entries up front so the KF doesn't crash on NaN.
     uvec ok = find_finite(y);
     vec yClean = y(ok);
-    if (yClean.n_elem < std::max(4, ar + ma + 2))
+    if (yClean.n_elem < (uword)std::max(4, arFree + maFree + 2))
         return List::create(Named("succeed") = false);
+
+    int n_finite = (int)yClean.n_elem;
 
     // SSinputs setup mirroring BSMclass's pattern at musecore.h:170+.
     SSinputs ssIn;
@@ -143,24 +162,27 @@ SEXP UCompARMAC(SEXP ys, SEXP ar_, SEXP ma_, SEXP criterion_){
     ssIn.u          = mat(0, yClean.n_elem);
     ssIn.cLlik      = true;         // concentrated MLE σ̂²
     ssIn.augmented  = false;        // ARMA is stationary, no diffuse init
-    ssIn.exact      = (ar == 0);
+    ssIn.exact      = (arFree == 0);
     ssIn.h          = 0;
     ssIn.verbose    = false;
     ssIn.userInputs = nullptr;
     ssIn.estimateLambda = false;
 
-    if (ar == 0 && ma == 0){
-        // Pure-noise fit — σ̂² is just var(y), no optimisation needed.
-        double sigma2 = arma::var(yClean, 1);    // 1/n divisor (MLE)
-        int n = (int)yClean.n_elem;
-        double LL = -0.5 * n * (std::log(2.0 * datum::pi) +
-                                std::log(sigma2) + 1.0);
-        int k = 1;       // only σ²
+    // ARMA(0, 0) — fit σ̂² in closed form and compute the IC with the
+    // SAME formula the engine uses for any ARMA(p, q): k = p.n_elem +
+    // nonStationaryTerms = 1.  Keeping the comparison IC-fair across the
+    // grid so the (0, 0) cell isn't artificially favoured / penalised.
+    if (arFree == 0 && maFree == 0){
+        double sigma2 = arma::var(yClean, 1);     // 1/n divisor (MLE)
+        double LL = -0.5 * n_finite *
+                    (std::log(2.0 * datum::pi) + std::log(sigma2) + 1.0);
+        int k = 1;     // σ² only
         double aic  = -2.0 * LL + 2.0 * k;
-        double bic  = -2.0 * LL + std::log((double)n) * k;
-        double aicc = aic + (2.0 * k * (k + 1)) / std::max(1, n - k - 1);
-        double bicc = bic + (std::log((double)n) * k * (k + 1)) /
-                            std::max(1, n - k - 1);
+        double bic  = -2.0 * LL + std::log((double)n_finite) * k;
+        double aicc = aic + (2.0 * k * (k + 1)) /
+                            std::max(1, n_finite - k - 1);
+        double bicc = bic + (std::log((double)n_finite) * k * (k + 1)) /
+                            std::max(1, n_finite - k - 1);
         return List::create(
             Named("logLik")  = LL,
             Named("AIC")     = aic,
@@ -172,12 +194,16 @@ SEXP UCompARMAC(SEXP ys, SEXP ar_, SEXP ma_, SEXP criterion_){
             Named("succeed") = true);
     }
 
-    // ACF/PACF asymmetric init — same logic as PTSmodel.h:3662, simplified
-    // for the scalar (ar, ma) case.  BFGS-scale slot layout:
-    //   p[0]            = log-stddev seed
-    //   p[1..ar]        = AR coefs in the polyStationary input space (PACF)
-    //   p[ar+1..ar+ma]  = MA coefs in the polyStationary input space
-    int maxLag = std::max(ar, ma);
+    // ACF/PACF asymmetric init — per-lag layout matching armaMatrices()'s
+    // consumption order:
+    //   p[0]                       = log-stddev seed
+    //   p[1..arFree]               = AR coefs, block-by-block
+    //   p[arFree+1..arFree+maFree] = MA coefs, block-by-block
+    int maxLag = 0;
+    for (uword b = 0; b < arOrders.n_elem; ++b)
+        maxLag = std::max(maxLag, arOrders(b) * armaLags(b));
+    for (uword b = 0; b < maOrders.n_elem; ++b)
+        maxLag = std::max(maxLag, maOrders(b) * armaLags(b));
     vec pacf = (maxLag > 0) ? sampleYWpacf(yClean, maxLag) : vec();
     vec acf  = (maxLag > 0) ? sampleACF (yClean, maxLag) : vec();
     auto clamp = [](double v, double fb){
@@ -186,40 +212,51 @@ SEXP UCompARMAC(SEXP ys, SEXP ar_, SEXP ma_, SEXP criterion_){
         if (v < -0.85) return -0.85;
         return v;
     };
-    // Build the p0 vector ourselves so we can hand it straight to estim().
-    vec p0(ar + ma + 1, fill::zeros);
+
+    vec p0(arFree + maFree + 1, fill::zeros);
     p0(0) = -1.0;
-    for (int i = 0; i < ar; ++i)
-        p0(1 + i) = clamp(pacf(i), 0.1);
-    for (int j = 0; j < ma; ++j)
-        p0(1 + ar + j) = clamp(acf(j), -0.1);
-    if (ar > 0 && ma > 0){
+    uword pos = 1;
+    for (uword b = 0; b < arOrders.n_elem; ++b){
+        int pi = arOrders(b);
+        int Li = armaLags(b);
+        for (int j = 0; j < pi; ++j){
+            int lagIdx = (j + 1) * Li;
+            double seed = (lagIdx <= (int)pacf.n_elem) ? pacf(lagIdx - 1) : 0.1;
+            p0(pos++) = clamp(seed, 0.1);
+        }
+    }
+    uword maStart = pos;
+    for (uword b = 0; b < maOrders.n_elem; ++b){
+        int qi = maOrders(b);
+        int Li = armaLags(b);
+        for (int j = 0; j < qi; ++j){
+            int lagIdx = (j + 1) * Li;
+            double seed = (lagIdx <= (int)acf.n_elem) ? acf(lagIdx - 1) : -0.1;
+            p0(pos++) = clamp(seed, -0.1);
+        }
+    }
+    // Tie-breaker on the leading (AR_1, MA_1) pair when arOrders[0] > 0 and
+    // maOrders[0] > 0 — pushes MA off the φ_i == θ_i manifold.
+    if (arOrders.n_elem > 0 && maOrders.n_elem > 0 &&
+        arOrders(0) > 0 && maOrders(0) > 0){
         double a = p0(1);
-        double m = p0(1 + ar);
+        double m = p0(maStart);
         if (std::abs(a - m) < 0.1){
             double offset = (m > 0.0) ? -0.2 : 0.2;
-            p0(1 + ar) = clamp(m + offset, -0.1);
+            p0(maStart) = clamp(m + offset, -0.1);
         }
     }
 
-    // Construct ARMA model (state-space ARMA from src/ARMAmodel.h).
-    ARMAmodel sys(ssIn, ar, ma);
+    // Construct ARMA model with per-lag SARMA support.
+    ARMAmodel sys(ssIn, arOrders, maOrders, armaLags);
 
-    // ARMAmodel constructor sets userModel + userInputs but NOT llikFUN —
-    // SSmodel::estim() expects llikFUN to be wired before being called.
-    // Use the non-augmented `llik` (ARMA is stationary, no diffuse phase).
     SSinputs sysIn = sys.SSmodel::getInputs();
     sysIn.llikFUN = llik;
     sysIn.p0      = p0;
-    // The ARMAinputs handle in sysIn.userInputs was set to a member of `sys`
-    // by its constructor — that pointer must outlive estim(), which it
-    // does since `sys` is still on this frame.
     sys.SSmodel::setInputs(sysIn);
 
-    // Run the same BFGS the PTS engine uses.
     sys.SSmodel::estim();
 
-    // Pull results back out.
     SSinputs sysOut = sys.SSmodel::getInputs();
     vec criteria = sysOut.criteria;   // {LLIK, AIC, BIC, AICc, BICc}
     if (criteria.n_elem < 5)
@@ -231,17 +268,29 @@ SEXP UCompARMAC(SEXP ys, SEXP ar_, SEXP ma_, SEXP criterion_){
     double bicc = criteria(4);
 
     // Convert the BFGS p-vector into natural-scale AR / MA coefficients
-    // (the same polyStationary the engine applies inside armaMatrices).
-    NumericVector coef(ar + ma);
-    if (ar > 0){
-        vec ARp = sysOut.p.rows(1, ar);
-        polyStationary(ARp);
-        for (int i = 0; i < ar; ++i) coef[i] = -ARp(i);     // (1 - φ·B) sign
-    }
-    if (ma > 0){
-        vec MAp = sysOut.p.rows(ar + 1, ar + ma);
-        polyStationary(MAp);
-        for (int j = 0; j < ma; ++j) coef[ar + j] = MAp(j); // (1 + θ·B) sign
+    // per block.  polyStationary is applied per-block (matching how
+    // armaMatrices() reads its slice).
+    NumericVector coef(arFree + maFree);
+    {
+        uword pIn  = 1;
+        uword pOut = 0;
+        for (uword b = 0; b < arOrders.n_elem; ++b){
+            int pi = arOrders(b);
+            if (pi == 0) continue;
+            vec block = sysOut.p.rows(pIn, pIn + pi - 1);
+            polyStationary(block);
+            for (int j = 0; j < pi; ++j) coef[pOut++] = -block(j);
+            pIn += pi;
+        }
+        for (uword b = 0; b < maOrders.n_elem; ++b){
+            int qi = maOrders(b);
+            if (qi == 0) continue;
+            vec block = sysOut.p.rows(pIn, pIn + qi - 1);
+            polyStationary(block);
+            for (int j = 0; j < qi; ++j) coef[pOut++] = block(j);
+            pIn += qi;
+        }
+        (void)pOut;
     }
     double sigma2 = sysOut.innVariance;
 
