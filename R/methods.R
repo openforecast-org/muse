@@ -150,6 +150,27 @@ print.pts <- function(x, digits = 4, ...){
     }
 
     # --- sample size / nparam / df (adam.R:6024-6026) ---
+    # --- missing-values + outlier-detection one-liners (skip when none) ---
+    nMissing <- if (!is.null(x$data)) sum(!is.finite(as.numeric(x$data))) else 0L
+    if (nMissing > 0L)
+        cat("\n", nMissing,
+            if (nMissing == 1L) " missing value in the data"
+            else                " missing values in the data",
+            sep = "")
+    od <- x$outliersDetected
+    if (!is.null(od) && nrow(od) > 0L &&
+        !identical(x$outliers, "ignore")){
+        tally <- table(factor(od$type, levels = c("AO", "LS", "SC")))
+        bits  <- character(0)
+        if (tally[["AO"]] > 0L)
+            bits <- c(bits, sprintf("%d AO", tally[["AO"]]))
+        if (tally[["LS"]] > 0L)
+            bits <- c(bits, sprintf("%d LS", tally[["LS"]]))
+        if (tally[["SC"]] > 0L)
+            bits <- c(bits, sprintf("%d SC", tally[["SC"]]))
+        cat("\nOutliers detected: ", paste(bits, collapse = ", "), sep = "")
+    }
+
     cat("\nSample size:", nobs(x))
     cat("\nNumber of estimated parameters:", nparam(x))
     cat("\nNumber of degrees of freedom:", nobs(x) - nparam(x))
