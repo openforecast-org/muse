@@ -83,7 +83,7 @@ print.pts <- function(x, digits = 4, ...){
     #     line.  ARMA and Beta blocks come further below. ---
     B  <- coef(x)
     nm <- names(B)
-    isArma  <- grepl("^(AR|MA)\\(", nm)
+    isArma  <- grepl("^S?(AR|MA)\\(", nm)    # matches AR/MA + SAR/SMA
     isXreg  <- grepl("^Beta",       nm)
     isDamp  <- nm == "Damping"
     isVar   <- !(isArma | isXreg | isDamp)   # includes Irregular
@@ -126,14 +126,18 @@ print.pts <- function(x, digits = 4, ...){
         cat("\nDamping: ", round(unname(dampVal), digits), "\n", sep = "")
 
     # --- ARMA parameters of the irregular component (adam.R:5976-6013) ---
-    if (!is.null(x$orders) && (x$orders$ar > 0 || x$orders$ma > 0)){
+    # `orders$ar` and `$ma` may be length-1 (non-seasonal) or length-2
+    # (seasonal); `any()` makes the scalar / vector cases uniform.  Names
+    # are AR(i) / SAR(i) / MA(i) / SMA(i), so the patterns match both
+    # non-seasonal and seasonal blocks in one go.
+    if (!is.null(x$orders) && (any(x$orders$ar > 0) || any(x$orders$ma > 0))){
         cat("\nARMA parameters of the irregular component:\n")
-        if (x$orders$ar > 0){
-            arVals <- B[grepl("^AR\\(", nm)]
+        if (any(x$orders$ar > 0)){
+            arVals <- B[grepl("^S?AR\\(", nm)]
             if (length(arVals)) print(round(arVals, digits))
         }
-        if (x$orders$ma > 0){
-            maVals <- B[grepl("^MA\\(", nm)]
+        if (any(x$orders$ma > 0)){
+            maVals <- B[grepl("^S?MA\\(", nm)]
             if (length(maVals)) print(round(maVals, digits))
         }
     }

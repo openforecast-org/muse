@@ -105,7 +105,7 @@ summary.pts <- function(object, level = 0.95, ...){
     }
 
     # Variance proportions including Irregular so they sum to 1.
-    isArma  <- grepl("^(AR|MA)\\(", nm)
+    isArma  <- grepl("^S?(AR|MA)\\(", nm)    # matches AR/MA + SAR/SMA
     isXreg  <- grepl("^Beta",       nm)
     isDamp  <- nm == "Damping"
     isVar   <- !(isArma | isXreg | isDamp)
