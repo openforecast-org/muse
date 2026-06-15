@@ -166,30 +166,33 @@ pts <- function(data,
         }
     }
 
-    # Residual-based ARMA selection.  When the user passes
-    # `orders$select = TRUE`, fit the structural PTS once with no ARMA, then
-    # grid-search ARMA orders on the BC-scale residuals via stats::arima and
-    # use the winning (ar, ma) for the final fit.  This is dramatically
-    # cheaper than the old engine-side ident() ARMA grid (N full state-space
-    # fits → ~2 fits + N cheap arima() calls) and preserves the user-facing
-    # IC criterion.
+    # Nested PTS + ARMA selection.  When `orders$select = TRUE`, the loop
+    # is PTS-outer / ARMA-inner: for every structural (trend, seasonal)
+    # candidate, fit it without ARMA, run the ARMA grid on its residuals,
+    # and score combined_IC = structural_IC + (best_ARMA_IC − ARMA(0,0)_IC).
+    # The (PTS structure, ARMA orders) pair with the lowest combined IC
+    # wins; the final fit then runs at fixed structure + fixed ARMA.
+    #
+    # The damped (D / srw) trend is paired only with AR-less ARMA
+    # candidates because srw's α parameter and AR persistence are
+    # jointly unidentified — same rule the engine's findUCmodels() applies.
     userSelect <- isTRUE(ordersUC$select)
     if (userSelect){
-        struct_fit <- .pts_fit(y = y, u = u, model = model, lags = lags,
-                               h = 0L,
-                               criterion = criterion,
-                               armaIdent = FALSE,
-                               ar = 0L, ma = 0L, armaLags = 1L,
-                               B = NULL, verbose = FALSE)
-        chosen <- .pts_select_arma(struct_fit$residuals,
-                                   ar_max  = ordersUC$ar,
-                                   ma_max  = ordersUC$ma,
-                                   lags    = ordersUC$lags,
-                                   ic      = ic,
-                                   verbose = verbose)
-        ordersUC$ar     <- chosen$ar
-        ordersUC$ma     <- chosen$ma
-        ordersUC$lags   <- chosen$lags
+        sel <- .pts_select_pts_arma(y = y, u = u,
+                                    model_template = model,
+                                    lags     = lags,
+                                    ar_max   = ordersUC$ar,
+                                    ma_max   = ordersUC$ma,
+                                    arma_lags = ordersUC$lags,
+                                    ic        = ic,
+                                    criterion = criterion,
+                                    verbose   = verbose)
+        # Lock the structural spec down (lambda + trend + seasonal letters)
+        # so the final fit doesn't re-ident.
+        model <- sel$model_spec
+        ordersUC$ar     <- sel$ar
+        ordersUC$ma     <- sel$ma
+        ordersUC$lags   <- sel$lags
         ordersUC$select <- FALSE
     }
 
