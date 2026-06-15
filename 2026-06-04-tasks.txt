@@ -4,28 +4,27 @@
 +4. summary.pts -> proportions as well + variances of proportions
 +5. Add actuals in plot(12).
 +6. Slope before seasonal in plot(12)
-7. plot(4,5) have issues
-8. plot(6) - check that it is BCNorm
-9. forecast method improvements
++7. plot(4,5) have issues
++8. plot(6) - check that it is BCNorm
++9. forecast method improvements
 10. simulate(test) add obs
-11. Simulated intervals
++11. Simulated intervals
 +12. Add Periods:  12.0 /  6.0 /  4.0 /  3.0 /  2.4 to print/summary
-13. summary - add stars to show which is concentrated out
++13. summary - add stars to show which is concentrated out
 14. Amend the data to split into y and xreg.
 15. Lambda estimation
 16. Outliers parameter: identify/use/nothing + level=0.99
-17. Include the seasonal ARMA in the residuals
-18. Check df for BC vs lambda=0, 1
-19. Do harmonic selection for any pts(Z,Z,T) model. This should work either in selection or estimation scenarios.
+17. ARMA residuals do not work. Check
+18. Include the seasonal ARMA in the residuals
++19. Check df for BC vs lambda=0, 1
+20. Do harmonic selection for any pts(Z,Z,T) model. This should work either in selection or estimation scenarios.
++21. Check the AIC in case of lambda selection. lambda=1? - Is there a shift in values?
+22. Check why adding missing values moves lambda=0
+
 
 
 Diego:
-1. Check the residuals - make sure that they are returned for the whole sample to be comparable with other models.
-2. Make sure that likelihoods have the same dimensions (same length).
++1. Check the residuals - make sure that they are returned for the whole sample to be comparable with other models.
++2. Make sure that likelihoods have the same dimensions (same length).
 +3. Check the Discrete seasonality - it is shifted 3 steps ahead.
 
-
-
-
- 
-I want you to design an experiment to explore the loss surface for PTS(1,G,T). Think how to design it, what R script to create, how to run it , what to record and how to report the results. I want to see how the loss looks like, how many minima it has etc. 
