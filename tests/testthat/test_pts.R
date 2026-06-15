@@ -312,16 +312,22 @@ test_that("orders uses frequency(data) as default seasonal lag when missing", {
     expect_equal(m_exp$modelUC, m_imp$modelUC)
 })
 
-test_that("orders rejects mismatched lengths and select=TRUE + seasonal", {
+test_that("orders rejects mismatched lengths", {
     expect_error(
         pts(AirPassengers, model = "1LT", h = 0,
             orders = list(ar = c(1, 1), ma = c(0, 0), lags = c(1))),
         "must match")
-    expect_error(
-        pts(AirPassengers, model = "1LT", h = 0,
-            orders = list(ar = c(1, 1), ma = c(0, 0),
-                          lags = c(1, 12), select = TRUE)),
-        "not yet supported")
+})
+
+test_that("select=TRUE searches the seasonal grid up to the (p, q, P, Q) cap", {
+    m <- pts(AirPassengers, model = "1LT", h = 0,
+             orders = list(ar = c(1, 1), ma = c(1, 0),
+                           lags = c(1, 12), select = TRUE))
+    # ident() picks one element of the cap grid; check the chosen orders
+    # stay within bounds.
+    expect_true(m$orders$ar[1] <= 1L && m$orders$ar[2] <= 1L)
+    expect_true(m$orders$ma[1] <= 1L && m$orders$ma[2] <= 0L)
+    expect_match(m$modelUC, "arma\\([0-9]+,[0-9]+(,[0-9]+,[0-9]+,12)?\\)$")
 })
 
 test_that("select=TRUE searches up to the (ar, ma) cap and reports the choice", {

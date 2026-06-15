@@ -43,8 +43,9 @@
 #'     top-level \code{lags} argument (or \code{c(1, frequency(data))}).
 #'     The seasonal SARMA polynomial is multiplied internally, so the BFGS
 #'     only optimises the free \eqn{\phi_i, \Phi_j, \theta_i, \Theta_j}
-#'     coefficients.  \code{select = TRUE} is not yet supported with
-#'     seasonal orders.
+#'     coefficients.  \code{select = TRUE} runs a grid search over every
+#'     \eqn{(p', q', P', Q')} tuple with \eqn{0 \le p' \le} \code{ar[1]} and
+#'     so on, and picks the candidate with the lowest \code{ic}.
 #' }
 #' PTS has no differencing, so \code{orders$i} must be 0 if supplied.
 #' @param formula optional formula \code{response ~ x1 + x2 + ...}; only

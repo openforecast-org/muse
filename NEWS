@@ -8,6 +8,9 @@ muse v0.0.2.41001 (in development)
   Coefficients show up as `SAR(i)` / `SMA(i)` in print/summary.  The
   seasonal polynomial is multiplied internally; the BFGS only optimises the
   free φ_i, Φ_j, θ_i, Θ_j coefficients.
+* `orders$select = TRUE` now also works for seasonal specs: ident() grid-
+  searches the (p, q, P, Q) tuple up to the supplied caps and picks the
+  lowest-IC candidate.
 
 muse v0.0.1.41005 (in development)
 =======

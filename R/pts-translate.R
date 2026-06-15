@@ -157,11 +157,6 @@ uc_to_pts <- function(modelUC, lambda){
              "irregular ARMA — got length(lags) = ", length(lags),
              ".  Combine multiple seasonal lags into a single ",
              "SARMA(p,q)(P,Q)_s before passing in.", call. = FALSE)
-    if (sel && length(lags) > 1L)
-        stop("`select = TRUE` over seasonal ARMA grids is not yet ",
-             "supported.  Use `select = TRUE` only with non-seasonal ",
-             "orders, or set `select = FALSE` for a fixed seasonal spec.",
-             call. = FALSE)
     list(ar = ar, ma = ma, lags = lags, select = sel)
 }
 
@@ -177,20 +172,33 @@ uc_to_pts <- function(modelUC, lambda){
 }
 
 # .pts_arma_candidates: build the slash-delimited candidate list the
-# engine validates in PTSmodel.h:493-505 ("none" or "arma(p,q)" entries).
+# engine validates in PTSmodel.h:493-505 ("none" or "arma(...)" entries).
 #   select = FALSE, no seasonal -> single fixed entry "arma(p,q)"
 #   select = FALSE, seasonal    -> single fixed entry "arma(p,q,P,Q,s)"
-#   select = TRUE  (no seasonal only)
-#                               -> "none" plus every "arma(i,j)" with
-#                                  0 <= i <= ar, 0 <= j <= ma; ident()
-#                                  picks the best by IC.
+#   select = TRUE,  no seasonal -> "none" + every "arma(i,j)" with
+#                                  0 <= i <= ar, 0 <= j <= ma.
+#   select = TRUE,  seasonal    -> "none" + every "arma(i,j,I,J,s)" with
+#                                  0 <= i <= ar[1], 0 <= j <= ma[1],
+#                                  0 <= I <= ar[2], 0 <= J <= ma[2].
+# In every select=TRUE case ident() picks the best candidate by the chosen IC.
 .pts_arma_candidates <- function(ar, ma, lags = 1L, select = FALSE){
     ar <- as.integer(ar); ma <- as.integer(ma); lags <- as.integer(lags)
     if (isTRUE(select)){
-        # Validated upstream (.pts_orders_to_uc) — seasonal select disallowed.
+        if (length(lags) == 1L){
+            grid <- expand.grid(p = 0L:ar[1L], q = 0L:ma[1L],
+                                KEEP.OUT.ATTRS = FALSE)
+            return(paste(c("none",
+                           sprintf("arma(%d,%d)", grid$p, grid$q)),
+                         collapse = "/"))
+        }
+        # Seasonal grid: 4-D Cartesian product over (p, q, P, Q).
         grid <- expand.grid(p = 0L:ar[1L], q = 0L:ma[1L],
+                            P = 0L:ar[2L], Q = 0L:ma[2L],
                             KEEP.OUT.ATTRS = FALSE)
-        return(paste(c("none", sprintf("arma(%d,%d)", grid$p, grid$q)),
+        return(paste(c("none",
+                       sprintf("arma(%d,%d,%d,%d,%d)",
+                               grid$p, grid$q, grid$P, grid$Q,
+                               lags[2L])),
                      collapse = "/"))
     }
     if (length(lags) == 1L) {
