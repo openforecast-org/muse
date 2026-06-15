@@ -1231,6 +1231,17 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         }
       } else {
         miss = true;
+        // No information at t: r_{t-1} = T' r_t, N_{t-1} = T' N_t T (and
+        // likewise for the diffuse quantities).  Must happen here, before
+        // data.a.col(t) is computed below, so the smoothed state at this
+        // missing observation uses r_{t-1} rather than the stale r_t.
+        rt = data.system.T.t() * rt;
+        Nt = data.system.T.t() * Nt * data.system.T;
+        if (!colapsed){
+          rinft = data.system.T.t() * rinft;
+          Ninft = data.system.T.t() * Ninft * data.system.T;
+          N2t = data.system.T.t() * N2t * data.system.T;
+        }
       }
       Pt = cP.slice(t);
       data.a.col(t) += Pt * rt;
@@ -1256,16 +1267,6 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         data.rNrOut.row(t) = rt.t() * pinv(Nt) * rt;
         data.rOut.col(t) = rt;
         data.NOut.slice(t) = Nt;
-      }
-      // Passing to rt(t-1) and Nt(t-1)
-      if (t > 0 && miss){
-        rt = data.system.T.t() * rt;
-        Nt = data.system.T.t() * Nt * data.system.T;
-        if (!colapsed){
-          rinft = data.system.T.t() * rinft;
-          Ninft = data.system.T.t() * Ninft * data.system.T;
-          N2t = data.system.T.t() * N2t * data.system.T;
-        }
       }
     }
   }
