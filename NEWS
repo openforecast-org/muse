@@ -28,11 +28,22 @@ muse v0.0.2.41001 (in development)
   to bit precision on AirPassengers) or stuck at the iteration limit
   (synthetic AR(1) signals recovered as AR ≈ -0.02 instead of ≈ 0.7).
   Pure AR(1) recovery now matches stats::arima to 3-4 decimals.
-* Non-seasonal `orders$select = TRUE` grid uses a new in-engine ARMA
-  fitter `UCompARMAC` instead of `stats::arima`, so IC ranking and the
-  final fit share the same MLE σ̂² definition and PACF parameter space.
-  Seasonal grids still go through stats::arima — extension is a
-  follow-up.
+* `orders$select = TRUE` grid uses an in-engine ARMA / SARMA fitter
+  `UCompARMAC` for every candidate (including the seasonal cells); no
+  `stats::arima` call anywhere in R.  IC ranking and the final fit
+  share the same MLE σ̂² definition, the same PACF parameter space, and
+  the same DoF count (k = 1 + free AR + free MA), so the no-ARMA
+  baseline ranks fairly against any ARMA candidate.
+* `findUCmodels()` filters the (damped trend, AR > 0) combinations —
+  `srw` and `dt` model persistence via their α parameter, and pairing
+  them with an AR term joint-identifies poorly.  MA-only ARMA stays
+  allowed for those trends.  Replaces the previous blanket strip with
+  a per-combination filter.
+* ARMA initial conditions in the engine use asymmetric ACF / PACF
+  seeds (`PTSmodel.h:3662`), with a tie-breaker that pushes MA off the
+  φ_i == θ_i cancellation manifold whenever the two seeds collide.
+  Pure AR(1) recovery now matches `stats::arima` to 3-4 decimals;
+  ARMA(2, 2) on log(AirPassengers) no longer collapses to AR == MA.
 
 muse v0.0.1.41005 (in development)
 =======
