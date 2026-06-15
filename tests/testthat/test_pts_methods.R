@@ -32,7 +32,7 @@ test_that("lags.pts returns the seasonal lag", {
 
 test_that("orders.pts returns ARMA orders for arma(0,0)", {
     o <- orders(m)
-    expect_equal(o, list(ar = 0L, i = 0L, ma = 0L))
+    expect_equal(o, list(ar = 0L, ma = 0L, lags = 1L))
 })
 
 test_that("errorType.pts reports additive on the BC scale", {
@@ -186,7 +186,11 @@ test_that("pts carries the adam slots that plot.smooth reads", {
     expect_true(is.na(m$transition))
     expect_true(is.na(m$measurement))
     expect_true(is.na(m$initial))
-    expect_null(m$arma)
+    # $arma is always a list(ar, ma) — empty vectors when no ARMA structure
+    # is fitted (smooth::adam convention).
+    expect_type(m$arma, "list")
+    expect_length(m$arma$ar, 0)
+    expect_length(m$arma$ma, 0)
     expect_null(m$formula)
     expect_null(m$other)
     # scale: MLE of dnorm, sqrt(sum(e^2, na.rm=TRUE) / nobs).

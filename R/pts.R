@@ -47,7 +47,8 @@
 #'     \eqn{(p', q', P', Q')} tuple with \eqn{0 \le p' \le} \code{ar[1]} and
 #'     so on, and picks the candidate with the lowest \code{ic}.
 #' }
-#' PTS has no differencing, so \code{orders$i} must be 0 if supplied.
+#' PTS has no differencing — any \code{orders$i} supplied is silently
+#' ignored.
 #' @param formula optional formula \code{response ~ x1 + x2 + ...}; only
 #' meaningful when \code{data} is a matrix or \code{data.frame}.  Used to
 #' pick the response column + xreg columns explicitly.
@@ -229,13 +230,21 @@ pts <- function(data,
     # SARMA specs round-trip cleanly.
     pq <- uc_to_arma(res$modelUC)
     ordersList <- list(ar     = as.integer(pq$ar),
-                       i      = 0L,
                        ma     = as.integer(pq$ma),
                        lags   = as.integer(pq$lags),
                        # Preserve the user's original select flag so a fit
                        # done via the residual-based grid search still
                        # reports `$orders$select = TRUE`.
                        select = userSelect)
+
+    # Flat AR / MA coefficient vectors (smooth::adam convention — `$arma`).
+    # Lag-by-lag concatenation: c(φ_1, ..., φ_p [, Φ_1, ..., Φ_P]) for AR
+    # and analogously for MA.  Empty when the fit has no ARMA structure.
+    Bnames  <- names(res$p)
+    armaList <- list(
+        ar = unname(res$p[grepl("^S?AR\\(", Bnames)]),
+        ma = unname(res$p[grepl("^S?MA\\(", Bnames)])
+    )
 
     out <- list(
         ## --- inputs / spec ---
@@ -291,7 +300,7 @@ pts <- function(data,
         initialType      = NA_character_,
         initialEstimated = NA,
         orders           = ordersList,
-        arma             = NULL,
+        arma             = armaList,
         constant         = NA_real_,
         other            = NULL,
         ets              = NA,

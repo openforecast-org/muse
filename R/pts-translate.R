@@ -109,9 +109,9 @@ uc_to_pts <- function(modelUC, lambda){
                        ma = if (length(orders) == 2) orders[2] else 0L,
                        select = FALSE)
     }
-    if (!is.null(orders$i) && any(orders$i != 0))
-        stop("`orders$i` (differencing) is not supported by PTS — ",
-             "PTS has no I component.", call. = FALSE)
+    # PTS has no differencing — silently drop any `orders$i` the caller
+    # supplies (typical when reusing an adam-style spec).
+    orders$i <- NULL
     ar <- if (is.null(orders$ar)) 0L else as.integer(orders$ar)
     ma <- if (is.null(orders$ma)) 0L else as.integer(orders$ma)
     sel <- isTRUE(orders$select)

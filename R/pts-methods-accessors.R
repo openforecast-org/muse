@@ -57,19 +57,13 @@ lags.pts <- function(object, ...) object$lags
 
 #' @export
 orders.pts <- function(object, ...){
-    # Pull the ARMA(p,q) of the irregular component out of modelUC.
-    m <- object$modelUC
-    p1 <- regexpr("arma", m, fixed = TRUE)[1]
-    if (p1 == -1) return(list(ar = 0, i = 0, ma = 0))
-    ar <- suppressWarnings(as.integer(
-        sub("^arma\\(([0-9]+),([0-9]+)\\)$", "\\1",
-            substring(m, p1))))
-    ma <- suppressWarnings(as.integer(
-        sub("^arma\\(([0-9]+),([0-9]+)\\)$", "\\2",
-            substring(m, p1))))
-    if (is.na(ar)) ar <- 0L
-    if (is.na(ma)) ma <- 0L
-    list(ar = ar, i = 0L, ma = ma)
+    # Pull the per-lag ARMA orders out of modelUC.  PTS has no integration,
+    # so `$i` is not included in the returned list.  uc_to_arma() handles
+    # both arma(p,q) and arma(p,q,P,Q,s) grammars.
+    pq <- uc_to_arma(object$modelUC)
+    list(ar = as.integer(pq$ar),
+         ma = as.integer(pq$ma),
+         lags = as.integer(pq$lags))
 }
 
 #' Initial state values for a fitted \code{pts} object.

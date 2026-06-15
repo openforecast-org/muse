@@ -56,7 +56,8 @@ ARMA blocks (overridable per-fit via \code{orders$lags}).}
     \eqn{(p', q', P', Q')} tuple with \eqn{0 \le p' \le} \code{ar[1]} and
     so on, and picks the candidate with the lowest \code{ic}.
 }
-PTS has no differencing, so \code{orders$i} must be 0 if supplied.}
+PTS has no differencing — any \code{orders$i} supplied is silently
+ignored.}
 
 \item{formula}{optional formula \code{response ~ x1 + x2 + ...}; only
 meaningful when \code{data} is a matrix or \code{data.frame}.  Used to
