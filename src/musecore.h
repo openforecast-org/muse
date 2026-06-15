@@ -160,7 +160,8 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     // them, push them in via setEstimatedParams / lossAtRatio after
     // construction.
     const bool isLossAt  = (command == "lossAt");
-    const bool skipEstim = (command == "forecastOnly" || command == "simulate" || isLossAt);
+    const bool skipEstim = (command == "forecastOnly" || command == "simulate" ||
+                            command == "simulateInit" || isLossAt);
     vec userParams;
     if (skipEstim){
         userParams   = in.p0;
@@ -334,16 +335,22 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         out.compNames = compNames;
     }
 
-    // -- simulate --
+    // -- simulate / simulateInit --
     // Forward-simulate sample paths from the fitted state-space model.
-    // setEstimatedParams() above already populated the system matrices and
-    // the terminal state aEnd via a single llik pass.  We propagate
+    // setEstimatedParams() above already populated the system matrices,
+    // the terminal state aEnd, and (via augmented KF) the initial state
+    // betaAug via a single llik pass.  We propagate
     //   a_{t+1} = T a_t + R eta_t        eta ~ N(0, Q)
     //   y_t    = Z a_t + eps_t           eps ~ N(0, H)
     // and apply invBoxCox(., lambda) on the way out so the R wrapper sees
     // original-scale paths.  Q is treated as diagonal (BSM components are
     // independent), which is robust to zero variances.
-    if (command == "simulate"){
+    //
+    // The two commands differ only in which state vector seeds each path:
+    //   "simulate"     — terminal aEnd; paths are forward forecasts.
+    //   "simulateInit" — initial betaAug (first ns elements); paths are
+    //                    in-sample replays starting at t = 0.
+    if (command == "simulate" || command == "simulateInit"){
         if (in.seed != 0) arma_rng::set_seed(in.seed);
         SSinputs sim = sysBSM.SSmodel::getInputs();
         const int h    = in.h;
@@ -353,14 +360,33 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         mat Q  = sim.system.Q;
         mat Z  = sim.system.Z.row(0);
         double H = sim.system.H(0, 0);
-        vec aEnd = sim.aEnd;
+        vec seedState;
+        if (command == "simulateInit"){
+            // Run the smoother once so data->a holds the full raw state
+            // vector at every t.  The smoothed state at t = 1 (= column
+            // 0 of data->a) is the right seed for an in-sample replay.
+            // Cheaper than re-fitting and avoids depending on an R-side
+            // state handover that can't see the engine's full state
+            // vector (R sees only the aggregated component output).
+            sysBSM.SSmodel::smooth(false);
+            sim = sysBSM.SSmodel::getInputs();
+            if (sim.a.n_cols >= 1 && sim.a.n_rows == sim.aEnd.n_elem){
+                seedState = sim.a.col(0);
+            } else if (sim.betaAug.n_elem >= sim.aEnd.n_elem){
+                seedState = sim.betaAug.head(sim.aEnd.n_elem);
+            } else {
+                seedState = arma::zeros<vec>(sim.aEnd.n_elem);
+            }
+        } else {
+            seedState = sim.aEnd;
+        }
         vec sdQ(Q.n_rows);
         for (uword i = 0; i < Q.n_rows; ++i)
             sdQ(i) = std::sqrt(std::max(0.0, Q(i, i)));
         double sdH = std::sqrt(std::max(0.0, H));
         mat paths(h, nsim);
         for (int s = 0; s < nsim; ++s){
-            vec a = aEnd;
+            vec a = seedState;
             for (int t = 0; t < h; ++t){
                 double y_t = as_scalar(Z * a) + sdH * randn();
                 paths(t, s) = y_t;
@@ -370,7 +396,6 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
                 a = T * a + R * eta;
             }
         }
-        // Back-transform to the original scale element-by-element.
         out.simPaths = invBoxCoxMat(paths, inputs2.lambda);
         out.hasSimulate = true;
     }

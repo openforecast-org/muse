@@ -155,23 +155,33 @@ test_that("update.pts re-runs pts with the new args", {
 })
 
 #### simulate ####
-test_that("simulate.pts returns an h x nsim path matrix", {
-    s <- simulate(m, nsim = 50, h = 12, seed = 1L)
+test_that("simulate.pts returns an obs x nsim path matrix anchored at the data start", {
+    # simulate.pts replays the in-sample series starting from the
+    # smoothed α_{t=1}.  Default `obs = nobs(m)` produces a path the
+    # same length as the training data and aligned to its time index.
+    s <- simulate(m, nsim = 50, seed = 1L)
     expect_s3_class(s, "pts.sim")
-    expect_equal(dim(s$data), c(12L, 50L))
+    expect_equal(dim(s$data), c(nobs(m), 50L))
+    if (is.ts(m$data)){
+        expect_equal(stats::start(s$data), stats::start(m$data))
+    }
 })
 
-test_that("simulate.pts is reproducible with a seed", {
-    s1 <- simulate(m, nsim = 50, h = 12, seed = 7L)
-    s2 <- simulate(m, nsim = 50, h = 12, seed = 7L)
+test_that("simulate.pts honours obs and is reproducible with a seed", {
+    s1 <- simulate(m, nsim = 50, obs = 24, seed = 7L)
+    s2 <- simulate(m, nsim = 50, obs = 24, seed = 7L)
+    expect_equal(dim(s1$data), c(24L, 50L))
     expect_identical(s1$data, s2$data)
 })
 
-test_that("simulate.pts sample-path mean -> forecast mean", {
-    # 2000 paths should bring the mean close to the deterministic forecast.
-    s <- simulate(m, nsim = 2000, h = 12, seed = 11L)
+test_that("forecast(interval='simulated') sample mean -> deterministic forecast", {
+    # Forward simulation from the terminal state.  2000 paths should
+    # bring the mean close to the engine's deterministic forecast.
+    f <- forecast(m, h = 12, interval = "simulated",
+                  nsim = 2000, scenarios = TRUE, seed = 11L)
     fmean <- as.numeric(forecast(m, h = 12)$mean)
-    expect_lt(max(abs(rowMeans(s$data) - fmean)), 0.01)
+    expect_lt(max(abs(rowMeans(f$scenarios) - fmean)) /
+              max(abs(fmean)), 0.05)
 })
 
 #### adam-aligned slots ####

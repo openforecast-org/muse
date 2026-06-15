@@ -329,11 +329,16 @@ forecast.pts <- function(object, h = 10, newdata = NULL,
     yForVconf <- pmax(0, .pts_wrap_oos(as.numeric(out$yForV) - sigma2BC,
                                        object$data))
 
-    # Simulated paths -- cached for cumulative / scenarios reuse.
+    # Simulated paths from the *terminal* state — these are forward
+    # forecasts, not in-sample replays.  Bypasses simulate.pts (which
+    # starts from the initial state) by calling .pts_forecast_paths
+    # directly.  Cached for cumulative / scenarios reuse.
     pathsCache <- NULL
     drawPaths  <- function(){
         if (is.null(pathsCache))
-            pathsCache <<- as.matrix(simulate(object, nsim = nsim, h = h, ...)$data)
+            pathsCache <<- as.matrix(.pts_forecast_paths(object,
+                                                        nsim = nsim,
+                                                        h    = h))
         pathsCache
     }
 
