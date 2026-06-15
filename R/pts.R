@@ -165,6 +165,32 @@ pts <- function(data,
         }
     }
 
+    # Residual-based ARMA selection.  When the user passes
+    # `orders$select = TRUE`, fit the structural PTS once with no ARMA, then
+    # grid-search ARMA orders on the BC-scale residuals via stats::arima and
+    # use the winning (ar, ma) for the final fit.  This is dramatically
+    # cheaper than the old engine-side ident() ARMA grid (N full state-space
+    # fits → ~2 fits + N cheap arima() calls) and preserves the user-facing
+    # IC criterion.
+    userSelect <- isTRUE(ordersUC$select)
+    if (userSelect){
+        struct_fit <- .pts_fit(y = y, u = u, model = model, lags = lags,
+                               h = 0L,
+                               criterion = criterion,
+                               armaIdent = FALSE,
+                               ar = 0L, ma = 0L, armaLags = 1L,
+                               B = NULL, verbose = FALSE)
+        chosen <- .pts_select_arma(struct_fit$residuals,
+                                   ar_max = ordersUC$ar,
+                                   ma_max = ordersUC$ma,
+                                   lags   = ordersUC$lags,
+                                   ic     = ic)
+        ordersUC$ar     <- chosen$ar
+        ordersUC$ma     <- chosen$ma
+        ordersUC$lags   <- chosen$lags
+        ordersUC$select <- FALSE
+    }
+
     res <- .pts_fit(y = y, u = u, model = model, lags = lags,
                     h = as.integer(h),
                     criterion = criterion,
@@ -206,7 +232,10 @@ pts <- function(data,
                        i      = 0L,
                        ma     = as.integer(pq$ma),
                        lags   = as.integer(pq$lags),
-                       select = ordersUC$select)
+                       # Preserve the user's original select flag so a fit
+                       # done via the residual-based grid search still
+                       # reports `$orders$select = TRUE`.
+                       select = userSelect)
 
     out <- list(
         ## --- inputs / spec ---

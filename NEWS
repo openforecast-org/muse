@@ -8,9 +8,13 @@ muse v0.0.2.41001 (in development)
   Coefficients show up as `SAR(i)` / `SMA(i)` in print/summary.  The
   seasonal polynomial is multiplied internally; the BFGS only optimises the
   free φ_i, Φ_j, θ_i, Θ_j coefficients.
-* `orders$select = TRUE` now also works for seasonal specs: ident() grid-
-  searches the (p, q, P, Q) tuple up to the supplied caps and picks the
-  lowest-IC candidate.
+* `orders$select = TRUE` now also works for seasonal specs: grid-searches
+  the (p, q, P, Q) tuple up to the supplied caps and picks the lowest-IC
+  candidate.
+* `orders$select = TRUE` uses a residual-based two-stage strategy: fit the
+  structural PTS once (no ARMA), then rank ARMA candidates by IC on the
+  BC-scale residuals via `stats::arima()`.  Two state-space fits in total
+  instead of one-per-candidate, with the same IC criterion as before.
 
 muse v0.0.1.41005 (in development)
 =======

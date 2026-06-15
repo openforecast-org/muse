@@ -171,41 +171,96 @@ uc_to_pts <- function(modelUC, lambda){
            "BICc" = "bicc")
 }
 
-# .pts_arma_candidates: build the slash-delimited candidate list the
-# engine validates in PTSmodel.h:493-505 ("none" or "arma(...)" entries).
-#   select = FALSE, no seasonal -> single fixed entry "arma(p,q)"
-#   select = FALSE, seasonal    -> single fixed entry "arma(p,q,P,Q,s)"
-#   select = TRUE,  no seasonal -> "none" + every "arma(i,j)" with
-#                                  0 <= i <= ar, 0 <= j <= ma.
-#   select = TRUE,  seasonal    -> "none" + every "arma(i,j,I,J,s)" with
-#                                  0 <= i <= ar[1], 0 <= j <= ma[1],
-#                                  0 <= I <= ar[2], 0 <= J <= ma[2].
-# In every select=TRUE case ident() picks the best candidate by the chosen IC.
+# .pts_arma_candidates: serialise a single fixed ARMA spec for the engine's
+# irregularOptions slot.  Format:
+#   length-1 lags -> "arma(p,q)"
+#   length-2 lags -> "arma(p,q,P,Q,s)"  (SARMA(p,q)(P,Q)_s)
+#
+# Order selection is now done R-side in .pts_select_arma() before the call
+# to .pts_fit, so the engine never sees a multi-entry candidate list from
+# pts().  The `select` parameter is accepted only for backwards-compatible
+# call-site shape; it is ignored.
 .pts_arma_candidates <- function(ar, ma, lags = 1L, select = FALSE){
     ar <- as.integer(ar); ma <- as.integer(ma); lags <- as.integer(lags)
-    if (isTRUE(select)){
-        if (length(lags) == 1L){
-            grid <- expand.grid(p = 0L:ar[1L], q = 0L:ma[1L],
-                                KEEP.OUT.ATTRS = FALSE)
-            return(paste(c("none",
-                           sprintf("arma(%d,%d)", grid$p, grid$q)),
-                         collapse = "/"))
-        }
-        # Seasonal grid: 4-D Cartesian product over (p, q, P, Q).
-        grid <- expand.grid(p = 0L:ar[1L], q = 0L:ma[1L],
-                            P = 0L:ar[2L], Q = 0L:ma[2L],
-                            KEEP.OUT.ATTRS = FALSE)
-        return(paste(c("none",
-                       sprintf("arma(%d,%d,%d,%d,%d)",
-                               grid$p, grid$q, grid$P, grid$Q,
-                               lags[2L])),
-                     collapse = "/"))
-    }
-    if (length(lags) == 1L) {
+    if (length(lags) == 1L)
         return(sprintf("arma(%d,%d)", ar[1L], ma[1L]))
-    }
     sprintf("arma(%d,%d,%d,%d,%d)",
             ar[1L], ma[1L], ar[2L], ma[2L], lags[2L])
+}
+
+# .pts_select_arma: residual-based ARMA grid search.  Fits a standalone
+# stats::arima() at every (p, q [, P, Q]) tuple inside the supplied caps and
+# returns the winner by IC.  Replaces the old engine-side ident() grid path,
+# which used to re-fit the full PTS+ARMA state-space model for every
+# candidate.  Here the structural model is fit once upstream, and we score
+# ARMA candidates against its BC-scale residuals — same IC criterion as the
+# user-facing `ic` argument, just measured on the residual fit.
+#
+# `residuals` is the BC-scale residual vector from a structural-only PTS fit.
+# `lags` is length 1 (non-seasonal) or 2 (seasonal with seasonal period in
+# lags[2]).  Returns list(ar, ma, lags) with the winning per-lag vectors.
+.pts_select_arma <- function(residuals, ar_max, ma_max, lags, ic = "AICc"){
+    ar_max <- as.integer(ar_max); ma_max <- as.integer(ma_max)
+    lags   <- as.integer(lags)
+    ic     <- match.arg(ic, c("AICc", "AIC", "BIC", "BICc"))
+    r      <- as.numeric(residuals)
+    r      <- r[is.finite(r)]
+    n      <- length(r)
+    if (n < 4L)
+        stop("Not enough finite residuals (", n, ") to fit ARMA candidates.",
+             call. = FALSE)
+    # Cap grid — same shape .pts_arma_candidates() used to emit.
+    grid <- if (length(lags) == 1L)
+        expand.grid(p = 0L:ar_max[1L], q = 0L:ma_max[1L],
+                    P = 0L, Q = 0L,
+                    KEEP.OUT.ATTRS = FALSE)
+    else
+        expand.grid(p = 0L:ar_max[1L], q = 0L:ma_max[1L],
+                    P = 0L:ar_max[2L], Q = 0L:ma_max[2L],
+                    KEEP.OUT.ATTRS = FALSE)
+    # IC scorer.  AIC and BIC come from stats::AIC/BIC directly; AICc and
+    # BICc add the standard small-sample corrections.
+    score <- function(fit){
+        if (is.null(fit) || inherits(fit, "try-error"))
+            return(Inf)
+        ll <- as.numeric(stats::logLik(fit))
+        if (!is.finite(ll)) return(Inf)
+        k  <- length(fit$coef) + 1L          # + sigma^2
+        switch(ic,
+               "AIC"  = -2 * ll + 2 * k,
+               "BIC"  = -2 * ll + log(n) * k,
+               "AICc" = -2 * ll + 2 * k + (2 * k * (k + 1)) / (n - k - 1),
+               "BICc" = -2 * ll + log(n) * k +
+                        (log(n) * k * (k + 1)) / (n - k - 1))
+    }
+    fit_one <- function(p, q, P, Q){
+        seasArg <- if (P + Q > 0L && length(lags) == 2L)
+            list(order = c(P, 0L, Q), period = lags[2L])
+        else list(order = c(0L, 0L, 0L), period = 1L)
+        tryCatch(stats::arima(r, order = c(p, 0L, q),
+                              seasonal = seasArg,
+                              include.mean = FALSE,
+                              method = "CSS-ML"),
+                 error   = function(e) NULL,
+                 warning = function(w) NULL)
+    }
+    ics <- mapply(function(p, q, P, Q) score(fit_one(p, q, P, Q)),
+                  grid$p, grid$q, grid$P, grid$Q)
+    best <- which.min(ics)
+    if (!length(best) || !is.finite(ics[best])){
+        # Everything failed — degrade to the no-ARMA cell so the caller
+        # still gets a sensible final model.
+        best_row <- list(p = 0L, q = 0L, P = 0L, Q = 0L)
+    } else {
+        best_row <- as.list(grid[best, ])
+    }
+    if (length(lags) == 1L)
+        list(ar = as.integer(best_row$p), ma = as.integer(best_row$q),
+             lags = 1L)
+    else
+        list(ar = as.integer(c(best_row$p, best_row$P)),
+             ma = as.integer(c(best_row$q, best_row$Q)),
+             lags = lags)
 }
 
 # uc_to_arma: pull the ARMA orders out of an "arma(...)" block embedded in a
