@@ -79,6 +79,54 @@
     )
 }
 
+# .pts_lambda_search_positive: tiny IC-driven grid search for a positive
+# Box-Cox lambda when the series contains zeros (BC is undefined for
+# lambda <= 0 at y = 0).  Called by pts() in place of the engine's
+# unconstrained joint-BFGS lambda path.
+#
+# The grid is geometric-ish and capped at 1.0; tiny lambdas are allowed
+# in principle (BC(0, lambda) = -1/lambda is finite for lambda > 0) but
+# the corresponding KF objective is poorly conditioned, so the grid
+# only goes as low as 0.01.  The lower-bound value (1e-10) is exposed
+# in the warning message for transparency but is never actually fitted.
+.pts_lambda_search_positive <- function(y, u, model, lags, criterion,
+                                        ic, ordersUC){
+    grid <- c(0.01, 0.1, 0.25, 0.5, 0.75, 1.0)
+    nm <- nchar(model)
+    suffix <- substr(model, nm - 1L, nm)
+    n <- sum(is.finite(as.numeric(y)))
+    bestLambda <- 1
+    bestIC     <- Inf
+    for (lam in grid){
+        spec <- paste0(format(lam, scientific = FALSE), suffix)
+        fit <- tryCatch(
+            .pts_fit(y = y, u = u, model = spec, lags = lags, h = 0L,
+                     criterion = criterion, armaIdent = FALSE,
+                     ar = ordersUC$ar, ma = ordersUC$ma,
+                     armaLags = ordersUC$lags,
+                     outlier = 0, B = NULL, verbose = FALSE),
+            error = function(e) NULL
+        )
+        if (is.null(fit) || is.null(fit$logLik)) next
+        nP <- length(fit$p) + as.integer(isTRUE(fit$lambdaEstimated))
+        ll <- as.numeric(fit$logLik)
+        thisIC <- switch(ic,
+            AIC  = -2 * ll + 2 * nP,
+            BIC  = -2 * ll + log(n) * nP,
+            AICc = -2 * ll + 2 * nP + 2 * nP * (nP + 1) /
+                   max(1, n - nP - 1),
+            BICc = -2 * ll + log(n) * nP + log(n) * nP * (nP + 1) /
+                   max(1, n - nP - 1),
+            -2 * ll + 2 * nP
+        )
+        if (is.finite(thisIC) && thisIC < bestIC){
+            bestIC <- thisIC
+            bestLambda <- lam
+        }
+    }
+    bestLambda
+}
+
 # .pts_call_uc: thin wrapper around .UCompC() that dispatches on `command`.
 # `args` is the list produced by .pts_uc_inputs (possibly with `p` swapped
 # for a previously-estimated parameter vector for forecastOnly).
