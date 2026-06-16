@@ -30,14 +30,23 @@ double testBoxCox(vec, vec);
 /***************************************************
  * Function implementations
  ****************************************************/
-// Box-Cox transfomration using Guerrero (1993)
+// Box-Cox transformation.  Branches are exact-equality on lambda
+// (not threshold-based) so the LLIK / AIC is continuous in lambda and
+// the only shortcuts are the two singular points where the general
+// formula is undefined:
+//   lambda == 1  -> identity   (general formula gives (y - 1)/1 = y - 1,
+//                               which differs from y by a constant; we
+//                               drop that constant so the Kalman fit
+//                               matches greybox's `dbcnorm(lambda=1)`
+//                               convention -- see ARCHITECTURE.md)
+//   lambda == 0  -> log(y)     (general formula has 0/0)
 vec BoxCox(vec y, double lambda){
-  if (lambda > 0.98)
+  if (lambda == 1.0)
       return y;
   if (any(y < 0)){
     throw std::invalid_argument( "BoxCox transformation impossible: negative values encountered!!" );
   }
-  if (abs(lambda) < 0.02){
+  if (lambda == 0.0){
       return log(y);
   } else {
     // return (pow(sign(y) % abs(y), lambda) - 1) / lambda;
@@ -46,9 +55,9 @@ vec BoxCox(vec y, double lambda){
 }
 // Inverse of Box-Cox transformation
 vec invBoxCox(vec y, double lambda){
-  if (abs(lambda) < 0.02){
+  if (lambda == 0.0){
       return exp(y);
-  } else if (lambda > 0.98) {
+  } else if (lambda == 1.0) {
       return y;
   } else {
     //vec aux = y * lambda + 1;
@@ -57,9 +66,9 @@ vec invBoxCox(vec y, double lambda){
   }
 }
 mat invBoxCoxMat(mat y, double lambda){
-  if (abs(lambda) < 0.02){
+  if (lambda == 0.0){
       return exp(y);
-  } else if (lambda > 0.98) {
+  } else if (lambda == 1.0) {
       return y;
   } else {
     //vec aux = y * lambda + 1;
@@ -152,36 +161,69 @@ double llikDecompose(vec y, vec periods, uvec& ind, string type){
     sigma2 = (e.t() * e) / e.n_elem;
     return -((double)e.n_elem / 2) * (log(2 * datum::pi * sigma2(0)) + 1);
 }
-// Testing for no transformation, logs or box-cox transformation
+// Testing for no transformation, logs or box-cox transformation.
+//
+// Returns the Box-Cox λ seed for joint-BFGS estimation.  Compares the
+// log-likelihood of a simple decomposition fit under three candidates
+// (λ = 1 / λ = 0 / λ = BoxCoxEstim) and returns the winner.
+//
+// NaN sentinel convention: every "decomposition failed" branch maps to
+// a large *negative* value so the failed candidate loses every
+// subsequent `bestLLIK < cLLIK` comparison.  An earlier version of this
+// function used positive sentinels (1e8, 1e9) for the log / BoxCox-aux
+// candidates, which caused failed candidates to spuriously win and
+// pinned λ to 0 whenever the input contained NaN entries.
 double testBoxCox(vec y, vec periods){
     // https://stats.stackexchange.com/questions/261380/how-do-i-get-the-box-cox-log-likelihood-using-the-jacobian
-    // return in case of negative numbers
     string typeDecompose = "ma";   // hr: harmonic regression; or "ma": moving average
     double lambda = 1.0;
+    // Repair NaN / Inf entries in y up front so `llikDecompose` and
+    // BoxCoxEstim work on a finite series.  Naive filtering would break
+    // seasonal periodicity (BoxCoxEstim's variance-stabilisation test
+    // assumes regularly-spaced data), so we forward-fill missing
+    // entries with the most recent finite neighbour, then back-fill any
+    // leading NaN with the first finite value.  The decomposition test
+    // is a coarse warm-start estimator; nearest-neighbour fill is plenty.
+    if (!y.is_finite()){
+        uword n = y.n_elem;
+        double last = arma::datum::nan;
+        for (uword i = 0; i < n; ++i){
+            if (std::isfinite(y(i))) last = y(i);
+            else if (std::isfinite(last)) y(i) = last;
+        }
+        // back-fill any leading NaN
+        last = arma::datum::nan;
+        for (int i = (int)n - 1; i >= 0; --i){
+            if (std::isfinite(y(i))) last = y(i);
+            else if (std::isfinite(last)) y(i) = last;
+        }
+        if (!y.is_finite()) return lambda;   // truly all-NaN
+    }
+    if (y.n_elem < 4) return lambda;
     if (any(y) < 1){
         return lambda;
     }
     // When transformation is possible
     uvec ind;
-    // No transformation
+    // No transformation (λ = 1)
     double bestLLIK = llikDecompose(y, periods, ind, typeDecompose);
     if (isnan(bestLLIK))
         bestLLIK = -1e10;
     vec cLLIK(1);
-    // Box-Cox transformation
+    // Log transform (λ = 0)
     double aux = BoxCoxEstim(y, std::max(2.0, max(periods)));
     cLLIK(0) = llikDecompose(log(y), periods, ind, typeDecompose) - sum(log(y(ind)));
     if (isnan(cLLIK(0)))
-        cLLIK(0) = 1e8;
+        cLLIK(0) = -1e20;       // failed: must lose the next comparison
     if (bestLLIK < cLLIK(0)){
         lambda = 0.0;
         bestLLIK = cLLIK(0);
     }
-    // Box-Cox transformation
+    // Box-Cox transform at the BoxCoxEstim-recommended λ = aux
     if (abs(aux) > 0.1 && aux < 0.9){
         cLLIK(0) = llikDecompose(BoxCox(y, aux), periods, ind, typeDecompose) + sum(log(pow(y(ind), aux - 1)));
         if (isnan(cLLIK(0)))
-            cLLIK(0) = 1e9;
+            cLLIK(0) = -1e20;   // failed: must lose
         if (bestLLIK < cLLIK(0))
             lambda = aux;
     }

@@ -11,23 +11,9 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
-// ctllSim
-arma::mat ctllSim(arma::mat states, arma::mat const& noiseEta, arma::mat const& noiseEpsilon, bool const& logValue);
-RcppExport SEXP _muse_ctllSim(SEXP statesSEXP, SEXP noiseEtaSEXP, SEXP noiseEpsilonSEXP, SEXP logValueSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< arma::mat >::type states(statesSEXP);
-    Rcpp::traits::input_parameter< arma::mat const& >::type noiseEta(noiseEtaSEXP);
-    Rcpp::traits::input_parameter< arma::mat const& >::type noiseEpsilon(noiseEpsilonSEXP);
-    Rcpp::traits::input_parameter< bool const& >::type logValue(logValueSEXP);
-    rcpp_result_gen = Rcpp::wrap(ctllSim(states, noiseEta, noiseEpsilon, logValue));
-    return rcpp_result_gen;
-END_RCPP
-}
 // UCompC
-SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas, SEXP outliers, SEXP tTests, SEXP criterions, SEXP periodss, SEXP rhoss, SEXP verboses, SEXP stepwises, SEXP p0s, SEXP armas, SEXP TVPs, SEXP seass, SEXP trendOptionss, SEXP seasonalOptionss, SEXP irregularOptionss);
-RcppExport SEXP _muse_UCompC(SEXP commandsSEXP, SEXP ysSEXP, SEXP usSEXP, SEXP modelsSEXP, SEXP hsSEXP, SEXP lambdasSEXP, SEXP outliersSEXP, SEXP tTestsSEXP, SEXP criterionsSEXP, SEXP periodssSEXP, SEXP rhossSEXP, SEXP verbosesSEXP, SEXP stepwisesSEXP, SEXP p0sSEXP, SEXP armasSEXP, SEXP TVPsSEXP, SEXP seassSEXP, SEXP trendOptionssSEXP, SEXP seasonalOptionssSEXP, SEXP irregularOptionssSEXP) {
+SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs, SEXP lambdas, SEXP outliers, SEXP tTests, SEXP criterions, SEXP periodss, SEXP rhoss, SEXP verboses, SEXP stepwises, SEXP p0s, SEXP armas, SEXP TVPs, SEXP seass, SEXP trendOptionss, SEXP seasonalOptionss, SEXP irregularOptionss, SEXP nsims, SEXP seeds);
+RcppExport SEXP _muse_UCompC(SEXP commandsSEXP, SEXP ysSEXP, SEXP usSEXP, SEXP modelsSEXP, SEXP hsSEXP, SEXP lambdasSEXP, SEXP outliersSEXP, SEXP tTestsSEXP, SEXP criterionsSEXP, SEXP periodssSEXP, SEXP rhossSEXP, SEXP verbosesSEXP, SEXP stepwisesSEXP, SEXP p0sSEXP, SEXP armasSEXP, SEXP TVPsSEXP, SEXP seassSEXP, SEXP trendOptionssSEXP, SEXP seasonalOptionssSEXP, SEXP irregularOptionssSEXP, SEXP nsimsSEXP, SEXP seedsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -51,14 +37,31 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< SEXP >::type trendOptionss(trendOptionssSEXP);
     Rcpp::traits::input_parameter< SEXP >::type seasonalOptionss(seasonalOptionssSEXP);
     Rcpp::traits::input_parameter< SEXP >::type irregularOptionss(irregularOptionssSEXP);
-    rcpp_result_gen = Rcpp::wrap(UCompC(commands, ys, us, models, hs, lambdas, outliers, tTests, criterions, periodss, rhoss, verboses, stepwises, p0s, armas, TVPs, seass, trendOptionss, seasonalOptionss, irregularOptionss));
+    Rcpp::traits::input_parameter< SEXP >::type nsims(nsimsSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type seeds(seedsSEXP);
+    rcpp_result_gen = Rcpp::wrap(UCompC(commands, ys, us, models, hs, lambdas, outliers, tTests, criterions, periodss, rhoss, verboses, stepwises, p0s, armas, TVPs, seass, trendOptionss, seasonalOptionss, irregularOptionss, nsims, seeds));
+    return rcpp_result_gen;
+END_RCPP
+}
+// UCompARMAC
+SEXP UCompARMAC(SEXP ys, SEXP arOrders_, SEXP maOrders_, SEXP armaLags_, SEXP criterion_);
+RcppExport SEXP _muse_UCompARMAC(SEXP ysSEXP, SEXP arOrders_SEXP, SEXP maOrders_SEXP, SEXP armaLags_SEXP, SEXP criterion_SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type ys(ysSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type arOrders_(arOrders_SEXP);
+    Rcpp::traits::input_parameter< SEXP >::type maOrders_(maOrders_SEXP);
+    Rcpp::traits::input_parameter< SEXP >::type armaLags_(armaLags_SEXP);
+    Rcpp::traits::input_parameter< SEXP >::type criterion_(criterion_SEXP);
+    rcpp_result_gen = Rcpp::wrap(UCompARMAC(ys, arOrders_, maOrders_, armaLags_, criterion_));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_muse_ctllSim", (DL_FUNC) &_muse_ctllSim, 4},
-    {"_muse_UCompC", (DL_FUNC) &_muse_UCompC, 20},
+    {"_muse_UCompC", (DL_FUNC) &_muse_UCompC, 22},
+    {"_muse_UCompARMAC", (DL_FUNC) &_muse_UCompARMAC, 5},
     {NULL, NULL, 0}
 };
 

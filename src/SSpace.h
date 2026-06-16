@@ -1,7 +1,8 @@
 /**************************************
  State Space systems class
- Needs Armadillo
+ Needs Armadillo and many others
 ***************************************/
+#include "bcnorm.h"
 /***************************************************
   * Data structures
 ****************************************************/
@@ -40,6 +41,7 @@ struct SSinputs{
    mat a,                 // estimated states
        P,                 // variances of states
        eta,               // estimates of transition perturbations
+       betaAugVarMat,     // full covariance matrix of initial states
        covp;              // Covariance of parameters
    SSmatrix system;       // system matrices
    double objFunValue,    // value of objective function at optimum
@@ -56,7 +58,7 @@ struct SSinputs{
        Kinf,              // Kalman gain before colapsing
        PEnd,              // final P estimated
        rOut;              // Needed for outlier detection
-   cube NOut;             // Needed for outlier detection  
+   cube NOut;             // Needed for outlier detection
    int d_t = 0,           // colapsing observation
        nonStationaryTerms, // number of non stationary terms in state vector
        flag,              // output of optimization algorithm
@@ -64,7 +66,12 @@ struct SSinputs{
    double innVariance;    // innovations variance
    bool exact = true,     // exact or numerical gradient
         verbose,          // intermediate output verbose on / off
-        augmented = false; // Augmented KF estimation on / off
+        cleanInnovations = false, // cleaning innovations on/off
+        augmented = false, // Augmented KF estimation on / off
+        estimateLambda = false; // true when lambda is last element of p
+   double lambda = 1.0;  // Box-Cox lambda; kept in sync with BSMmodel::lambda
+   double logJac  = 0.0; // BCnorm Jacobian  Σ log|g'(y_t)|; computed in llik()
+   vec y_raw;             // original (untransformed) y
    std::function <double (vec&, void*)> llikFUN; // LogLik to select llik or llikAug
 };
 /****************************************************
@@ -145,6 +152,8 @@ vec gradLlik(vec&, void*, double, int&);
 mat hessLlik(void*);
 // True filter/smooth/disturb function
 void auxFilter(unsigned int, SSinputs&);
+// Calculating innovations from very beginning
+vec KFinnovations(SSinputs&);
 // solution to lyapunto equation P = Phi * P * Phi' + Q
 mat dlyap(mat Phi, mat Q);
 /****************************************************
@@ -198,22 +207,23 @@ void SSmodel::estim(vec p){
   vec grad;
   mat iHess;
   this->inputs.p0 = p;
-  
+
   wall_clock timer;
   timer.tic();
   int flag = quasiNewton(inputs.llikFUN, gradLlik, p, &inputs, objFunValue, grad, iHess, inputs.verbose);
   // Information criteria
   uvec indNan = find_nonfinite(inputs.y);
   int nNan = inputs.y.n_elem - indNan.n_elem;
-  double LLIK, AIC, BIC, AICc;
+  double LLIK, AIC, BIC, AICc, BICc;
   LLIK = -0.5 * nNan * (log(2*datum::pi) + objFunValue);
   infoCriteria(LLIK, p.n_elem + inputs.nonStationaryTerms, nNan,
-               AIC, BIC, AICc);
-  vec criteria(4);
+               AIC, BIC, AICc, BICc);
+  vec criteria(5);
   criteria(0) = LLIK;
   criteria(1) = AIC;
   criteria(2) = BIC;
   criteria(3) = AICc;
+  criteria(4) = BICc;
   this->inputs.criteria = criteria;
   if (!isfinite(objFunValue))
       flag = 0;
@@ -371,7 +381,7 @@ void SSmodel::validate(bool estimateHess, double nPar){
     vec tBetas = betas / stdBetas;
     vec pValueBetas = 2 * (1- tCdf(tBetas, nn.n_elem - k));
     for (int i = 0; i < nu; i++){
-      snprintf(str, 70, "       %10.4f %10.4f %10.4f %10.4f %10.6f\n", betas(i), 
+      snprintf(str, 70, "       %10.4f %10.4f %10.4f %10.4f %10.6f\n", betas(i),
               stdBetas(i), tBetas(i), pValueBetas(i), datum::nan);
       inputs.table.push_back(str);
     }
@@ -384,11 +394,16 @@ void SSmodel::validate(bool estimateHess, double nPar){
   inputs.table.push_back(str);
   inputs.table.push_back("-------------------------------------------------------------\n");
   // Recovering innovations for tests
-  if (inputs.augmented)
-    llikAug(inputs.p, &inputs);
-  else
-    llik(inputs.p, &inputs);
+  // if (inputs.augmented)
+  //   llikAug(inputs.p, &inputs);
+  // else
+  //   llik(inputs.p, &inputs);
+  // filter();
+  inputs.cleanInnovations = true;
+  vec inn = KFinnovations(inputs);
   filter();
+  inputs.cleanInnovations = false;
+  inputs.v.rows(0, inn.n_elem - 1) = inn;
   //Second part of table
   inputs.table.push_back("   Summary statistics:\n");
   inputs.table.push_back("-------------------------------------------------------------\n");
@@ -457,9 +472,9 @@ void aP(vec& at, mat& Pt, vec& Kt, vec& vt, vec& Mt){
   Pt = Pt - Kt * Mt.t();
 }
 // Correction step in Kalman Filtering for every t
-void KFcorrection(bool miss, bool colapsed, bool steadyState, bool smooth, 
+void KFcorrection(bool miss, bool colapsed, bool steadyState, bool smooth,
                   SSinputs* data, mat CHCt,
-                  mat& Finft, vec& vt, double Dt, mat& Ft, mat& iFt, vec& at, mat& Pt, 
+                  mat& Finft, vec& vt, double Dt, mat& Ft, mat& iFt, vec& at, mat& Pt,
                   mat& Pinft, vec& Kt, uword t, vec& auxFinf, mat& auxKinf, mat Z){
   vec Mt, Minft, Kinft;
   mat KK;
@@ -524,30 +539,39 @@ void KFprediction(bool steadyState, bool colapsed, mat& T, mat& RQRt, vec& at, m
 double llik(vec& p, void* opt_data){
   // Converting void* to SSinputs*
   SSinputs* data = (SSinputs*)opt_data;
-  // Running user function model
+  // Running user function model (builds Q, H from structural params).
+  // Lambda is the LAST element of p when jointly estimated; bsmMatrices
+  // only reads structural positions so the extra element is silently ignored.
   data->userModel(p, &data->system, data->userInputs);
+  // Joint-lambda: re-apply BoxCox at the current lambda (p.back()) so
+  // the KF always runs on the correctly transformed series.
+  if (data->estimateLambda) {
+    double lam = p(p.n_elem - 1);
+    data->lambda = lam;
+    data->y = BoxCox(data->y_raw, lam);
+  }
   double tolsta = 1e-19;
-  uword n, 
-        ns = data->system.T.n_rows, 
+  uword n,
+        ns = data->system.T.n_rows,
         nMiss = 0;
-  mat RQRt = data->system.R * data->system.Q * data->system.R.t(), 
-      CHCt = data->system.C * data->system.H * data->system.C.t(), 
-      Pt, 
-      Pinft, 
-      Ft(1, 1), 
-      Finft(1, 1), 
-      iFt(1, 1), 
+  mat RQRt = data->system.R * data->system.Q * data->system.R.t(),
+      CHCt = data->system.C * data->system.H * data->system.C.t(),
+      Pt,
+      Pinft,
+      Ft(1, 1),
+      Finft(1, 1),
+      iFt(1, 1),
       oldPt,
-      llikValue(1, 1), 
-      logF(1, 1), 
-      v2F(1, 1), 
+      llikValue(1, 1),
+      logF(1, 1),
+      v2F(1, 1),
       auxKinf;
-  vec at, 
-      Kt(ns), 
-      vt(1), 
+  vec at,
+      Kt(ns),
+      vt(1),
       auxFinf;
-  bool colapsed = false, 
-       steadyState = false, 
+  bool colapsed = false,
+       steadyState = false,
        miss = false;
   data->innVariance = 1;
   // Initializing variables
@@ -632,26 +656,47 @@ double llik(vec& p, void* opt_data){
     data->Kinf = auxKinf;
   }
   // Computing llik value
-  int nTrue;
-  if (data->d_t < (int)(data->system.T.n_rows + 10)){
-    // Colapsed KF
-    nTrue = n - nMiss - 1 - data->d_t;
-  } else {
-    // KF did not colapsed
-    nTrue = n - nMiss - 1 - data->system.T.n_rows;
+  // MLE form: σ̂² = SSR / n_finite (not REML n-k).  Both the σ̂² estimator
+  // and the BoxCox Jacobian are summed over the SAME n_finite observations,
+  // so the BCnorm marginal log-likelihood is internally consistent and the
+  // BoxCox MLE in lambda lands at the right value.
+  //
+  // Resulting objFunValue is set so that
+  //   LL_BCnorm = -0.5 · (n_finite · log(2π) + n_finite · objFunValue)
+  // which expands to
+  //   LL_BCnorm = -n/2 · log(2π σ̂²) - n/2 - 1/2 · Σ log F + logJac
+  // i.e. the closed-form equivalent of Σ_t bcnormLogDensityScalar(y_t, μ_t,
+  // sqrt(σ̂²·F_t), λ), with the diffuse-phase log|Finf| terms accumulated
+  // inside llikValue acting as the log-determinant correction for the
+  // implicit initial-state integration.
+  int nFinite = (int)n - (int)nMiss;
+  if (nFinite < 1) nFinite = 1;  // guard against pathological all-NA
+  // BoxCox Jacobian — Σ log|g'(y_raw_t)| over the same n_finite observations
+  // as the Gaussian density.  Identity at λ=1 (Jacobian=0) and log at λ=0.
+  {
+      double logJac = 0.0;
+      if (data->y_raw.n_elem == n){
+          for (uword t = 0; t < n; t++){
+              if (!std::isfinite(data->y(t))) continue;  // skip missing
+              logJac += bcnormLogJac(data->y_raw(t), data->lambda);
+          }
+      }
+      data->logJac = logJac;
   }
-  if (data->cLlik){         // Concentrated Likelihood
-      data->innVariance = v2F(0, 0) / nTrue;
-      llikValue = log(data->innVariance) + 1 + (llikValue + logF) / nTrue;
-  } else {                  // Crude Likelihood
-      llikValue = (llikValue + v2F + logF) / nTrue;
+  if (data->cLlik){         // Concentrated Likelihood (MLE)
+      data->innVariance = v2F(0, 0) / nFinite;
+      llikValue = log(data->innVariance) + 1
+                  + (llikValue + logF) / nFinite
+                  - 2.0 * data->logJac / nFinite;
+  } else {                  // Crude Likelihood (forecast-only path)
+      llikValue = (llikValue + v2F + logF - 2.0 * data->logJac) / nFinite;
   }
   data->objFunValue = llikValue(0, 0);
   // System colapsed
   if ((uword)data->d_t < n){
       data->v.rows(0, data->d_t).fill(datum::nan);
   }
-  return llikValue(0, 0);
+  return data->objFunValue;
 }
 // Compute log-likelihood for model with eXogenous inputs
 double llikAug(vec& p, void* opt_data){
@@ -659,37 +704,37 @@ double llikAug(vec& p, void* opt_data){
   SSinputs* data = (SSinputs*)opt_data;
   // Running user function model (setting system matrices)
   data->userModel(p, &data->system, data->userInputs);
-  uword ns = data->system.T.n_rows, 
-        nMiss = 0, 
-        n = data->y.n_rows, 
+  uword ns = data->system.T.n_rows,
+        nMiss = 0,
+        n = data->y.n_rows,
         nu = data->u.n_rows,
         k = nu + ns;
   double tolsta = 1e-19;
-  mat RQRt = data->system.R * data->system.Q * data->system.R.t(), 
-      CHCt = data->system.C * data->system.H * data->system.C.t(), 
+  mat RQRt = data->system.R * data->system.Q * data->system.R.t(),
+      CHCt = data->system.C * data->system.H * data->system.C.t(),
       Pt(ns, ns),
       oldPt(ns, ns),
-      Ft(1, 1), 
+      Ft(1, 1),
       FEnd(1, 1),
       llikValue(1, 1),
-      At(ns, k), 
+      At(ns, k),
       Sn(k, k),
       iSn(k, k),
       AtiSn(ns, k),
       VtiSn(1, k),
       PEndZ(ns ,1); //, W(ns, nu);
-  vec at(ns), 
+  vec at(ns),
       vt(1),
       vEnd(1),
-      sn(k), 
-      beta(k), 
-      Kt(ns), 
-      iFt(1), 
-      viFt(1), 
-      logF(1), 
-      v2F(1), 
+      sn(k),
+      beta(k),
+      Kt(ns),
+      iFt(1),
+      viFt(1),
+      logF(1),
+      v2F(1),
       snBeta(1);
-  rowvec Vt(k), 
+  rowvec Vt(k),
          Xt(k);
   bool miss = false,
        steadyState = false;
@@ -764,14 +809,35 @@ double llikAug(vec& p, void* opt_data){
     data->aEnd = at - AtiSn * sn;
     data->PEnd = Pt + AtiSn * At.t();
     beta = iSn * sn;
-    // Computing llik value
-    int nTrue = n - nMiss - k;
+    // MLE form: σ̂² = (SSR − sn'·iSn·sn) / n_finite, integrating β with flat
+    // prior.  Identical normalisation as llik() so both paths produce LLs on
+    // the same scale and the BoxCox MLE is consistent across model types.
+    //
+    //   LL_BCnorm = -n/2·log(2π σ̂²) - n/2 - 1/2·log det Sn - 1/2·Σ log F
+    //               + logJac
+    //
+    // Packaged into objFunValue so that
+    //   LL_BCnorm = -0.5·(n_finite·log(2π) + n_finite·objFunValue).
+    int nFinite = (int)n - (int)nMiss;
+    if (nFinite < 1) nFinite = 1;
+    // BoxCox Jacobian over the same n_finite observations.
+    double logJac = 0.0;
+    if (data->y_raw.n_elem == n){
+        for (uword t = 0; t < n; t++){
+            if (!std::isfinite(data->y(t))) continue;
+            logJac += bcnormLogJac(data->y_raw(t), data->lambda);
+        }
+    }
+    data->logJac = logJac;
     snBeta = sn.t() * beta;
-    data->innVariance = (v2F(0, 0) - snBeta(0)) / nTrue;
-    llikValue = log(data->innVariance) + 1 + (log(det(Sn)) + logF) / nTrue;
+    data->innVariance = (v2F(0, 0) - snBeta(0)) / nFinite;
+    llikValue = log(data->innVariance) + 1
+                + (log(det(Sn)) + logF) / nFinite
+                - 2.0 * logJac / nFinite;
     data->objFunValue = llikValue(0, 0);
     data->betaAug = beta;
-    data->betaAugVar = data->innVariance * iSn.diag();
+    data->betaAugVarMat = data->innVariance * iSn;
+    data->betaAugVar = data->betaAugVarMat.diag();
   }
   return llikValue(0, 0);
 }
@@ -784,8 +850,8 @@ vec differential(vec p){
 // Analytic and numeric gradient of log-likelihood
 vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
   int nPar = p.n_elem;
-  vec grad(nPar), 
-      p0 = p, 
+  vec grad(nPar),
+      p0 = p,
       inc;
   SSinputs* data = (SSinputs*)opt_data;
   nFuns = 0;
@@ -795,30 +861,30 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     return grad;
   }
   if (data->exact){  // Analytical derivative
-    int ns = data->system.T.n_rows, 
-        n = data->y.n_elem, 
-        cQ, 
+    int ns = data->system.T.n_rows,
+        n = data->y.n_elem,
+        cQ,
         nMiss = 0;
-    mat GammaQ(ns, ns), 
-        Nt(ns, ns), 
-        RR(ns, ns), 
-        sysmatQ, 
-        sysmatR, 
+    mat GammaQ(ns, ns),
+        Nt(ns, ns),
+        RR(ns, ns),
+        sysmatQ,
+        sysmatR,
         Z = data->system.Z,
-        Gamma(ns + 1, ns + 1), 
-        Qt, 
-        dQt, 
-        dRQRt(ns, ns), 
-        Inew(ns, ns), 
+        Gamma(ns + 1, ns + 1),
+        Qt,
+        dQt,
+        dRQRt(ns, ns),
+        Inew(ns, ns),
         Lt(ns, ns);
-    vec rt(ns), 
-        vt(1), 
-        Kt(ns), 
-        GammaD(1), 
+    vec rt(ns),
+        vt(1),
+        Kt(ns),
+        GammaD(1),
         iFt(1),
-        e(1), 
-        D(1), 
-        Kinft(ns), 
+        e(1),
+        D(1),
+        Kinft(ns),
         Z_Ft(ns);
     double Finft = 0.0;
     bool colapsed = true;
@@ -884,6 +950,18 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     Gamma.submat(ns, ns, ns, ns) = GammaD;
     int nn = n - nMiss - data->d_t - 1;
     for (int i = 0; i < nPar; i++){
+      // Lambda is the last element when jointly estimated.  It affects y
+      // via BoxCox, not Q/H, so the analytic disturbance-smoother formula
+      // gives zero.  Use a numerical step through the full llik() instead.
+      if (data->estimateLambda && i == nPar - 1){
+        p0 = p;
+        p0.row(i) += inc(i);
+        double f1 = data->llikFUN(p0, opt_data);
+        grad.row(i) = (f1 - llikValue) / inc(i);
+        data->userModel(p, &data->system, data->userInputs);  // restore Q/H
+        nFuns += 1;
+        continue;
+      }
       p0 = p;
       p0.row(i) += inc(i);
       data->userModel(p0, &data->system, data->userInputs);
@@ -954,25 +1032,25 @@ mat hessLlik(void* optData){
 void auxFilter(unsigned int smooth, SSinputs& data){
   // smooth (0: filter, 1: smooth, 2: disturb)
   // double tolsta = 0; //1e-7;
-  uword n, 
+  uword n,
         ns,
         nMiss = 0;
-  mat RQRt, 
-      CHCt(1, 1), 
-      Pt, 
-      Pinft, 
-      Ft(1, 1), 
-      Finft(1, 1), 
+  mat RQRt,
+      CHCt(1, 1),
+      Pt,
+      Pinft,
+      Ft(1, 1),
+      Finft(1, 1),
       v2F(1, 1),
       iFt(1, 1); //, oldPt;  //, auxKinf;
-  vec at, 
-      Kt, 
+  vec at,
+      Kt,
       vt(1),
       data_F;  //, auxFinf;
-  bool colapsed = false, 
-       steadyState = false, 
+  bool colapsed = false,
+       steadyState = false,
        miss = false;
-  cube cP, 
+  cube cP,
        Pinf;
   // Initialising variables
   uword ny = data.y.n_elem;
@@ -1050,6 +1128,19 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     }
     // Storing information
     data.v.row(t) = vt;
+    // añadido copilot
+    // if (miss) {
+    //     data.v(t) = datum::nan;
+
+    // } else if (!colapsed && Finft(0,0) > 1e-8) {
+    //     // ---- FASE DIFUSA (correcta) ----
+    //     data.v(t) = vt(0) / std::sqrt(Finft(0,0));
+
+    // } else {
+    //     // ---- FASE ESTÁNDAR ----
+    //     data.v(t) = vt(0) / std::sqrt(Ft(0,0));
+    // }
+
     data_F.row(t) = Ft;
     data.iF.row(t) = iFt;
     if (smooth > 0){
@@ -1075,21 +1166,21 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   // Smoothing loop
   data.F = data_F;   // For final normalization of innovations
   if (smooth > 0){
-    mat Nt(ns, ns), 
-        Ninfti(ns, ns), 
-        N2t(ns, ns), 
+    mat Nt(ns, ns),
+        Ninfti(ns, ns),
+        N2t(ns, ns),
         PPinf(ns, ns); //, RR(ns, ns), sysmatQ, sysmatR, Z = data->system.Z;
-    mat Inew(ns, ns), 
-        Lt(ns, ns), 
-        Linft(ns, ns), 
-        LinftNt(ns, ns), 
+    mat Inew(ns, ns),
+        Lt(ns, ns),
+        Linft(ns, ns),
+        LinftNt(ns, ns),
         Ninft(ns, ns);
-    vec rt(ns), 
-        rinft(ns), 
-        Kinft(ns), 
-        Z_Ft(ns), 
+    vec rt(ns),
+        rinft(ns),
+        Kinft(ns),
+        Z_Ft(ns),
         Z_Finft(ns); //, eta; //, vt(1), Kt(ns), Ft(1), GammaD(1);
-      mat QRt, 
+      mat QRt,
           Veta,
           pinvVeta;
     bool colapsed = true;
@@ -1155,6 +1246,17 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         }
       } else {
         miss = true;
+        // No information at t: r_{t-1} = T' r_t, N_{t-1} = T' N_t T (and
+        // likewise for the diffuse quantities).  Must happen here, before
+        // data.a.col(t) is computed below, so the smoothed state at this
+        // missing observation uses r_{t-1} rather than the stale r_t.
+        rt = data.system.T.t() * rt;
+        Nt = data.system.T.t() * Nt * data.system.T;
+        if (!colapsed){
+          rinft = data.system.T.t() * rinft;
+          Ninft = data.system.T.t() * Ninft * data.system.T;
+          N2t = data.system.T.t() * N2t * data.system.T;
+        }
       }
       Pt = cP.slice(t);
       data.a.col(t) += Pt * rt;
@@ -1181,53 +1283,60 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         data.rOut.col(t) = rt;
         data.NOut.slice(t) = Nt;
       }
-      // Passing to rt(t-1) and Nt(t-1)
-      if (t > 0 && miss){
-        rt = data.system.T.t() * rt;
-        Nt = data.system.T.t() * Nt * data.system.T;
-        if (!colapsed){
-          rinft = data.system.T.t() * rinft;
-          Ninft = data.system.T.t() * Ninft * data.system.T;
-          N2t = data.system.T.t() * N2t * data.system.T;
-        }
-      }
     }
   }
   // Post-processing outputs
-  int nTrue;
-  if (data.d_t < (int)(data.system.T.n_rows + 10)){
-    // Colapsed KF
-    nTrue = n - nMiss - 1 - data.d_t;
-  } else {
-    // KF did not colapse
-    nTrue = n - nMiss - 1 - data.system.T.n_rows;
-  }
+  // MLE σ̂² = SSR / n_finite, matching llik() / llikAug().
+  int nFinite = (int)n - (int)nMiss;
+  if (nFinite < 1) nFinite = 1;
   double innVar = data.innVariance;
-  if (data.cLlik){         // Concentrated Likelihood
-    innVar = v2F(0, 0) / nTrue;
+  if (data.cLlik){         // Concentrated Likelihood (MLE)
+    innVar = v2F(0, 0) / nFinite;
   }
   data.y = data.y.rows(0, ny - 1);
   data_F *= innVar;
   data.P *= innVar;
   data.FFor *= innVar; // * scale;
   // Cleaning innovations
-  if ((uword)data.d_t < n - 10){
-    data.v.rows(0, data.d_t).fill(datum::nan);
-  } else {
-    data.v.rows(0, sum(ns) + 1).fill(datum::nan);
+  // if ((uword)data.d_t < n - 10){
+  //   data.v.rows(0, data.d_t).fill(datum::nan);
+  // } else {
+  //   data.v.rows(0, sum(ns) + 1).fill(datum::nan);
+  // }
+
+  if (!data.cleanInnovations) {
+      if ((uword)data.d_t < n - 10){
+          data.v.rows(0, data.d_t).fill(datum::nan);
+      } else {
+          data.v.rows(0, sum(ns) + 1).fill(datum::nan);
+      }
   }
+
   uvec ind = find_finite(data.v);
-  if (ind.n_elem < 5){
-      ind = regspace<uvec>(sum(ns), data.v.n_elem - data.h - 1);
+
+  // Mantener tamaño completo (NO recortar, evita el shift con NaNs iniciales)
+  data.F = data_F;
+
+  // Normalizar solo los valores válidos
+  if (smooth != 3 && !data.cleanInnovations) {
+      for (uword i = 0; i < ind.n_elem; i++) {
+          uword t = ind(i);
+          data.v(t) = data.v(t) / std::sqrt(data.F(t));
+      }
   }
-  if (smooth == 3){
-    data.F = data_F.rows(0, max(ind)); // * data.innVariance;
-    data.v = data.v.rows(0, max(ind));
-  } else {
-    data.F = data_F.rows(min(ind), max(ind));
-    data.v = data.v.rows(min(ind), max(ind));
-    data.v = data.v / sqrt(data.F);
-  }
+
+  // uvec ind = find_finite(data.v);
+  // if (ind.n_elem < 5){
+  //     ind = regspace<uvec>(sum(ns), data.v.n_elem - data.h - 1);
+  // }
+  // if (smooth == 3){
+  //   data.F = data_F.rows(0, max(ind)); // * data.innVariance;
+  //   data.v = data.v.rows(0, max(ind));
+  // } else {
+  //   data.F = data_F.rows(min(ind), max(ind));
+  //   data.v = data.v.rows(min(ind), max(ind));
+  //   data.v = data.v / sqrt(data.F);
+  // }
   // Disturbances
   if (smooth == 2){
     data.eta = data.eta.t();
@@ -1239,6 +1348,124 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     data.eta.replace(datum::nan, 0);
     data.eta.replace(datum::inf, 0);
   }
+}
+// Calculating innovations from very beginning
+vec KFinnovations(SSinputs& data) {
+    // 1. Ejecutar KF aumentado para obtener estados iniciales óptimos
+    vec p = data.p;
+    llikAug(p, &data);
+
+    // Dimensiones
+    uword n  = data.y.n_elem;
+    uword ns = data.system.T.n_rows;
+    uword top_t = std::max((int)data.d_t, (int)ns) + 1;
+
+    vec inn(top_t);
+
+    // 2. Inicialización desde betaAug
+    vec at = data.betaAug.rows(0, ns - 1);
+    mat Pt = data.betaAugVarMat.submat(0, 0, ns - 1, ns - 1);
+
+    // Sin fase difusa
+    mat Pinft(ns, ns, fill::zeros);
+
+    // Precalcular matrices
+    mat RQRt = data.system.R * data.system.Q * data.system.R.t();
+    mat CHCt = data.system.C * data.system.H * data.system.C.t();
+
+    // Salidas
+    data.v.zeros(n);
+    data.F.zeros(n);
+    data.iF.zeros(n);
+
+    vec vt(1), Kt(ns);
+    mat Ft(1,1), iFt(1,1), Finft(1,1);
+
+    bool miss = false;
+    bool steadyState = false;
+    bool colapsed = true;   // clave: sin fase difusa
+
+    mat Z = data.system.Z.row(0);
+    bool TVP = (data.system.Z.n_rows > 1);
+
+    // Inputs exógenos
+    int k = data.u.n_rows;
+    rowvec Dt(n, fill::zeros);
+    if (k > 0 && data.system.Z.n_rows == 1) {
+        int nn = data.betaAug.n_rows;
+        data.system.D = data.betaAug.rows(nn - k, nn - 1).t();
+        Dt = data.system.D * data.u;
+    }
+
+    // ---- LOOP KF ----
+    for (uword t = 0; t < top_t; t++) {
+
+        if (TVP)
+            Z = data.system.Z.row(t);
+
+        // Missing
+        if (!std::isfinite(data.y(t))) {
+            miss = true;
+        } else {
+            miss = false;
+        }
+
+        // ----- CORRECCIÓN -----
+        KFcorrection(miss,
+                     colapsed,
+                     steadyState,
+                     false,
+                     &data,
+                     CHCt,
+                     Finft,
+                     vt,
+                     Dt(t),
+                     Ft,
+                     iFt,
+                     at,
+                     Pt,
+                     Pinft,
+                     Kt,
+                     t,
+                     data.Finf,
+                     data.Kinf,
+                     Z);
+
+        // Guardar innovación SIN eliminar nada
+        if (!miss) {
+            inn(t) = vt(0);
+            data.F(t) = Ft(0,0);
+            data.iF(t) = iFt(0,0);
+        } else {
+            inn(t) = datum::nan;
+        }
+
+        // ----- PREDICCIÓN -----
+        KFprediction(steadyState,
+                     colapsed,
+                     data.system.T,
+                     RQRt,
+                     at,
+                     Pt,
+                     Pinft);
+    }
+
+    // Normalización (opcional, como en tu framework)
+    // uvec ind = find_finite(data.v);
+    // for (uword i = 0; i < ind.n_elem; i++) {
+    //     uword t = ind(i);
+    //     data.v(t) = data.v(t) / std::sqrt(data.F(t));
+    // }
+    // uvec ind = find_finite(data.v);
+    // if (!data.cleanInnovations) {
+    //     for (uword t = 0; t < data.y.n_elem; t++) {
+    //          data.v(t) = data.v(t) * std::sqrt(data.iF(t));
+    //     }
+    // }
+    // Standardising
+    if (!data.cleanInnovations)
+        inn = inn * sqrt(data.iF.rows(0, inn.n_elem - 1));
+    return inn;
 }
 // solution to lyapunov equation P = Phi * P * Phi' + Q
 mat dlyap(mat T, mat Q){

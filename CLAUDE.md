@@ -4,7 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Package overview
 
-`muse` ("Multiple Unobserved Sources of Error") is an R package implementing MSOE state-space models for time-series analysis and forecasting. It depends on `Rcpp`, `RcppArmadillo`, `greybox`, and `smooth`, and is the multi-source-of-error counterpart to `smooth::adam` (which is single-source-of-error). License: LGPL-2.1.
+`muse` ("Multiple Unobserved Sources of Error") is an R package implementing the PTS (Power / Trend / Seasonal) state-space model for time-series analysis and forecasting. It depends on `Rcpp`, `RcppArmadillo`, `greybox`, and `smooth`. License: LGPL-2.1.
+
+## ARCHITECTURE.md — primary reference
+
+`ARCHITECTURE.md` in the package root is the authoritative source for how this
+codebase is structured.  **Read it first** before exploring files or making changes.
+It covers the full call graph for every task (estimation, selection, forecasting,
+simulation, diagnostics), all C++ ↔ R data structures, coupling rules, and key
+invariants (BC scale, variance parameterisation, concentrated likelihood, λ DoF).
+
+**Keep it up to date.**  After any code change that affects call flows, data
+structures, parameter naming, or cross-file coupling, update the relevant section of
+`ARCHITECTURE.md` in the same commit.  If a coupling rule changes (e.g. a new field
+must be added in two places), update the "Coupling rules" table.  If a new invariant
+is discovered, add it to "Key invariants".  Stale documentation is worse than none.
+
+## NEWS
+
+Any user-visible change (new function, new argument, behaviour change, bug fix,
+deprecation) gets one line in `NEWS` under the in-development version, in the
+same commit.  Internal refactors with no user-visible effect can be skipped.
 
 ## Common commands
 
@@ -16,45 +36,77 @@ R package development uses `R CMD` and `devtools`/`roxygen2`. From the package r
 - Check the package (run before committing significant changes): `R CMD check muse_*.tar.gz` (or `devtools::check()`).
 - Install locally: `R CMD INSTALL .` (or `devtools::install()`).
 - Run the full test suite: `Rscript -e 'devtools::test()'` (uses `testthat`; entry point is `tests/testthat.R`).
-- Run a single test file: `Rscript -e 'devtools::test(filter="ctll")'` (matches `tests/testthat/test_ctll.R`).
+- Run a single test file: `Rscript -e 'devtools::test(filter="PTS")'` (matches `tests/testthat/test_PTS.R` and `test_PTSsetup.R`).
 - Quick reload during development: `Rscript -e 'devtools::load_all()'` — recompiles C++ as needed.
 
 The C++ side is built via `src/Makevars` (links LAPACK/BLAS/Fortran). Stale `*.o` / `muse.so` artifacts in `src/` can cause confusing build errors — delete them and rebuild if the C++ behavior seems mismatched with the source.
 
 ## Architecture
 
-The package exposes three independent model families, each implemented as a thin R wrapper over an Armadillo C++ backend.
+Full call-flow and data-structure documentation is in `ARCHITECTURE.md`.  The summary below covers what an agent needs to make safe changes.
 
-### Three model families
+### How it fits together
 
-1. **PTS** (`R/PTSfunctions.R`, `R/PTSS3functions.R`) — "Power/Trend/Seasonal" exponential-smoothing-style models. User specifies a three-letter model string (e.g. `"ZZZ"`, `"ANN"`) covering Power (Z/Y/N), Trend (Z/N/L/G/D), and Seasonal (Z/N/D/T) components. `PTS2modelUC` / `modelUC2PTS` translate between the PTS spec and the underlying UC (Unobserved Components) representation; PTS internally calls `MSOEestim`.
-2. **MSOE** (`R/MSOEfunctions.R`) — general univariate unobserved-components models with a richer model-string grammar `"trend/seasonal/irregular"` or `"trend/cycle/seasonal/irregular"` (e.g. `"llt/equal/arma(0,0)"`, `"?/?/?/?"` for automatic identification). Supports outlier detection (AO/LS/SC), stepwise model selection, and ARMA irregular components.
-3. **ctll** (`R/ctll.R`) — continuous-time local level model for irregularly-spaced demand data; treats zeros as absence rather than zero demand. Has its own S3 methods (`forecast.ctll`, `fitted.ctll`, etc.) and a separate C++ simulation routine `ctllSim`.
+`pts()` (`R/pts.R`) is the sole user-facing function.  It calls `.pts_fit()` (`R/pts-internals.R`), which translates the 3-letter model string to a UC string (`R/pts-translate.R`), marshals arguments, and invokes `UCompC()` — the single C++ entry point (`src/musecpp2R.cpp`).  `UCompC()` dispatches on a `command` argument (`"all"` for full estimation, `"forecastOnly"`, `"simulate"`, …) and returns a named list that `.pts_fit()` post-processes into the `pts` S3 object.  S3 methods live in `R/methods.R`, `R/pts-summary.R`, `R/pts-methods-accessors.R`, `R/pts-methods-diagnostics.R`, `R/pts-accuracy.R`, `R/pts-simulate.R`, and `R/pts-confint.R`.  Dispatch for `plot`, `AIC`/`BIC`, and several greybox generics falls through the `c("pts", "smooth")` class chain — no local implementations needed.
 
-The package re-exports `forecast` from `generics` and registers method tables in `NAMESPACE` — do not hand-edit `NAMESPACE`, it is generated by roxygen2.
+### R file map
 
-### R ↔ C++ boundary
+| File | What it contains |
+|------|-----------------|
+| `R/pts.R` | `pts()` entry point; assembles the returned object |
+| `R/pts-internals.R` | `.pts_fit()`, `.pts_uc_inputs()`, `.pts_call_uc()`, `.pts_parse_data()`, `.pts_wrap_*()`, `.pts_build_comp()`, `.pts_forecast_inputs()`, `.inv_box_cox()` |
+| `R/pts-translate.R` | `pts_to_uc()`, `uc_to_pts()`, `uc_to_arma()`, `.pts_ic_to_engine()` |
+| `R/methods.R` | `print.pts`, `fitted`, `residuals`, `coef`, `vcov`, `nobs`, `logLik`, `predict`, `forecast.pts` |
+| `R/pts-summary.R` | `summary.pts`, `print.summary.pts`, `as.data.frame.summary.pts` |
+| `R/pts-methods-accessors.R` | `sigma`, `nparam`, `actuals`, `modelType`, `lags`, `orders`, `errorType` |
+| `R/pts-methods-diagnostics.R` | `rstandard`, `rstudent`, `pointLik`, `outlierdummy` |
+| `R/pts-accuracy.R` | `accuracy.pts`, `accuracy.pts.forecast` |
+| `R/pts-simulate.R` | `simulate.pts` |
+| `R/pts-confint.R` | `confint.pts` (Wald intervals) |
+| `R/pts-update.R` | `update.pts` |
+| `R/RcppExports.R` | Auto-generated — do not edit; regenerate with `Rcpp::compileAttributes()` |
 
-There are only two C++ entry points exposed to R, both declared in `src/RcppExports.cpp` and mirrored in `R/RcppExports.R`:
+### C++ file map
 
-- `UCompC(commands, ys, us, models, hs, lambdas, outliers, tTests, criterions, periodss, rhoss, verboses, stepwises, p0s, armas, TVPs, seass, trendOptionss, seasonalOptionss, irregularOptionss)` — the single dispatch routine used by both PTS and MSOE. The `commands` string ("estimate", "validate", "components", "filter", "smooth", "disturb", "forecast", ...) selects what work to do. Defined in `src/musecpp2R.cpp`.
-- `ctllSim(states, noiseEta, noiseEpsilon, logValue)` — simulation kernel for `ctll`. Defined in `src/ctllSim.cpp`.
+Header-only, all included from `src/musecpp2R.cpp`:
 
-Both R wrappers carry a large `list` of inputs and outputs (the `MSOE` / `PTS` / `ctll` object), pass the inputs to C++, and copy results back into named slots. When adding a new field, update both the R-side `setup` function (initializing it to `NA`) and the C++ unpacking/repacking code in `musecpp2R.cpp`.
+| File | What it contains |
+|------|-----------------|
+| `src/musecpp2R.cpp` | `UCompC()` Rcpp bridge; marshals SEXP ↔ `MuseInputs`/`MuseOutputs` |
+| `src/musecore.h` | `MuseInputs`, `MuseOutputs` structs; `runMuseCommand()` dispatch |
+| `src/PTSmodel.h` | `BSMclass` — model matrices, likelihood, ident, profile-lambda, components |
+| `src/SSpace.h` | `SSmodel` — Kalman filter/smoother, quasi-Newton optimiser, forecast |
+| `src/boxcox.h` | `BoxCox()`, `invBoxCox()`, `testBoxCox()` — thresholds must match `.inv_box_cox()` in R |
+| `src/optim.h` | BFGS-style optimiser used by `SSmodel::estim()` |
+| `src/ARMAmodel.h` | ARMA irregular component |
+| `src/ARIMASSmodel.h` | Included but unused (dead code) |
+| `src/stats.h`, `src/DJPTtools.h` | Statistical helpers and utilities |
 
-### C++ implementation layout (`src/*.h`)
+### Coupling rules — when you change one thing, also change these
 
-The C++ code is header-only (included from `musecpp2R.cpp`) and built around a shared state-space engine:
+**Adding a new output field from C++ to R:**
+1. Populate it in `MuseOutputs` and pack it in `musecpp2R.cpp`.
+2. Unpack it in `.pts_fit()` (`R/pts-internals.R`) and add it to the returned list.
+3. Store it on the `pts` object in `pts()` (`R/pts.R`).
+4. If needed in `forecast.pts`, also unpack it in `.pts_forecast_inputs()`.
 
-- `SSpace.h` — generic Kalman-filter/smoother state-space class. The base for all model types.
-- `PTSmodel.h` (largest file, ~3700 lines) — PTS/BSM model class deriving from `SSpace`; also implements MSOE since PTS is a thin parameterization wrapper.
-- `ARIMASSmodel.h`, `ARMAmodel.h` — ARIMA-in-state-space and pure-ARMA model classes (used for irregular components).
-- `CTLEVELmodel.h`, `INTLEVELmodel.h` — continuous-time and intermittent level models (used by `ctll`).
-- `boxcox.h` — Box-Cox transform / inverse and lambda estimation.
-- `optim.h` — numerical optimizer (BFGS-style) used for ML estimation.
-- `stats.h`, `DJPTtools.h` — statistical helpers and shared utilities.
+**Adding a new input field from R to C++:**
+1. Add it to the list returned by `.pts_uc_inputs()` and `.pts_forecast_inputs()`.
+2. Add it to the `UCompC()` signature in `src/musecpp2R.cpp` and unpack into `MuseInputs`.
+3. Regenerate `R/RcppExports.R` and `src/RcppExports.cpp` with `Rcpp::compileAttributes()`.
 
-When changing model behavior, the math typically lives in the model-specific header; the R-facing function only edits the input list.
+**Changing Box-Cox branches:** the R-side `.inv_box_cox()` (`R/pts-internals.R`) and the C++ `BoxCox()`/`invBoxCox()` (`src/boxcox.h`) plus `bcnormBoxCox()`/`bcnormLogJac()` (`src/bcnorm.h`) must use identical branches.  Current convention is exact equality at the two singular points: `λ == 0` → log; `λ == 1` → identity; otherwise the general `(y^λ − 1)/λ` formula.  Do not reintroduce threshold-based shortcuts — they make AIC discontinuous in λ.
+
+**Changing parameter names:** `BSMclass::parLabels()` in `PTSmodel.h` sets names; the S3 methods in `R/methods.R` and `R/pts-summary.R` pattern-match on them (`grepl("^AR\\("`, `"^Beta"`, `"^Damping"`, `"^Irregular"`).  Update both sides.
+
+**Changing `nParam` logic:** the count is assembled in `pts()` as `length(res$p) + as.integer(lambdaEstimated)`.  The C++ engine sets `lambdaEstimated`; the R side must not add any further adjustment.
+
+### Key invariants
+
+- **BC scale vs original scale.** `$residuals`, `$comp`, and innovations are on the Box-Cox scale (additive).  `$fitted`, `$forecast$mean`, and holdout comparisons are on the original scale (back-transformed).  Prediction intervals are computed by endpoint-transforming the BC-scale ±z·se bounds — not by transforming a symmetric original-scale interval.
+- **Concentrated variances.** Some variance parameters are concentrated out analytically; they appear in `$B` but have `NaN` rows/columns in `$vcov`.  `$nParam` correctly counts them for ICs.
+- **Regressor matrix orientation.** User supplies (n × k); internally and in C++ it is (k × n).  The transpose happens once in `.pts_parse_data()` for training data and once in `.pts_forecast_inputs()` for `newdata`.
+- **Harmonic periods.** `lagsAll = lags / (1 : floor(lags/2))`.  The C++ engine may select a subset, but `lagsAll` always stores the full candidate set that was passed in.
 
 ### Documentation generation
 
