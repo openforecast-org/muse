@@ -46,9 +46,3 @@ jobs:
         with:
           upload-snapshots: true
           build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'
-
-      - name: Run testthat
-        if: always()
-        run: |
-          Rscript -e 'if (requireNamespace("devtools", quietly = TRUE)) devtools::test(stop_on_failure = TRUE) else testthat::test_local()'
-        shell: bash
