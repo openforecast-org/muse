@@ -177,6 +177,21 @@ pts <- function(data,
     y      <- parsed$y
     u      <- parsed$u
 
+    # Box-Cox is undefined for negative values.  If any negatives slip in
+    # under a lambda the engine would have applied (anything but the
+    # identity), warn the user and pin lambda to 1 by rewriting position 1
+    # of the model string.  An explicit lambda = 1 is left untouched.
+    if (any(y < 0, na.rm = TRUE)){
+        nm <- nchar(model)
+        lambdaUser <- suppressWarnings(as.numeric(substr(model, 1L, nm - 2L)))
+        if (is.na(lambdaUser) || lambdaUser != 1){
+            warning("`data` contains negative values; Box-Cox is undefined for ",
+                    "negatives.  Setting lambda = 1 (no transformation).",
+                    call. = FALSE)
+            model <- paste0("1", substr(model, nm - 1L, nm))
+        }
+    }
+
     held <- NULL
     if (holdout && h > 0){
         if (length(y) <= h)

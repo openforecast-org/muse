@@ -407,3 +407,15 @@ test_that("level is validated as a length-1 numeric in (0, 1)", {
                      outliers = "use", level = c(0.9, 0.95)),
                  "length-1")
 })
+
+#### negative values ####
+test_that("negative values trigger a warning and pin lambda to 1", {
+    yneg <- log(AirPassengers) - mean(log(AirPassengers))
+    expect_warning(
+        m <- pts(yneg, model = "ZZZ", h = 0),
+        "negative values"
+    )
+    expect_equal(m$lambda, 1)
+    # Explicit lambda = 1 is left alone, no warning either way.
+    expect_silent(pts(yneg, model = "1NT", h = 0))
+})

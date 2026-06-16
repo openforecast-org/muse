@@ -1,6 +1,10 @@
 muse v0.0.2.41001 (in development)
 =======
 
+* `pts()` checks for negative values in `data` up front: if any are
+  present it warns and pins the Box-Cox lambda to 1 (no
+  transformation).  Previously the same input reached the C++ engine
+  and threw a low-level error.  Explicit `lambda = 1` is left alone.
 * Removed the `auto.pts()` wrapper.  It was redundant with `pts(data,
   model = "ZZZ", ...)`, which is the documented way to request fully
   automatic model selection.
