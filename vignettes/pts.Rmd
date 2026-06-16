@@ -1,0 +1,329 @@
+---
+title: "Power / Trend / Seasonal models with `pts()`"
+author: "Ivan Svetunkov"
+date: "`r Sys.Date()`"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 3
+vignette: >
+  %\VignetteIndexEntry{Power / Trend / Seasonal models with pts()}
+  %\VignetteEngine{knitr::knitr}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4
+)
+```
+
+# Introduction
+
+The `muse` package fits **PTS** (*Power / Trend / Seasonal*) state-space
+models — single-source-of-error structural time-series models whose
+components mirror the ETS/ADAM taxonomy.  All estimation happens through
+a single user-facing function, `pts()`, which delegates to a C++ engine
+(Rcpp + RcppArmadillo) running a Kalman filter / smoother under a
+concentrated likelihood.
+
+`pts()` returns an object of class `c("pts", "smooth")`, so all generics
+shared with the `smooth` / `greybox` ecosystem (`forecast()`, `plot()`,
+`accuracy()`, `AIC()`, `BIC()`, `simulate()`, …) work out of the box.
+
+This vignette walks through the main features on two datasets:
+
+* `AirPassengers` — the classic monthly airline-passenger series, useful
+  for showing the Box-Cox power transformation and automatic model
+  selection.
+* `Seatbelts` — UK road-casualty data including a structural break
+  (the 1983 seat-belt law), useful for showing external regressors and
+  engine-side outlier detection.
+
+```{r setup}
+library(muse)
+```
+
+# Quick start: AirPassengers
+
+The simplest call lets `pts()` choose everything automatically:
+
+```{r air-default}
+air <- pts(AirPassengers, model = "ZZZ", h = 12, holdout = TRUE)
+air
+```
+
+The model string is a compact three-character spec encoding **P**ower /
+**T**rend / **S**easonal in that order; the three `Z`s ask the engine
+to choose:
+
+* the Box-Cox power λ (jointly with the state-space parameters),
+* the trend type,
+* the seasonal type.
+
+Because we asked for `holdout = TRUE` with `h = 12`, the last 12 months
+were withheld from estimation and stashed on the object for later
+accuracy evaluation.
+
+A look at the in-sample fit and residuals:
+
+```{r air-fit, fig.height=6}
+plot(air, which = c(1, 2))
+```
+
+To pull the structural decomposition (level / slope / seasonal /
+irregular):
+
+```{r air-states, fig.height=6}
+plot(air, which = 12)
+```
+
+A forecast over the holdout window:
+
+```{r air-fc}
+fc <- forecast(air, h = 12)
+plot(fc)
+```
+
+…and accuracy against the held-out values:
+
+```{r air-acc}
+accuracy(air)
+```
+
+# The PTS model string
+
+The `model` argument is a compact three-character string of the form
+`"PTS"` (Power-Trend-Seasonal): position 1 is the Box-Cox λ, position 2
+the trend letter, position 3 the seasonal letter.  Numeric λ values can
+take more than one character (`"0.5LT"`, `"-0.3LD"`) — the trend and
+seasonal letters are always read from the **last two** positions.  The
+fitted object's `$model` field prints in a more readable form
+(e.g. `"PTS(-0.3, G, D)"`) but that pretty-printed string is *not*
+accepted as input.
+
+## Power (`P`)
+
+Position 1 is the Box-Cox parameter λ.  Two ways to specify it:
+
+| Value         | Effect                                                      |
+|---------------|-------------------------------------------------------------|
+| `"Z"`         | Estimate λ jointly with the state-space parameters          |
+| Numeric, e.g. `"0"`, `"0.5"`, `"1"` | Fix λ to that value                   |
+
+The two singular points have exact-equality shortcuts:
+`λ = 0` corresponds to a log transform, `λ = 1` corresponds to no
+transform (identity).  For every other value the standard
+$(y^{\lambda} - 1) / \lambda$ formula is used.  In-sample residuals,
+innovations and the additive decomposition all live on the Box-Cox
+scale; fitted values and forecasts are back-transformed to the
+original scale.
+
+```{r air-loglambda}
+air_log <- pts(AirPassengers, model = "0LT", h = 12, holdout = TRUE)
+air_log$lambda
+```
+
+## Trend (`T`)
+
+Position 2 picks the trend component:
+
+| Letter | Trend type                                            |
+|--------|-------------------------------------------------------|
+| `Z`    | Automatic selection                                   |
+| `N`    | None (random walk; level only)                        |
+| `L`    | Local linear trend (level + slope)                    |
+| `D`    | Damped trend (level + damped slope)                   |
+| `G`    | Global / deterministic trend                          |
+
+## Seasonal (`S`)
+
+Position 3 picks the seasonal component:
+
+| Letter | Seasonal type                                                 |
+|--------|---------------------------------------------------------------|
+| `Z`    | Automatic selection                                           |
+| `N`    | No seasonal component                                         |
+| `D`    | Discrete (harmonic selection from the seasonal period)        |
+| `T`    | Trigonometric (equal variance across all harmonics)           |
+
+The seasonal period is taken from `frequency(data)` by default; pass
+`lags` to override.
+
+# Automatic selection
+
+Setting any letter to `Z` triggers an internal search over the
+admissible candidates.  The information criterion is set via `ic`
+(default `"AICc"`):
+
+```{r air-auto, eval = FALSE}
+pts(AirPassengers, model = "ZZZ", h = 12, ic = "BIC")
+```
+
+# ARMA on the irregular component
+
+The irregular component can itself be an ARMA / SARMA process,
+controlled by `orders`:
+
+```{r air-arma, eval = FALSE}
+# ARMA(2, 1) on the irregular
+pts(AirPassengers, model = "ZZZ", orders = c(2, 1), h = 12)
+
+# Seasonal SARMA(1, 1)(1, 1)_12 — non-seasonal + seasonal blocks
+pts(AirPassengers, model = "ZZZ",
+    orders = list(ar = c(1, 1), ma = c(1, 1), lags = c(1, 12)), h = 12)
+
+# Automatic ARMA search up to the supplied caps
+pts(AirPassengers, model = "ZZZ",
+    orders = list(ar = 2, ma = 2, select = TRUE), h = 12)
+```
+
+When `orders$select = TRUE` muse runs a nested PTS-outer / ARMA-inner
+selection: for every structural candidate it scores the best ARMA
+order found on the residuals, and picks the joint (structure, ARMA)
+pair with the lowest IC.
+
+# Forecasting
+
+`forecast()` is the workhorse for producing point forecasts and
+prediction intervals.  The mean is always returned on the original
+scale (back-transformed from Box-Cox); intervals are built by
+endpoint-transforming the BC-scale bounds.
+
+```{r air-fc-intervals}
+fc <- forecast(air, h = 12, interval = "prediction", level = c(0.80, 0.95))
+plot(fc)
+```
+
+Three interval types are supported:
+
+| `interval`     | Source                                                    |
+|----------------|-----------------------------------------------------------|
+| `"prediction"` | Default; total uncertainty from the filter                |
+| `"confidence"` | Mean-only uncertainty (subtracts observation variance)    |
+| `"simulated"`  | Empirical quantiles from `simulate()` paths               |
+| `"none"`       | Point forecast only                                       |
+
+`cumulative = TRUE` collapses the forecast horizon into a single
+total — exact for `"simulated"`, an approximation otherwise.
+
+# Outlier detection
+
+`pts()` can detect and absorb outliers in a single call, mirroring the
+adam-style `outliers` / `level` API:
+
+```{r air-outliers}
+y <- AirPassengers
+y[100] <- 3 * y[100]            # inject an obvious additive spike
+
+m_out <- pts(y, model = "ZZZ", outliers = "use", level = 0.99)
+m_out$outliersDetected
+```
+
+The detected events are classified as:
+
+* `AO` — additive outlier (one-off spike),
+* `LS` — level shift (step change),
+* `SC` — slope change.
+
+`level` controls the underlying z-score threshold via
+`qnorm((1 + level) / 2)` — at `0.99` ≈ 2.576.  Detected outliers are
+injected as fixed dummy regressors (`AO<t>`, `LS<t>`, `SC<t>`); their
+coefficients show up in `coef(m_out)` and `print()` reports a one-line
+summary of how many of each type were absorbed.
+
+Setting `outliers = "ignore"` (the default) skips the detection step
+entirely.
+
+# External regressors
+
+`pts()` accepts a `data.frame` / `matrix` / `mts` whose first column
+is the response and whose remaining columns are external regressors.
+On the `Seatbelts` dataset we can use `kms`, `PetrolPrice`, and `law`
+(the 1983 seat-belt law indicator) as regressors for monthly
+`drivers` (drivers killed or seriously injured):
+
+```{r seatbelts-xreg}
+sb <- Seatbelts[, c("drivers", "kms", "PetrolPrice", "law")]
+m_sb <- pts(sb, model = "ZZZ", h = 12, holdout = TRUE)
+m_sb
+```
+
+For point forecasting with regressors you must supply `newdata`
+covering the forecast horizon:
+
+```{r seatbelts-fc, eval = FALSE}
+# Holdout values of the regressors are stashed on $holdout for accuracy
+fc_sb <- forecast(m_sb, h = 12, newdata = tail(Seatbelts, 12))
+plot(fc_sb)
+```
+
+# A pure structural-break example
+
+The `law` column makes Seatbelts a natural showcase for engine-side
+outlier detection: the 1983 intervention should look like a level
+shift to a structural model that does not have it as a regressor.
+
+```{r seatbelts-outliers}
+m_sb_out <- pts(Seatbelts[, "drivers"], model = "ZZZ",
+                outliers = "use", level = 0.99)
+m_sb_out$outliersDetected
+```
+
+The engine is expected to flag a level shift around February 1983
+(observation 170 of 192).
+
+# Holdout evaluation and accuracy
+
+The combination of `holdout = TRUE` plus `h > 0` reserves the tail of
+the series for evaluation.  `accuracy()` then refits-free scores the
+forecast against the holdout:
+
+```{r air-accuracy}
+accuracy(air)
+```
+
+The metrics come from `greybox::measures()` so the full suite (MAE,
+MASE, RMSE, MAPE, sCE, …) is available.
+
+# Simulation
+
+`simulate()` produces fan trajectories from the fitted model:
+
+```{r air-sim}
+set.seed(42)
+sim <- simulate(air, nsim = 200, h = 12)
+str(sim, max.level = 1)
+```
+
+In-sample replay starts from the initial state estimated by the
+filter; out-of-sample paths propagate forward with state and
+observation disturbances drawn from the fitted noise distribution.
+
+# Inspecting the fit
+
+A range of standard accessors works on `pts` objects:
+
+```{r air-accessors, eval = FALSE}
+summary(air)         # Coefficient table + variance proportions
+coef(air)            # Estimated parameter vector
+vcov(air)            # Parameter covariance matrix
+confint(air)         # Wald confidence intervals
+logLik(air); AIC(air); BIC(air)
+fitted(air); residuals(air)
+rstandard(air); rstudent(air)
+nparam(air); nobs(air); sigma(air)
+modelType(air); orders(air); lags(air); errorType(air)
+```
+
+# Further reading
+
+* `?pts` — full argument documentation including the `orders` shortcuts
+  and the `outliers` / `level` interface.
+* `?forecast.pts` — interval types, `side`, `cumulative`, and the
+  `scenarios` argument.
+* The `ARCHITECTURE.md` file in the package root for a tour of the
+  R ↔ C++ boundary and the internal state-space machinery.

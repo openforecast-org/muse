@@ -33,8 +33,9 @@ install.packages("muse")
 
 The user-facing entry point is `pts()`.  In a single call it can:
 
-- **Specify a PTS model** with a three-letter string `"PTS(P,T,S)"`
-  - `P` — *power* (Box-Cox parameter): a numeric `lambda` or `"Z"` to estimate it jointly with the state-space parameters.
+- **Specify a PTS model** with a compact three-character string `"PTS"` —
+  *Power* / *Trend* / *Seasonal* in that order (e.g. `"ZZZ"`, `"0LT"`, `"0.5GD"`)
+  - `P` — *power* (Box-Cox λ): a numeric value or `"Z"` to estimate it jointly with the state-space parameters.
   - `T` — *trend*: `N` none, `L` local, `D` damped, `G` global, or `Z` for automatic selection.
   - `S` — *seasonal*: `N` none, `D` discrete, `T` trigonometric (harmonic seasonality), or `Z` for automatic selection.
 - **Auto-select the best model** by AIC / BIC / AICc / BICc on the irregular component (`select = TRUE` or `Z` letters in the model string).
@@ -56,13 +57,13 @@ library(muse)
 
 # Fit a model with automatic Box-Cox, trend, seasonal,
 # holding out the last 12 observations and forecasting them back.
-model <- pts(AirPassengers, model = "PTS(Z,Z,Z)", h = 12,
+model <- pts(AirPassengers, model = "ZZZ", h = 12,
              holdout = TRUE, ic = "AICc")
 summary(model)
 plot(forecast(model, h = 12))
 
 # With engine-side outlier detection at the 99% confidence level
-model_out <- pts(AirPassengers, model = "PTS(Z,Z,Z)", h = 12,
+model_out <- pts(AirPassengers, model = "ZZZ", h = 12,
                  outliers = "use", level = 0.99)
 model_out$outliersDetected
 ```

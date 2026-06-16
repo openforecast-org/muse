@@ -79,6 +79,9 @@ Key slots:
 | `distribution` | string | — | `"dnorm"` (fixed; enables smooth/adam dispatch) |
 | `loss` | string | — | `"likelihood"` |
 | `holdout` | ts/zoo or NULL | original | Withheld observations when holdout=TRUE |
+| `outliers` | string | — | adam-aligned: `"ignore"` or `"use"` |
+| `level` | double | — | Confidence level for the outlier z-threshold (default 0.99) |
+| `outliersDetected` | data.frame | — | Rows = detected events, columns `time` (1-based) and `type` (factor: AO / LS / SC).  Empty (zero-row) frame when none were found or `outliers = "ignore"`. |
 
 ---
 
@@ -376,6 +379,78 @@ confint.pts(object, parm, level)          R/pts-confint.R
 
 ---
 
+## Task 7: Outlier detection (`outliers = "use"`)
+
+Call: `pts(data, model = "PTS(Z,Z,Z)", outliers = "use", level = 0.99)`
+
+User-facing trichotomy mirrors `smooth::adam()`:
+
+* `"ignore"` (default) — no outlier handling.
+* `"use"` — run the engine's outlier detector once, classify each
+  detected event as AO / LS / SC, and refit with the detected events
+  appended as fixed regressor dummies.
+* `"select"` — not yet supported; the R side rejects this value with a
+  clear message.
+
+`level` (default 0.99) is converted to a positive z-score threshold via
+`stats::qnorm((1 + level) / 2)` and passed through to the C++ engine
+as the `outlier` field of `SSinputs`.  Inside `BSMclass::estimOutlier()`
+the AO threshold equals the user z (in absolute value — the engine
+flags the "final fit with detection" pass via a negative outlier
+value, so the C++ side uses `std::abs(inputs.outlier)` to recover the
+user-supplied threshold); LS and SC use the same z scaled by the
+engine's original relative stiffness (LS = z × 2.5/2.3, SC = z ×
+3.0/2.3).  After detection the engine writes the (type, time) rows into
+`BSMmodel::typeOutliers` (engine codes: 0 = AO, 1 = LS, 2 = SC).
+
+### Joint-λ + outlier-injection workaround
+
+The engine's outlier-injection refit path has a parameter-vector
+dimensionality bug when joint-BFGS is also estimating λ — the extra λ
+slot does not survive the dummy-injection refit and the BFGS aborts
+with a `4x1 vs 3x1` dimension mismatch.
+
+`pts()` sidesteps this on the R side: when `outliers = "use"` *and* the
+caller's model spec has `Z` in position 1 (auto-λ), the function runs a
+quick **no-outlier** preliminary fit, reads the resulting λ, rounds it
+to four decimals, and rewrites the model spec with that numeric value
+before invoking the outlier-detecting fit.  The preliminary fit is
+cheap (≈ 50 ms) and the rounding has no measurable effect on the final
+likelihood.
+
+### R-side post-processing
+
+```
+pts() with outliers = "use"
+ │
+ ├─ [optional λ-pinning preliminary fit — see above]
+ │
+ ├─ .pts_fit(..., outlier = qnorm((1 + level) / 2))
+ │    Engine returns out$typeOutliers (n × 2 matrix; empty when none)
+ │
+ ├─ .pts_fit() converts to data.frame:
+ │    data.frame(time = typeOutliers[, 2],            # 1-based
+ │               type = factor(c("AO", "LS", "SC")[typeOutliers[, 1] + 1L],
+ │                             levels = c("AO", "LS", "SC")))
+ │
+ └─ pts() stores it as $outliersDetected on the return list
+```
+
+Detected dummies enter the standard parameter machinery as `AO<t>`,
+`LS<t>`, `SC<t>` rows: they appear in `coef(m)`, in `summary(m)`'s
+"Outlier coefficients" block, and on the `print(m)` "X type outliers
+detected" line.  They are filtered out of the variance-proportions
+table by a `grepl("^(AO|LS|SC)[0-9]+$", nm)` guard shared between
+`print.pts` and `summary.pts`.
+
+`vcov(m)` only covers structural parameters (the Hessian is computed in
+ratio space before the dummies are injected), so the outlier-dummy
+rows in `coef(m)` get `NA` standard errors.  Information criteria
+(`AIC`, `BIC`, …) count the dummies correctly via `length(B) +
+lambdaEstimated`.
+
+---
+
 ## The C++ boundary in detail
 
 ### UCompC() input list (17 model fields + 2 simulation fields)
@@ -417,18 +492,24 @@ confint.pts(object, parm, level)          R/pts-confint.R
 | `p0` | all | Initial parameter vector |
 | `parNames` | all | Parameter names |
 | `criteria` | all | logLik, AIC, BIC, AICc (length 4) |
-| `coef` | all | Alias for p (used for named extraction) |
+| `coef` | all, validate | Alias for p (used for named extraction) |
 | `covp` | all, validate | Parameter covariance matrix |
 | `table` | all, validate | Diagnostics text block |
+| `typeOutliers` | all, validate | (n × 2) matrix of detected outliers; column 1 = engine type code (0 = AO, 1 = LS, 2 = SC), column 2 = 1-based time index.  Zero-row when none were found.  Surfaced to R as `$outliersDetected`. |
+| `objFunValue` | all | Final BFGS objective value (BCnorm marginal log-likelihood × −2/n) |
 | `v` | all, filter | Innovations (length n) |
 | `a` | all, filter | Filtered states |
 | `P` | all, filter | Filtered state variances |
 | `yFit` | all, filter | Filtered fitted values |
 | `yFitV` | all, filter | Filtered fitted variances |
+| `eps` | filter | Smoothed observation disturbances |
+| `eta` | filter | Smoothed state disturbances |
+| `stateNames` | filter | `/`-separated state-component names |
 | `comp` | all, components | Component matrix (m×n, column-major) |
+| `compV` | all, components | Component variance matrix |
 | `m` | all, components | Number of components |
 | `compNames` | all, components | `/`-separated component names |
-| `simPaths` | simulate | h×nsim simulated paths (BC scale) |
+| `simPaths` | simulate | h×nsim simulated paths (original scale) |
 
 ---
 
@@ -479,6 +560,24 @@ by the model type; only the variance entries of Q (and H) are free parameters.
   on the original scale (back-transformed by `.inv_box_cox()`).  Prediction intervals
   are computed by endpoint-transforming the BC-scale ±z*se bounds — not by
   transforming a symmetric original-scale interval.
+
+- **Box-Cox branch convention.** The R-side `.inv_box_cox()` (`R/pts-internals.R`)
+  and the C++ `BoxCox()` / `invBoxCox()` (`src/boxcox.h`) plus
+  `bcnormBoxCox()` / `bcnormLogJac()` (`src/bcnorm.h`) all use **exact-equality**
+  branches: `λ == 0` → log, `λ == 1` → identity, otherwise the general
+  `(y^λ − 1) / λ` formula.  No threshold shortcuts (e.g. `|λ| < 0.02`) —
+  thresholds make the AIC discontinuous in λ and bias the profile-λ search
+  toward the threshold endpoints.
+
+- **`testBoxCox` NaN sentinels.** Every "decomposition failed" branch inside
+  `testBoxCox()` (`src/boxcox.h`) returns a large *negative* value
+  (`-1e10`, `-1e20`) so the failed candidate loses every subsequent
+  `bestLLIK < cLLIK` comparison.  Earlier versions used *positive* sentinels
+  for the log / Box-Cox-aux candidates, which caused failed candidates to
+  spuriously win and pinned λ to 0 whenever the input contained NaN entries.
+  `testBoxCox` also forward-fills NaN entries in `y` up front (then back-fills
+  any leading NaN) so the harmonic-regression decomposition test sees a finite
+  series; naive `find_finite` filtering would break seasonal periodicity.
 
 - **Regressor matrix orientation.** The user-facing convention is (n observations ×
   k variables); internally and in C++ it is (k variables × n observations).  The
