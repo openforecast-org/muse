@@ -19,6 +19,7 @@
 #'
 #' x <- rnorm(100,100,10)
 #'
-#' @importFrom stats coef end fitted frequency is.ts logLik nobs predict residuals start ts vcov
+#' @importFrom stats AIC BIC coef end fitted frequency is.ts logLik nobs predict residuals start ts vcov
+#' @importFrom Rcpp evalCpp
 #' @useDynLib muse, .registration = TRUE
 NULL
