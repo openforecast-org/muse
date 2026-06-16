@@ -1190,8 +1190,15 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 SSmodel::inputs.lambda = lambdaStar;
         }
         double LLIK; //, AIC, BIC, AICc, BICc;
-        // Exception when function is nan
-        if (flag > 6){
+        // flag=7 means "line search proposed a NaN at some point and
+        // BFGS reverted xNew/objNew to the last good iterate" (see the
+        // isnan(objNew) revert in quasiNewtonBSM around line 2946).
+        // After that revert objFunValue IS finite -- the NaN lived in
+        // dobj (= objOld - objNew where objOld was set to NaN to flag
+        // the revert), not in objFunValue itself.  Only blank to NaN
+        // when objFunValue actually came back non-finite (i.e. flag=7
+        // was raised before any good iterate was recorded).
+        if (flag > 6 && !std::isfinite(objFunValue)){
                 objFunValue = datum::nan;
         }
         // ----------------------------------------------------------------
@@ -3073,8 +3080,17 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                         }
                 }
                 // Try other initial conditions because non decreasing or nan function
-                // Provisions when  problems with optimisation
-                if (flag > 5){
+                // Provisions when  problems with optimisation.
+                // Guard: only revert when objOld is itself finite.  The
+                // in-loop revert (around line 3005) sets objNew = objOld
+                // and *then* writes objOld = NaN as a marker that the
+                // revert happened (so dobj = objOld - objNew triggers
+                // flag = 7 on the next stopCriteria call).  Without the
+                // finite check here we'd blindly re-revert objNew to the
+                // marker NaN, destroying the genuinely good objNew left
+                // by the in-loop revert and propagating NaN out to the
+                // caller as objFunValue.
+                if (flag > 5 && std::isfinite(objOld)){
                         objNew = objOld;
                         gradNew = gradOld;
                         xNew = xOld;
