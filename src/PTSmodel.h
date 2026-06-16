@@ -521,9 +521,18 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
         } else {
             TVP = {};
         }
-        // Checking lambda
-        if (lambda != 9999.9 && abs(lambda) > 1)
-                lambda = sign(lambda);
+        // Clamping user-supplied fixed lambda to the global BC range
+        // (LAMBDA_BOUND_LOWER, LAMBDA_BOUND_UPPER, defined in boxcox.h).
+        // The previous cap was |lambda| > 1 -> sign(lambda), which
+        // silently rewrote any user-supplied lambda outside [-1, 1] to
+        // +/- 1.  That made `2LD` and `1LD` indistinguishable (the
+        // engine ran both at lambda = 1) and was asymmetric with the
+        // joint-BFGS path, which freely converges into [-2, 2] and snaps
+        // to the same anchor set.
+        if (lambda != 9999.9){
+                if (lambda < LAMBDA_BOUND_LOWER) lambda = LAMBDA_BOUND_LOWER;
+                else if (lambda > LAMBDA_BOUND_UPPER) lambda = LAMBDA_BOUND_UPPER;
+        }
         // Checking forecasting horizon
         int initPer;
         initPer = max(periods);
@@ -1166,7 +1175,9 @@ void BSMclass::estim(vec p, bool VERBOSE){
         // when y has zeros, which then crashes the snap-anchor / trig
         // seasonal init at lambda=0 -> log(0) = -Inf).
         double lambdaStar = lambdaWasEstimated
-                            ? std::max(-2.0, std::min(2.0, p(p.n_elem - 1)))
+                            ? std::max(LAMBDA_BOUND_LOWER,
+                                       std::min(LAMBDA_BOUND_UPPER,
+                                                p(p.n_elem - 1)))
                             : inputs.lambda;
         if (lambdaWasEstimated &&
             std::isfinite(SSmodel::inputs.lambdaLower) &&
@@ -1244,7 +1255,7 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 double yMin = SSmodel::inputs.y_raw.n_elem > 0
                               ? SSmodel::inputs.y_raw.elem(find_finite(SSmodel::inputs.y_raw)).min()
                               : 1.0;
-                double lambdaMin = (yMin > 0.0) ? -2.0 : 0.0;
+                double lambdaMin = (yMin > 0.0) ? LAMBDA_BOUND_LOWER : 0.0;
                 if (std::isfinite(SSmodel::inputs.lambdaLower) &&
                     SSmodel::inputs.lambdaLower > lambdaMin)
                         lambdaMin = SSmodel::inputs.lambdaLower;
@@ -1254,9 +1265,9 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 for (double aA : allAnchors){
                         // Strict lower-bound check (no tolerance) so a
                         // tiny positive lambdaMin (e.g. 1e-10) still
-                        // correctly excludes the anchor 0.  Upper-bound
-                        // tolerance is fine because all anchors are <= 2.
-                        if (aA < lambdaMin || aA > 2.0 + 1e-6) continue;
+                        // correctly excludes the anchor 0.
+                        if (aA < lambdaMin ||
+                            aA > LAMBDA_BOUND_UPPER + 1e-6) continue;
                         double dist = std::abs(aA - lambdaStar);
                         if (dist < dBest){ dBest = dist; lambdaSnap = aA; }
                 }

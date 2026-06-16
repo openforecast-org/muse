@@ -1,6 +1,20 @@
 /*************************
  Additional C++ functions not used in UComp
 **************************/
+// Global Box-Cox lambda search range.  Used everywhere a lambda value is
+// clamped or filtered:
+//   * preProcess (PTSmodel.h)         -- clamps user-supplied fixed lambda
+//   * BSMclass::estim                  -- clamps post-BFGS lambdaStar
+//   * snap-to-anchor selection         -- filters the anchor set
+//   * BoxCoxEstim                      -- clamps Guerrero's estimate
+// R can narrow the LOWER bound at runtime via SSinputs::lambdaLower
+// (e.g. 1e-10 when y has zeros, 0 when y has negatives); the UPPER
+// bound is currently fixed here.  Changing these constants takes effect
+// everywhere at once -- there is no other source of [-1, 1] / [-2, 2]
+// hardcoding.
+constexpr double LAMBDA_BOUND_LOWER = -2.0;
+constexpr double LAMBDA_BOUND_UPPER =  2.0;
+
 // Struct for boxcox optimization
 struct boxcoxInputs{
   vec y;
@@ -89,10 +103,10 @@ double BoxCoxEstim(vec y, int bunch){
   inputs.bunch = bunch;
   lambda(0) = 0.0;
   quasiNewton(auxBoxCox, gradAuxBoxCox, lambda, &inputs, obj, grad, ihess, false);
-  if (lambda(0) < -1.0){
-    lambda(0) = -1.0;
-  } else if (lambda(0) > 1.5){
-    lambda(0) = 1.5;
+  if (lambda(0) < LAMBDA_BOUND_LOWER){
+    lambda(0) = LAMBDA_BOUND_LOWER;
+  } else if (lambda(0) > LAMBDA_BOUND_UPPER){
+    lambda(0) = LAMBDA_BOUND_UPPER;
   }
   return lambda(0);
 }
