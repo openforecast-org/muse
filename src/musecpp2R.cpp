@@ -25,7 +25,7 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
             SEXP p0s, SEXP armas, SEXP TVPs, SEXP seass,
             SEXP trendOptionss, SEXP seasonalOptionss,
             SEXP irregularOptionss,
-            SEXP nsims, SEXP seeds){
+            SEXP nsims, SEXP seeds, SEXP lambdaLowers){
 
     // --- Marshall SEXP -> MuseInputs (no engine logic in this file) ---
     MuseInputs in;
@@ -54,6 +54,7 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
     in.irregularOptions = CHAR(STRING_ELT(irregularOptionss, 0));
     in.nsim             = as<int>(nsims);
     in.seed             = static_cast<unsigned>(as<int>(seeds));
+    in.lambdaLower      = as<double>(lambdaLowers);   // -Inf sentinel = no bound
 
     // --- Run the engine ---
     MuseOutputs out;

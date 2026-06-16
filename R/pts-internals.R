@@ -43,7 +43,8 @@
 .pts_uc_inputs <- function(y, u, modelUC, h, lambda, criterion, lags,
                            verbose, armaIdent,
                            irregularOptions = "arma(0,0)",
-                           outlier = 0){
+                           outlier = 0,
+                           lambdaLower = -Inf){
     # u: NULL -> sentinel matrix; vector -> row matrix; otherwise pass through
     if (is.null(u)){
         u_mat <- matrix(0, 1, 2)
@@ -75,56 +76,9 @@
         seas             = lags,
         trendOptions     = "rw/llt/srw/td",
         seasonalOptions  = "none/linear/equal",
-        irregularOptions = irregularOptions
+        irregularOptions = irregularOptions,
+        lambdaLower      = as.numeric(lambdaLower)
     )
-}
-
-# .pts_lambda_search_positive: tiny IC-driven grid search for a positive
-# Box-Cox lambda when the series contains zeros (BC is undefined for
-# lambda <= 0 at y = 0).  Called by pts() in place of the engine's
-# unconstrained joint-BFGS lambda path.
-#
-# The grid is geometric-ish and capped at 1.0; tiny lambdas are allowed
-# in principle (BC(0, lambda) = -1/lambda is finite for lambda > 0) but
-# the corresponding KF objective is poorly conditioned, so the grid
-# only goes as low as 0.01.  The lower-bound value (1e-10) is exposed
-# in the warning message for transparency but is never actually fitted.
-.pts_lambda_search_positive <- function(y, u, model, lags, criterion,
-                                        ic, ordersUC){
-    grid <- c(0.01, 0.1, 0.25, 0.5, 0.75, 1.0)
-    nm <- nchar(model)
-    suffix <- substr(model, nm - 1L, nm)
-    n <- sum(is.finite(as.numeric(y)))
-    bestLambda <- 1
-    bestIC     <- Inf
-    for (lam in grid){
-        spec <- paste0(format(lam, scientific = FALSE), suffix)
-        fit <- tryCatch(
-            .pts_fit(y = y, u = u, model = spec, lags = lags, h = 0L,
-                     criterion = criterion, armaIdent = FALSE,
-                     ar = ordersUC$ar, ma = ordersUC$ma,
-                     armaLags = ordersUC$lags,
-                     outlier = 0, B = NULL, verbose = FALSE),
-            error = function(e) NULL
-        )
-        if (is.null(fit) || is.null(fit$logLik)) next
-        nP <- length(fit$p) + as.integer(isTRUE(fit$lambdaEstimated))
-        ll <- as.numeric(fit$logLik)
-        thisIC <- switch(ic,
-            AIC  = -2 * ll + 2 * nP,
-            BIC  = -2 * ll + log(n) * nP,
-            AICc = -2 * ll + 2 * nP + 2 * nP * (nP + 1) /
-                   max(1, n - nP - 1),
-            BICc = -2 * ll + log(n) * nP + log(n) * nP * (nP + 1) /
-                   max(1, n - nP - 1),
-            -2 * ll + 2 * nP
-        )
-        if (is.finite(thisIC) && thisIC < bestIC){
-            bestIC <- thisIC
-            bestLambda <- lam
-        }
-    }
-    bestLambda
 }
 
 # .pts_call_uc: thin wrapper around .UCompC() that dispatches on `command`.
@@ -137,7 +91,8 @@
            args$seas, args$trendOptions, args$seasonalOptions,
            args$irregularOptions,
            if (is.null(args$nsim)) 1L else as.integer(args$nsim),
-           if (is.null(args$seed)) 0L else as.integer(args$seed))
+           if (is.null(args$seed)) 0L else as.integer(args$seed),
+           if (is.null(args$lambdaLower)) -Inf else as.numeric(args$lambdaLower))
 }
 
 # .pts_resolve_class: mirror adam's input-class resolution at
@@ -226,12 +181,20 @@
     zoo::zoo(unclass(values), order.by = ord)
 }
 
-# .pts_ts_innov: wrap the innovations vector.  Innovations are shorter
-# than y by (length(y) - length(v)); the wrapper shifts that many steps
-# later than y.
+# .pts_ts_innov: wrap the innovations vector.  Two engine paths feed in:
+#   * v shorter than y by k -- the KF dropped k warm-up rows.  Shift the
+#     time index forward by k (positive pad).
+#   * v of length n + h     -- the engine appended forecast-tail
+#     placeholders.  Residuals are an in-sample concept, so drop the
+#     last h entries before wrapping; the resulting pad is zero.
+# `[.Date` / `[.yearmon` error on negative subscripts (rather than
+# padding with NA the way base `[` does), so we never let pad be
+# negative when entering .pts_wrap_in.
 .pts_ts_innov <- function(values, y){
     if (length(values) == 0) return(values)
-    pad <- length(y) - length(values)
+    ny <- length(y)
+    if (length(values) > ny) values <- values[seq_len(ny)]
+    pad <- ny - length(values)
     .pts_wrap_in(values, y, pad = pad)
 }
 
@@ -321,7 +284,7 @@
 # (now retired) PTSsetup + MSOEsetup + MSOE chain.
 .pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose,
                      ar = 0L, ma = 0L, armaLags = 1L, outlier = 0,
-                     B = NULL){
+                     lambdaLower = -Inf, B = NULL){
     # Flatten per-lag ar / ma vectors into the format pts_to_uc consumes:
     #   length-1 lags → c(p, q)         (non-seasonal arma(p,q))
     #   length-2 lags → c(p, q, P, Q, s) (sarma(p,q)(P,Q)_s)
@@ -339,7 +302,8 @@
                            irregularOptions =
                                .pts_arma_candidates(ar, ma, armaLags,
                                                     armaIdent),
-                           outlier = outlier)
+                           outlier = outlier,
+                           lambdaLower = lambdaLower)
     # Override the default sentinel (-9999.9) when the caller supplied an
     # explicit starting vector via `B` (adam-style internal hatch, passed
     # through pts(... , B = ...) and used by the loss-surface experiment

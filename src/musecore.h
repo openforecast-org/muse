@@ -48,6 +48,11 @@ struct MuseInputs {
     // simulate-only inputs (ignored by other commands)
     int          nsim = 1;
     unsigned     seed = 0;       // 0 -> let Armadillo seed from clock
+    // Lower bound on Box-Cox lambda for the joint-BFGS estimation
+    // path (lambda == 9999.9).  -inf = unbounded; finite value =
+    // R-side guard (set to 1e-10 when y has zeros).  Plumbed straight
+    // into SSinputs::lambdaLower.
+    double       lambdaLower = -arma::datum::inf;
 };
 
 struct MuseOutputs {
@@ -184,11 +189,15 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     // y_raw retains the untransformed trimmed series so llik() can re-BoxCox
     // per BFGS step when jointly estimating lambda.
     inputsSS.y_raw = inputsSS.y;
+    inputsSS.lambdaLower = in.lambdaLower;   // -inf when no R-side guard
     if (in.lambda == 9999.9){
         // Joint estimation: lambda is the last element of the BFGS p vector.
         // llik() re-applies BoxCox(y_raw, p.back()) at every evaluation so
         // we leave inputsSS.y untransformed here.
         double lambda0           = testBoxCox(in.y, in.periods);
+        // Lift the warm-start above the user-supplied lower bound
+        // (no-op when lambdaLower = -inf).
+        if (lambda0 < in.lambdaLower) lambda0 = in.lambdaLower;
         inputsBSM.lambda         = lambda0;
         inputsSS.lambda          = lambda0;
         inputsBSM.profileLambda  = true;   // persistent "joint lambda" flag

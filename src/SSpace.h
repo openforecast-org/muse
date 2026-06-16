@@ -69,6 +69,13 @@ struct SSinputs{
         cleanInnovations = false, // cleaning innovations on/off
         augmented = false, // Augmented KF estimation on / off
         estimateLambda = false; // true when lambda is last element of p
+   // Lower bound on Box-Cox lambda during joint-BFGS estimation.  In
+   // llik() the value pulled from p.back() is clamped to >= lambdaLower
+   // before computing BoxCox(y_raw, lam); the clamp creates a flat
+   // region below the bound so the numerical gradient pushes BFGS back
+   // into the feasible side.  Default = -inf (no bound).  Set from R
+   // to 1e-10 when y contains zeros so log(0) / 0^negative can't appear.
+   double lambdaLower = -arma::datum::inf;
    double lambda = 1.0;  // Box-Cox lambda; kept in sync with BSMmodel::lambda
    double logJac  = 0.0; // BCnorm Jacobian  Σ log|g'(y_t)|; computed in llik()
    vec y_raw;             // original (untransformed) y
@@ -547,6 +554,12 @@ double llik(vec& p, void* opt_data){
   // the KF always runs on the correctly transformed series.
   if (data->estimateLambda) {
     double lam = p(p.n_elem - 1);
+    // Clamp lambda to the user-supplied lower bound (default -inf =
+    // no bound).  Required when y has zeros so BoxCox(0, lam<=0) =
+    // +/-Inf doesn't poison the KF.  The unclamped p.back() stays as
+    // the BFGS internal parameter; we just propagate the clamped lam
+    // to data->lambda (read by downstream consumers) and to BoxCox.
+    if (lam < data->lambdaLower) lam = data->lambdaLower;
     data->lambda = lam;
     data->y = BoxCox(data->y_raw, lam);
   }

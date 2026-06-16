@@ -1157,9 +1157,23 @@ void BSMclass::estim(vec p, bool VERBOSE){
         // it to SSmodel::inputs.lambda on the last call, but BSMmodel's
         // inputs.lambda is never touched by llik -- it still holds the
         // estimUCs warm-start.  Reading p.back() is unambiguous.
+        // Apply the same lower bound that llik()'s clamp uses, so the
+        // reported lambda matches the value actually fed into BoxCox()
+        // during the final iterations -- otherwise BFGS can leave
+        // p.back() below SSinputs.lambdaLower (the clamp is a "shadow"
+        // that bounds the *used* value, not the parameter slot), and
+        // downstream consumers see an unclamped value (e.g. lambda=0
+        // when y has zeros, which then crashes the snap-anchor / trig
+        // seasonal init at lambda=0 -> log(0) = -Inf).
         double lambdaStar = lambdaWasEstimated
                             ? std::max(-2.0, std::min(2.0, p(p.n_elem - 1)))
                             : inputs.lambda;
+        if (lambdaWasEstimated &&
+            std::isfinite(SSmodel::inputs.lambdaLower) &&
+            lambdaStar < SSmodel::inputs.lambdaLower){
+                lambdaStar = SSmodel::inputs.lambdaLower;
+                p(p.n_elem - 1) = lambdaStar;  // keep BFGS slot consistent
+        }
         if (lambdaWasEstimated){
                 inputs.lambda          = lambdaStar;
                 SSmodel::inputs.lambda = lambdaStar;
@@ -1219,16 +1233,30 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 vec    typePar_struct = inputs.typePar.rows(0, inputs.typePar.n_elem - 2);
                 vec    constPar_struct= inputs.constPar.rows(0, inputs.constPar.n_elem - 2);
 
-                // Find nearest anchor within the valid lambda domain
+                // Find nearest anchor within the valid lambda domain.
+                // lambdaMin combines two sources: (a) yMin=0 forbids
+                // lambda <= 0 (log/negative powers of 0 are +/-Inf), and
+                // (b) the user-supplied SSinputs.lambdaLower (1e-10 when R
+                // detects zeros) takes precedence over (a) so the snap
+                // never picks the anchor 0 either, which would still feed
+                // log(0) = -Inf into the KF and crash the trig seasonal
+                // initialiser.
                 double yMin = SSmodel::inputs.y_raw.n_elem > 0
                               ? SSmodel::inputs.y_raw.elem(find_finite(SSmodel::inputs.y_raw)).min()
                               : 1.0;
                 double lambdaMin = (yMin > 0.0) ? -2.0 : 0.0;
+                if (std::isfinite(SSmodel::inputs.lambdaLower) &&
+                    SSmodel::inputs.lambdaLower > lambdaMin)
+                        lambdaMin = SSmodel::inputs.lambdaLower;
                 const double allAnchors[] = {-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0};
                 double lambdaSnap = lambdaStar;
                 double dBest = datum::inf;
                 for (double aA : allAnchors){
-                        if (aA < lambdaMin - 1e-6 || aA > 2.0 + 1e-6) continue;
+                        // Strict lower-bound check (no tolerance) so a
+                        // tiny positive lambdaMin (e.g. 1e-10) still
+                        // correctly excludes the anchor 0.  Upper-bound
+                        // tolerance is fine because all anchors are <= 2.
+                        if (aA < lambdaMin || aA > 2.0 + 1e-6) continue;
                         double dist = std::abs(aA - lambdaStar);
                         if (dist < dBest){ dBest = dist; lambdaSnap = aA; }
                 }
@@ -2887,7 +2915,19 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
         vec gradOld(nx),
         xOld = xNew,
         d(nx);
-        vec crit(5); crit(0) = 1e-6; crit(1) = 1e-7; crit(2) = 1e-5; crit(3) = 1000; crit(4) = 10000;
+        // Convergence thresholds.  crit(1) is the |dobj| threshold for
+        // flag=2 ("objective stopped changing").  1e-7 was too tight: on
+        // raw-scale objectives BFGS hits a plateau where dobj is ~1e-5
+        // per iter but |grad| is small and parameters barely move; the
+        // criterion never fires and BFGS limps to crit(4) = 10000 fun
+        // evals (~500 iter for the typical 20-fun line search).  1e-4 is
+        // still 4-decimal precision in the log-lik objective -- well
+        // beyond what AIC / BIC differences can distinguish -- and lets
+        // BFGS terminate at the plateau in O(2-5) iter.  The fast-
+        // convergence path (lambda ~ -0.29 on AirPassengers etc.) is
+        // unaffected because it exits at iter 2 via flag=6 (obj
+        // overshoot) before flag=2 ever evaluates.
+        vec crit(5); crit(0) = 1e-6; crit(1) = 1e-4; crit(2) = 1e-5; crit(3) = 1000; crit(4) = 10000;
         iHess.eye(nx, nx);
         uvec isVar = find(inputs.typePar == 0); //, nonConstrained = find(inputs.constPar == 0);
         bool cLlik = (sum(inputs.constPar) > 0);

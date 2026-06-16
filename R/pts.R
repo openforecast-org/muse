@@ -177,36 +177,24 @@ pts <- function(data,
     y      <- parsed$y
     u      <- parsed$u
 
-    # Box-Cox guard.  Two cases:
-    #   * negatives in y  -- BC is undefined for any lambda != 1; warn and
-    #     pin to 1.
-    #   * zeros in y      -- BC at lambda <= 0 is +/-Inf.  If the user
-    #     asked for auto-lambda, restrict the search to positive lambda
-    #     via a small IC-driven grid.  If the user fixed lambda <= 0,
-    #     warn and pin to 1.
-    # An explicit lambda = 1 is always left untouched.
-    nm <- nchar(model)
-    lambdaSlot <- substr(model, 1L, nm - 2L)
-    lambdaUser <- suppressWarnings(as.numeric(lambdaSlot))
+    # Lower bound on lambda for the engine's joint-BFGS:
+    #   * any(y < 0)  -> lambdaLower = 0     (BC undefined for negatives)
+    #   * any(y == 0) -> lambdaLower = 1e-10 (BC at lambda <= 0 is +/-Inf)
+    # Otherwise unbounded.  The bound is enforced inside `llik()` in the
+    # C++ engine; no R-side rewrites of the model spec.
+    lambdaLower <- if (any(y < 0, na.rm = TRUE)) 0
+                   else if (any(y == 0, na.rm = TRUE)) 1e-10
+                   else -Inf
+    # Negative-y safety: Box-Cox throws for any lambda != 1 when y has
+    # negatives, so warn the user and pin the spec to lambda = 1 by
+    # rewriting position 1 of the model string.  An explicit lambda = 1
+    # is left untouched and stays silent.
     if (any(y < 0, na.rm = TRUE)){
+        nm <- nchar(model)
+        lambdaUser <- suppressWarnings(as.numeric(substr(model, 1L, nm - 2L)))
         if (is.na(lambdaUser) || lambdaUser != 1){
             warning("`data` contains negative values; Box-Cox is undefined for ",
                     "negatives.  Setting lambda = 1 (no transformation).",
-                    call. = FALSE)
-            model <- paste0("1", substr(model, nm - 1L, nm))
-        }
-    } else if (any(y == 0, na.rm = TRUE)){
-        if (toupper(lambdaSlot) == "Z"){
-            warning("`data` contains zeros; restricting Box-Cox lambda search ",
-                    "to positive values (lower bound 1e-10).", call. = FALSE)
-            chosen <- .pts_lambda_search_positive(
-                y = y, u = u, model = model, lags = lags,
-                criterion = criterion, ic = ic, ordersUC = ordersUC)
-            model <- paste0(format(chosen, scientific = FALSE),
-                            substr(model, nm - 1L, nm))
-        } else if (!is.na(lambdaUser) && lambdaUser <= 0){
-            warning("`data` contains zeros; Box-Cox is undefined for lambda ",
-                    "<= 0.  Setting lambda = 1 (no transformation).",
                     call. = FALSE)
             model <- paste0("1", substr(model, nm - 1L, nm))
         }
@@ -296,6 +284,7 @@ pts <- function(data,
                     ma        = ordersUC$ma,
                     armaLags  = ordersUC$lags,
                     outlier   = outlier_z,
+                    lambdaLower = lambdaLower,
                     B         = B,
                     verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).
