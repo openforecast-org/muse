@@ -2928,7 +2928,8 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                 flag = 0,
                 nOverallFuns,
                 nFuns = 0,
-                nIter = 0;
+                nIter = 0,
+                plateauStreak = 0;  // see plateau-exit block below
         double objOld, alpha_i;
         vec gradOld(nx),
         xOld = xNew,
@@ -3071,6 +3072,30 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                 }
                 // Stop Criteria
                 flag = stopCriteria(crit, max(abs(gradNew)), objOld - objNew, 1e5, nIter, nOverallFuns);
+                // Plateau exit: on ill-conditioned BC objectives
+                // (e.g. fixed lambda=2 on raw-scale y ~ 1e6), Armijo's
+                // linear-extrapolation target |dir| = beta*|grad.d| is
+                // huge (~1e6) while the achievable per-step decrease
+                // is small (~1e-4): every line search backtracks to its
+                // 1e-5 alpha floor and BFGS limps for 500+ iters making
+                // dobj ~ 3e-4 progress, ending only when the 10000 fun
+                // eval cap fires.  Detect this and exit cleanly: when
+                // the relative dobj is tiny AND alpha is at the floor
+                // for K=5 consecutive iters, we are on a plateau the
+                // line search cannot escape -- the IC ranking between
+                // candidates is unaffected by the residual 0.1-unit
+                // grind, and the fast paths (iter <= 2 via flag=6 /
+                // flag=2) never accumulate enough streak to trigger.
+                if (!flag){
+                        double dobj_rel = std::abs(objOld - objNew) /
+                                          std::max(std::abs(objNew), 1.0);
+                        bool alphaAtFloor = alpha_i <= 2e-5;
+                        if (dobj_rel < 1e-3 && alphaAtFloor){
+                                if (++plateauStreak >= 5) flag = 2;
+                        } else {
+                                plateauStreak = 0;
+                        }
+                }
                 // Inverse Hessian BFGS update
                 if (!flag){
                         bfgs(iHess, gradNew - gradOld, xNew - xOld, nx, nIter);
