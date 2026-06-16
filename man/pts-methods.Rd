@@ -43,7 +43,16 @@
 \arguments{
 \item{x, object}{A fitted object of class \code{"pts"}.}
 
+\item{digits}{number of significant digits used in printed output.}
+
 \item{...}{further arguments passed to underlying generics.}
+
+\item{which}{integer vector of plot panels to draw; passed through to
+\code{plot.smooth} (see \code{?smooth::plot.adam}).  Defaults to
+\code{c(1, 2, 4, 6)}.}
+
+\item{all}{logical; if \code{TRUE} the holdout sample is included in
+the observation count.  Default \code{FALSE}.}
 
 \item{newdata}{unused (reserved for forecast paths with new regressors).}
 

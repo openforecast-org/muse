@@ -1,6 +1,9 @@
 muse v0.0.2.41001 (in development)
 =======
 
+* Removed the `auto.pts()` wrapper.  It was redundant with `pts(data,
+  model = "ZZZ", ...)`, which is the documented way to request fully
+  automatic model selection.
 * `pts()` accepts seasonal SARMA on the irregular component via per-lag
   vectors in `orders` — e.g. `orders = list(ar = c(p, P), ma = c(q, Q),
   lags = c(1, s))` fits SARMA(p, q)(P, Q)_s.  The seasonal lag may also be
@@ -49,9 +52,8 @@ muse v0.0.1.41005 (in development)
 =======
 
 User-facing
-* Single user-facing entry point: pts(), with auto.pts() as a thin "ZZZ"
-  wrapper.  The legacy ctll() and PTS/PTSforecast/MSOE API have been
-  removed.
+* Single user-facing entry point: pts().  The legacy ctll() and
+  PTS/PTSforecast/MSOE API have been removed.
 * pts() now mirrors smooth::adam()'s calling convention — data,
   formula, ic, orders, h, holdout, regressors — and returns an object
   with adam-aligned slot names so plot.smooth and other smooth/greybox

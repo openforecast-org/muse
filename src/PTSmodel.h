@@ -245,7 +245,7 @@ void BSMaux(vec y, mat u, string model, int h, double outlier, bool tTest, strin
         // if (sum(TVP) > 0)
         //         outlier = 0;
         if (errorExit)
-                printf("%d", errorExit);
+                Rprintf("%d", errorExit);
         // End of pre-processing
         inputsSS.y = y.rows(iniObs, y.n_elem - 1);
         mat uIni;
@@ -333,7 +333,7 @@ void BSM(vec y, mat u, string model, int h, double outlier, bool tTest, string c
          if (sum(TVP) > 0)
          outlier = 0;
          if (errorExit)
-         printf("%d", errorExit);
+         Rprintf("%d", errorExit);
          // End of pre-processing
          inputsSS.y = y.rows(iniObs, y.n_elem - 1);
          mat uIni;
@@ -394,17 +394,17 @@ void BSM(vec y, mat u, string model, int h, double outlier, bool tTest, string c
                 m.setInputs(aux2);
         }
         m.forecast();
-        printf("empiezo validated:\n");
+        Rprintf("empiezo validated:\n");
         m.validate(true);
-        printf("empiezo components:\n");
+        Rprintf("empiezo components:\n");
         m.components();
         //BSMmodel aux = m.getInputs();
         //aux.comp.print("components 358");
-        printf("empiezo filter:\n");
+        Rprintf("empiezo filter:\n");
         m.filter();
-        printf("empiezo distturb:\n");
+        Rprintf("empiezo distturb:\n");
         m.disturb();
-        printf("empiezo forecast:\n");
+        Rprintf("empiezo forecast:\n");
 
 }
 // Pre-processing
@@ -464,7 +464,7 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
                 ind++;
         } while(alright == true && ind < aux.size());
         if (alright == false){
-                printf("%s", "ERROR: trendOptions wrongly set (none/rw/irw/llt/dt/td/hd)!!!\n");
+                Rprintf("%s", "ERROR: trendOptions wrongly set (none/rw/irw/llt/dt/td/hd)!!!\n");
                 return true;
         }
         // checking seasonalOptions
@@ -485,7 +485,7 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
                 ind++;
         } while(alright == true && ind < aux.size());
         if (alright == false){
-                printf("%s", "ERROR: seasonalOptions wrongly set (none/equal/different/linear)!!!\n");
+                Rprintf("%s", "ERROR: seasonalOptions wrongly set (none/equal/different/linear)!!!\n");
                 return true;
         }
         // checking irregularOptions
@@ -500,12 +500,12 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
                 ind++;
         } while(alright == true && ind < aux.size());
         if (alright == false){
-                printf("%s", "ERROR: irregularOptions wrongly set (none/arma(p,q))!!!\n");
+                Rprintf("%s", "ERROR: irregularOptions wrongly set (none/arma(p,q))!!!\n");
                 return true;
         }
         // Checking TVP
         if (any((TVP > -999) && (TVP < 0))){
-                printf("%s", "ERROR: TVP vector should be positive!!!\n");
+                Rprintf("%s", "ERROR: TVP vector should be positive!!!\n");
                 return true;
         }
         if (u.n_rows > 0){
@@ -539,13 +539,13 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
         if (u.n_rows > 0){
                 h = u.n_cols - y.n_elem;
                 if (h < 0){
-                        printf("%s", "ERROR: Inputs should be at least as long as the ouptut!!!\n");
+                        Rprintf("%s", "ERROR: Inputs should be at least as long as the ouptut!!!\n");
                         return true;
                 }
         }
         // Checking periods
         if (min(periods) < 1){
-                printf("%s", "ERROR: All periods should be higher or equal to zero!!!\n");
+                Rprintf("%s", "ERROR: All periods should be higher or equal to zero!!!\n");
                 return true;
         }
         // Removing nans at beginning or end
@@ -568,14 +568,14 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
         //        stop("Input \"periods\" should be supplied!!")
         //    }
         if (model.find("/") == string::npos){
-                printf("%s", "ERROR: Incorrect number of components (trend/seasonal/irregular)!!!\n");
+                Rprintf("%s", "ERROR: Incorrect number of components (trend/seasonal/irregular)!!!\n");
                 return true;
         }
         vector<string> comps;
         chopString(model, "/", comps);
         // Number of components
         if (comps.size() < 3 || comps.size() > 4){
-                printf("%s", "ERROR: Incorrect number of components (trend/seasonal/irregular)!!!\n");
+                Rprintf("%s", "ERROR: Incorrect number of components (trend/seasonal/irregular)!!!\n");
                 return true;
         }
         // Adding cycle in case of T/S/I model specification
@@ -596,11 +596,11 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
         }
         // Checking model
         if (comps[1][0] != 'n' && comps[2][0] == 'l'){
-                printf("%s", "ERROR: Cycle can estimated only with trigonometric seasonal components!!!\n");
+                Rprintf("%s", "ERROR: Cycle can estimated only with trigonometric seasonal components!!!\n");
                 return true;
         }
         if (comps[0][0] == 'n' && comps[1][0] == 'n' && comps[2][0] == 'n' && comps[3][0] == 'n'){
-                printf("%s", "ERROR: No correct model specified!!!\n");
+                Rprintf("%s", "ERROR: No correct model specified!!!\n");
                 return true;
         }
         if (model.find("?") == string::npos && p0(0) != -9999.9){
@@ -622,26 +622,26 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
         // Checking components
         string opt = "?nritlds";
         if (opt.find(comps[0][0]) == string::npos){
-                printf("%s", "ERROR: Incorrect TREND model (? / none / rw / irw / td / llt / dt / srw)!!!\n");
+                Rprintf("%s", "ERROR: Incorrect TREND model (? / none / rw / irw / td / llt / dt / srw)!!!\n");
                 return true;
         }
         opt = "?n+-0123456789";
         if (opt.find(comps[1][0]) == string::npos){
-                printf("%s", "ERROR: Incorrect CYCLE model (? / none / +-integer)!!!\n");
+                Rprintf("%s", "ERROR: Incorrect CYCLE model (? / none / +-integer)!!!\n");
                 return true;
         }
         opt = "?nedl";
         if (opt.find(comps[2][0]) == string::npos){
-                printf("%s", "ERROR: Incorrect SEASONAL model (? / none / equal / different / linear)!!!\n");
+                Rprintf("%s", "ERROR: Incorrect SEASONAL model (? / none / equal / different / linear)!!!\n");
                 return true;
         }
         if (comps[3][0] == 'a' && model.find("arma") == string::npos){
-                printf("%s", "ERROR: Incorrect IRREGULAR model (? / none / arma(p, q))!!!\n");
+                Rprintf("%s", "ERROR: Incorrect IRREGULAR model (? / none / arma(p, q))!!!\n");
                 return true;
         }
         opt = "?na";
         if (opt.find(comps[3][0]) == string::npos){
-                printf("%s", "ERROR: Incorrect IRREGULAR model (? / none / arma(p, q))!!!\n");
+                Rprintf("%s", "ERROR: Incorrect IRREGULAR model (? / none / arma(p, q))!!!\n");
                 return true;
         }
         // Set rhos
@@ -1064,9 +1064,9 @@ void BSMclass::checkModel(uvec harmonics){
             (inputs.model[0] == 'l' || inputs.model[0] == 'd')){
                 // Next 5 lines in every exception
                 if (SSmodel::inputs.verbose){
-                        printf("    --\n");
-                        printf("    Estimation problems, trying again...\n");
-                        printf("    --\n");
+                        Rprintf("    --\n");
+                        Rprintf("    Estimation problems, trying again...\n");
+                        Rprintf("    --\n");
                         printed = true;
                 }
                 SSinputs old = SSmodel::inputs;
@@ -1096,9 +1096,9 @@ void BSMclass::checkModel(uvec harmonics){
             (inputs.model[0] == 'l' || inputs.model[0] == 'd')){
                 // Next 5 lines in every exception
                 if (SSmodel::inputs.verbose && !printed){
-                        printf("    --\n");
-                        printf("    Estimation problems, trying again...\n");
-                        printf("    --\n");
+                        Rprintf("    --\n");
+                        Rprintf("    Estimation problems, trying again...\n");
+                        Rprintf("    --\n");
                         printed = true;
                 }
                 SSinputs old = SSmodel::inputs;
@@ -1325,8 +1325,8 @@ void BSMclass::estim(vec p, bool VERBOSE){
         }
         if (SSmodel::inputs.verbose){
                 double nSeconds = timer.toc();
-                printf("%s", SSmodel::inputs.estimOk.c_str());
-                printf("Elapsed time: %10.5f seconds\n", nSeconds);
+                Rprintf("%s", SSmodel::inputs.estimOk.c_str());
+                Rprintf("Elapsed time: %10.5f seconds\n", nSeconds);
         }
         SSmodel::inputs.p = p;
         SSmodel::inputs.objFunValue = objFunValue;
@@ -1509,11 +1509,11 @@ void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                                  inputs.lambdaEstimated ? " " : "*");
                         if (inputs.PTSnames){
                                 MODEL = UC2PTS(allUCModels[i], inputs.lambda);
-                                printf(" %*s  %6s: %13.4f %13.4f %13.4f %13.4f\n",
+                                Rprintf(" %*s  %6s: %13.4f %13.4f %13.4f %13.4f\n",
                                        wide, MODEL.c_str(), lambdaTag,
                                        AIC, AICc, BIC, BICc);
                         } else {
-                                printf(" %*s  %6s: %8.4f %8.4f %8.4f %8.4f\n",
+                                Rprintf(" %*s  %6s: %8.4f %8.4f %8.4f %8.4f\n",
                                        wide, MODEL.c_str(), lambdaTag,
                                        AIC, AICc, BIC, BICc);
                         }
@@ -1656,22 +1656,22 @@ void BSMclass::ident(string show, bool VERBOSE){
         // UC identification
         double minCrit; // = 1e12, minCrit1;
         if (VERBOSE && (show == "head" || show == "both")){
-                printf("-----------------------------------------------------------------------------------\n");
+                Rprintf("-----------------------------------------------------------------------------------\n");
                 if (SSmodel::inputs.outlier < 0){
-                        printf(" Identification started WITH outlier detection\n");
+                        Rprintf(" Identification started WITH outlier detection\n");
                 } else {
                         if (inputs.PTSnames)
-                                printf(" Identification of PTS models:\n");
+                                Rprintf(" Identification of PTS models:\n");
                         else
-                                printf(" Identification started WITHOUT outlier detection\n");
+                                Rprintf(" Identification started WITHOUT outlier detection\n");
                 }
-                printf("-----------------------------------------------------------------------------------\n");
+                Rprintf("-----------------------------------------------------------------------------------\n");
                 if (inputs.PTSnames)
-                        printf("    Model          Lambda           AIC          AICc           BIC          BICc\n");
+                        Rprintf("    Model          Lambda           AIC          AICc           BIC          BICc\n");
                 else
-                        printf("          Model                     Lambda      AIC     AICc      BIC     BICc\n");
-                printf("           (Lambda values marked with '*' were snapped to a fixed anchor.)\n");
-                printf("-----------------------------------------------------------------------------------\n");
+                        Rprintf("          Model                     Lambda      AIC     AICc      BIC     BICc\n");
+                Rprintf("           (Lambda values marked with '*' were snapped to a fixed anchor.)\n");
+                Rprintf("-----------------------------------------------------------------------------------\n");
         }
         // Finding models to identify
         vector<string> allUCModels;
@@ -1781,8 +1781,8 @@ void BSMclass::ident(string show, bool VERBOSE){
                 llikAug(SSmodel::inputs.p, &(SSmodel::inputs));
         }
         if (VERBOSE && !succeed){
-                printf("                      Identification failed!!\n");
-                printf("              Unable to find a proper model!!\n");
+                Rprintf("                      Identification failed!!\n");
+                Rprintf("              Unable to find a proper model!!\n");
         }
         // Selecting best ARMA
         if (inputs.arma && succeed){
@@ -1864,9 +1864,9 @@ void BSMclass::ident(string show, bool VERBOSE){
                 //     inputs.beta0ARMA = beta1;
                 // }
                 if (VERBOSE && outlierCopy > 0 && outlierCopy < 1000){
-                        printf("------------------------------------------------------------\n");
-                        printf(" Final model WITH outlier detection\n");
-                        printf("------------------------------------------------------------\n");
+                        Rprintf("------------------------------------------------------------\n");
+                        Rprintf(" Final model WITH outlier detection\n");
+                        Rprintf("------------------------------------------------------------\n");
                 }
         }
         // bool correct = true;
@@ -1878,9 +1878,9 @@ void BSMclass::ident(string show, bool VERBOSE){
         }
         if (VERBOSE && (show == "tail" || show == "both")){
                 double nSeconds = timer.toc();
-                printf("-----------------------------------------------------------------------------------\n");
-                printf("  Identification time: %10.5f seconds\n", nSeconds);
-                printf("-----------------------------------------------------------------------------------\n");
+                Rprintf("-----------------------------------------------------------------------------------\n");
+                Rprintf("  Identification time: %10.5f seconds\n", nSeconds);
+                Rprintf("-----------------------------------------------------------------------------------\n");
         }
         // Final estimation (genunine with nans in case of missing data)
         //if (inputs.missing.n_elem > 0){
@@ -2788,7 +2788,7 @@ void BSMclass::validate(bool showTable){
         // }
         if (showTable){
                 for (unsigned int i = 0; i < SSmodel::inputs.table.size(); i++){
-                        printf("%s ", SSmodel::inputs.table[i].c_str());
+                        Rprintf("%s ", SSmodel::inputs.table[i].c_str());
                 }
         }
         SSmodel::inputs.v = innovations;
@@ -2916,8 +2916,8 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
         }
         // Head of table
         if (verbosef){
-                printf(" Iter FunEval  Objective       Step\n");
-                printf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, 1.0);
+                Rprintf(" Iter FunEval  Objective       Step\n");
+                Rprintf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, 1.0);
         }
         // Main loop
         uvec zeroVar, largestVar, allVar = find(inputs.typePar == 0); //, nonConst;
@@ -3009,7 +3009,7 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                 nOverallFuns += nFuns;
                 // Verbose
                 if (verbosef){
-                        printf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, alpha_i);
+                        Rprintf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, alpha_i);
                 }
                 // Stop Criteria
                 flag = stopCriteria(crit, max(abs(gradNew)), objOld - objNew, 1e5, nIter, nOverallFuns);
@@ -3033,7 +3033,7 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                         flag = 0;
                         if (SSmodel::inputs.verbose){
                                 // cout << "    Trying new point..." << endl;
-                                printf("    Trying new point...\n");
+                                Rprintf("    Trying new point...\n");
                         }
                         xNew(allVar) = round(xNew(allVar)); //  % inputs.typePar;
                         if (inputs.nPar(0) > 2){
@@ -4285,7 +4285,7 @@ string UC2PTS(string modelUC, double lambda){
 // }
 // Show SSmodel
 void showSS(SSmatrix m){
-        printf("*********** SS system start *********\n");
+        Rprintf("*********** SS system start *********\n");
         m.T.print("Matrix T:");
         m.R.print("Matrix R:");
         m.Q.print("Matrix Q:");
@@ -4295,23 +4295,23 @@ void showSS(SSmatrix m){
                 m.Z.rows(0, 9).print("First 10 rows of matrix Z:");
         else
                 m.Z.print("Matrix Z:");
-        printf("*********** SS system end *********\n");
+        Rprintf("*********** SS system end *********\n");
 }
 // Show BSMmodel
 void showBSM(BSMmodel m){
-        printf("*********** BSM model start *********\n");
-        printf("model: %s\n", m.model.c_str());
-        printf("criterion: %s\n", m.criterion.c_str());
-        printf("stepwise: %10i\n", m.stepwise);
-        printf("tTest: %10i\n", m.tTest);
-        printf("arma: %10i\n", m.arma);
+        Rprintf("*********** BSM model start *********\n");
+        Rprintf("model: %s\n", m.model.c_str());
+        Rprintf("criterion: %s\n", m.criterion.c_str());
+        Rprintf("stepwise: %10i\n", m.stepwise);
+        Rprintf("tTest: %10i\n", m.tTest);
+        Rprintf("arma: %10i\n", m.arma);
         m.periods.t().print("periods:");
-        printf("trend: %s\n", m.trend.c_str());
-        printf("seasonal: %s\n", m.seasonal.c_str());
-        printf("irregular: %s\n", m.irregular.c_str());
-        printf("compNames: %s\n", m.compNames.c_str());
-        printf("ar: %10i\n", m.ar);
-        printf("ma: %10i\n", m.ma);
+        Rprintf("trend: %s\n", m.trend.c_str());
+        Rprintf("seasonal: %s\n", m.seasonal.c_str());
+        Rprintf("irregular: %s\n", m.irregular.c_str());
+        Rprintf("compNames: %s\n", m.compNames.c_str());
+        Rprintf("ar: %10i\n", m.ar);
+        Rprintf("ma: %10i\n", m.ma);
         m.rhos.t().print("rhos:");
         m.ns.t().print("ns:");
         m.nPar.t().print("nPar:");
@@ -4324,9 +4324,9 @@ void showBSM(BSMmodel m){
         m.comp.print("comp:");
         m.typeOutliers.t().print("typeOutliers:");
         m.cycleLimits.print("cycleLimits:");
-        printf("pureARMA: %10i\n", m.pureARMA);
+        Rprintf("pureARMA: %10i\n", m.pureARMA);
         for (uword i = 0; i < m.parNames.size(); i++){
-                printf("%s / ", m.parNames[i].c_str());
+                Rprintf("%s / ", m.parNames[i].c_str());
         }
-        printf("\n*********** BSM model end *********");
+        Rprintf("\n*********** BSM model end *********");
 }

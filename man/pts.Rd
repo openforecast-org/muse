@@ -2,15 +2,12 @@
 % Please edit documentation in R/pts.R
 \name{pts}
 \alias{pts}
-\alias{auto.pts}
 \title{pts: Power / Trend / Seasonal state-space model}
 \usage{
 pts(data, model = "ZZZ", lags = stats::frequency(data), orders = list(ar
   = 0, ma = 0, select = FALSE), formula = NULL, regressors = c("use"),
   outliers = c("ignore", "use", "select"), level = 0.99, ic = c("AICc",
   "AIC", "BIC", "BICc"), h = 0, holdout = FALSE, verbose = FALSE, ...)
-
-auto.pts(data, ...)
 }
 \arguments{
 \item{data}{response series.  Either a univariate \code{ts} / \code{zoo} /
@@ -139,9 +136,6 @@ for a univariate time series.  This is the user-facing entry point of the
 the \pkg{smooth} family: \code{pts()} estimates the model, and
 \code{\link{forecast.pts}} produces forecasts from the fitted object
 without re-estimating.
-
-\code{auto.pts(data, ...)} is a thin wrapper that forces full
-  automatic selection (\code{model = "ZZZ"}).
 }
 \seealso{
 \code{\link{forecast.pts}}

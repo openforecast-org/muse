@@ -11,6 +11,12 @@
 #' @param h forecast horizon (steps ahead).
 #' @param level confidence level for prediction intervals (default 0.95).
 #' @param newdata unused (reserved for forecast paths with new regressors).
+#' @param digits number of significant digits used in printed output.
+#' @param which integer vector of plot panels to draw; passed through to
+#'   \code{plot.smooth} (see \code{?smooth::plot.adam}).  Defaults to
+#'   \code{c(1, 2, 4, 6)}.
+#' @param all logical; if \code{TRUE} the holdout sample is included in
+#'   the observation count.  Default \code{FALSE}.
 #' @param ... further arguments passed to underlying generics.
 #' @template authors
 NULL

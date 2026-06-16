@@ -6,10 +6,10 @@
 #
 # armaOrders specifies the irregular ARMA structure on the UC side when
 # armaSelect = FALSE:
-#   * c(p, q)        — non-seasonal ARMA(p,q), serialised as "arma(p,q)";
-#   * c(p, q, P, Q, s) — SARMA(p,q)(P,Q)_s, serialised as
+#   * c(p, q)        -- non-seasonal ARMA(p,q), serialised as "arma(p,q)";
+#   * c(p, q, P, Q, s) -- SARMA(p,q)(P,Q)_s, serialised as
 #     "arma(p,q,P,Q,s)".  The engine recognises both grammars by counting
-#     commas inside the parens (2 → non-seasonal, 5 → seasonal).
+#     commas inside the parens (2 -> non-seasonal, 5 -> seasonal).
 # When armaSelect = TRUE the irregular slot becomes the engine's "?" sentinel
 # so ident() searches over the candidate list passed in irregularOptions
 # (see .pts_arma_candidates).
@@ -85,10 +85,10 @@ uc_to_pts <- function(modelUC, lambda){
 # .pts_orders_to_uc: turn adam-style orders + lags into the per-lag (ar, ma)
 # vectors + select flag that the UC engine consumes.  Accepts:
 #
-#   * list(ar, ma, select) — the canonical adam form.  `ar` and `ma` may be
+#   * list(ar, ma, select) -- the canonical adam form.  `ar` and `ma` may be
 #     scalars (non-seasonal) or length-L vectors paired position-wise with
 #     `lags` for SARMA(p,q)(P,Q)_s and so on.
-#   * c(p, q) numeric vector — shorthand for list(ar = p, ma = q,
+#   * c(p, q) numeric vector -- shorthand for list(ar = p, ma = q,
 #     select = FALSE).  A scalar c(p) is treated as c(p, 0).
 #
 # PTS has no differencing (engine has no `i` flow) and ARMA only sits on the
@@ -99,7 +99,7 @@ uc_to_pts <- function(modelUC, lambda){
 # supplied but `ar` / `ma` are vectors (typically frequency(data)).
 .pts_orders_to_uc <- function(orders, lagsDefault = 1L){
     if (is.null(orders)) orders <- list()
-    # Vector shorthand: c(p) or c(p, q) → list(ar = p, ma = q, select = FALSE)
+    # Vector shorthand: c(p) or c(p, q) -> list(ar = p, ma = q, select = FALSE)
     if (is.numeric(orders) && !is.list(orders)){
         if (length(orders) < 1 || length(orders) > 2)
             stop("Numeric `orders` shortcut must be c(p) or c(p, q); ",
@@ -109,7 +109,7 @@ uc_to_pts <- function(modelUC, lambda){
                        ma = if (length(orders) == 2) orders[2] else 0L,
                        select = FALSE)
     }
-    # PTS has no differencing — silently drop any `orders$i` the caller
+    # PTS has no differencing -- silently drop any `orders$i` the caller
     # supplies (typical when reusing an adam-style spec).
     orders$i <- NULL
     ar <- if (is.null(orders$ar)) 0L else as.integer(orders$ar)
@@ -120,7 +120,7 @@ uc_to_pts <- function(modelUC, lambda){
     if (length(ar) < L) ar <- c(ar, rep(0L, L - length(ar)))
     if (length(ma) < L) ma <- c(ma, rep(0L, L - length(ma)))
     # Lag vector: explicit > orders$lags > default (1 for non-seasonal,
-    # c(1, frequency(data)) for seasonal — passed in as lagsDefault).
+    # c(1, frequency(data)) for seasonal -- passed in as lagsDefault).
     lags <- if (!is.null(orders$lags)) as.integer(orders$lags) else NULL
     if (is.null(lags)){
         if (L == 1L) lags <- 1L
@@ -154,7 +154,7 @@ uc_to_pts <- function(modelUC, lambda){
              "lags go in lags[2:L].", call. = FALSE)
     if (length(lags) > 2L)
         stop("PTS currently supports at most one seasonal lag in the ",
-             "irregular ARMA — got length(lags) = ", length(lags),
+             "irregular ARMA -- got length(lags) = ", length(lags),
              ".  Combine multiple seasonal lags into a single ",
              "SARMA(p,q)(P,Q)_s before passing in.", call. = FALSE)
     list(ar = ar, ma = ma, lags = lags, select = sel)
@@ -191,7 +191,7 @@ uc_to_pts <- function(modelUC, lambda){
 # .pts_select_arma: residual-based ARMA grid search.  Every candidate
 # (including the no-ARMA (0, 0) baseline) goes through the engine's own
 # `UCompARMAC` so the IC ranking is computed by a single likelihood
-# definition — the same MLE σ̂², the same PACF parameter space, and the
+# definition -- the same MLE sigma^2, the same PACF parameter space, and the
 # same DoF counting (k = 1 + sum(arOrders) + sum(maOrders)) as the final
 # PTS+ARMA fit will use.  No stats::arima call anywhere; muse relies on
 # its own implementation end-to-end.
@@ -221,7 +221,7 @@ uc_to_pts <- function(modelUC, lambda){
                     P = 0L:ar_max[2L], Q = 0L:ma_max[2L],
                     KEEP.OUT.ATTRS = FALSE)
 
-    # Verbose header — matches the formatting of the engine's PTS ident
+    # Verbose header -- matches the formatting of the engine's PTS ident
     # table (PTSmodel.h around line 1867) so the two grid traces sit
     # nicely on top of one another in the console.
     bar <- paste(rep("-", 83), collapse = "")
@@ -248,7 +248,7 @@ uc_to_pts <- function(modelUC, lambda){
             maOrders <- as.integer(c(q, Q))
             armaLagsV <- as.integer(lags)
         }
-        res <- UCompARMAC(r, arOrders, maOrders, armaLagsV, "aic")
+        res <- .UCompARMAC(r, arOrders, maOrders, armaLagsV, "aic")
         if (isTRUE(verbose)){
             if (isTRUE(res$succeed)){
                 cat(sprintf(" %-22s %13.4f %13.4f %13.4f %13.4f\n",
@@ -272,7 +272,7 @@ uc_to_pts <- function(modelUC, lambda){
         best_row <- as.list(grid[best, ])
         best_ic  <- ics[best]
     }
-    # ARMA(0, 0) baseline IC — the (p = q = P = Q = 0) cell — used by
+    # ARMA(0, 0) baseline IC -- the (p = q = P = Q = 0) cell -- used by
     # callers that score a *combined* structural+ARMA IC via
     #   combined = struct_IC + (arma_best - arma_baseline)
     baseline_row <- which(grid$p == 0L & grid$q == 0L &
@@ -299,8 +299,8 @@ uc_to_pts <- function(modelUC, lambda){
 }
 
 # .pts_select_arma_at_lag: one rung of the cascade.  Runs an ARMA grid at
-# a single lag (lag = 1 → non-seasonal; lag = s > 1 → seasonal-only
-# SARMA(0,0)(P,Q)_s) over (0..ar_max) × (0..ma_max) cells, picks the
+# a single lag (lag = 1 -> non-seasonal; lag = s > 1 -> seasonal-only
+# SARMA(0,0)(P,Q)_s) over (0..ar_max) x (0..ma_max) cells, picks the
 # winner by IC, and returns the orders + the winner's residuals so the
 # next rung can feed off them.
 .pts_select_arma_at_lag <- function(residuals, ar_max, ma_max, lag, ic,
@@ -335,12 +335,12 @@ uc_to_pts <- function(modelUC, lambda){
     for (i in seq_len(nrow(grid))){
         p <- grid$p[i]; q <- grid$q[i]
         if (lag == 1L){
-            res <- UCompARMAC(r, as.integer(p), as.integer(q), 1L, "aic")
+            res <- .UCompARMAC(r, as.integer(p), as.integer(q), 1L, "aic")
         } else {
-            res <- UCompARMAC(r,
-                              as.integer(c(0L, p)),
-                              as.integer(c(0L, q)),
-                              as.integer(c(1L, lag)), "aic")
+            res <- .UCompARMAC(r,
+                               as.integer(c(0L, p)),
+                               as.integer(c(0L, q)),
+                               as.integer(c(1L, lag)), "aic")
         }
         fit_results[[i]] <- res
         ics[i] <- if (isTRUE(res$succeed) && is.finite(res[[ic]]))
@@ -356,10 +356,10 @@ uc_to_pts <- function(modelUC, lambda){
     }
     best <- which.min(ics)
     if (!length(best) || !is.finite(ics[best])){
-        # All cells failed — pass through with no model.
+        # All cells failed -- pass through with no model.
         if (isTRUE(verbose)){
             cat(bar, "\n")
-            cat(" All cells failed — falling back to no ARMA at this lag.\n")
+            cat(" All cells failed -- falling back to no ARMA at this lag.\n")
             cat(bar, "\n\n")
         }
         return(list(ar = 0L, ma = 0L, residuals = residuals))
@@ -379,23 +379,23 @@ uc_to_pts <- function(modelUC, lambda){
 }
 
 # .pts_select_pts_arma: PTS + ARMA selection done as two sequential
-# passes — PTS structurals first, then ARMA on the winning structural's
+# passes -- PTS structurals first, then ARMA on the winning structural's
 # residuals only.
 #
 # A naive nested loop (ARMA grid INSIDE the structural loop) would re-run
 # the full ARMA cap grid up to N_PTS times.  On a typical SARMA cap of
-# (2,2)(2,2)_12 that's 12 × 81 = 972 SARMA fits, each ≈ 3 s — about an
+# (2,2)(2,2)_12 that's 12 x 81 = 972 SARMA fits, each ~= 3 s -- about an
 # hour.  All but one of those grids is thrown away.
 #
 # The sequential pass does:
-#   1. Fit every PTS structural shape (≈ 12 cheap fits).  Rank by IC.
+#   1. Fit every PTS structural shape (~= 12 cheap fits).  Rank by IC.
 #   2. Run the ARMA cap grid on the winning structural's residuals ONCE.
 #      The grid already includes the arma(0,0) baseline, so the IC
 #      ranking inside the grid naturally falls back to "no ARMA" when
-#      the ARMA refinement doesn't justify its extra DoF — i.e. pure-PTS
+#      the ARMA refinement doesn't justify its extra DoF -- i.e. pure-PTS
 #      vs ARMA gets compared fairly inside the grid, not above it.
 #
-# Damped trend (D = srw) is paired with AR-less ARMA candidates only —
+# Damped trend (D = srw) is paired with AR-less ARMA candidates only --
 # matches the engine-side (damped, AR > 0) exclusion in findUCmodels().
 .pts_select_pts_arma <- function(y, u, model_template, lags,
                                  ar_max, ma_max, arma_lags,
@@ -413,7 +413,7 @@ uc_to_pts <- function(modelUC, lambda){
     seas_cands  <- intersect(c("N", "D", "T"),      seas_cands)
 
     # Compute the IC from logLik + parameter count so the formula matches
-    # the one .pts_select_arma() uses on the residual fits — keeping the
+    # the one .pts_select_arma() uses on the residual fits -- keeping the
     # combined score (struct_IC + ARMA delta) self-consistent.
     n_obs <- length(as.numeric(y))
     ic_from_LL <- function(LL, k){
@@ -437,7 +437,7 @@ uc_to_pts <- function(modelUC, lambda){
         cat(bar, "\n")
     }
 
-    # Pass 1 — fit every PTS structural shape, rank by IC.
+    # Pass 1 -- fit every PTS structural shape, rank by IC.
     best <- list(struct_ic = Inf)
     for (tr in trend_cands){
         for (se in seas_cands){
@@ -477,11 +477,11 @@ uc_to_pts <- function(modelUC, lambda){
         cat(bar, "\n\n")
     }
 
-    # Pass 2 — cascaded ARMA, peeling off the highest-frequency seasonality
-    # first.  At each rung we run a small (P_i × Q_i) grid at one lag,
+    # Pass 2 -- cascaded ARMA, peeling off the highest-frequency seasonality
+    # first.  At each rung we run a small (P_i x Q_i) grid at one lag,
     # pick the IC winner, and feed its residuals to the next rung.  The
     # last rung is the non-seasonal ARMA grid.  Each rung's grid contains
-    # the (0, 0) cell so "no model at this lag" is a valid choice — the
+    # the (0, 0) cell so "no model at this lag" is a valid choice -- the
     # pure-PTS-no-ARMA outcome falls out automatically when every rung's
     # winner is (0, 0).
     ar_local <- as.integer(ar_max)
@@ -538,7 +538,7 @@ uc_to_pts <- function(modelUC, lambda){
 
 # uc_to_arma: pull the ARMA orders out of an "arma(...)" block embedded in a
 # UC string.  Returns a list with $ar, $ma (vectors) and $lags (vector) so the
-# caller can round-trip seasonal specs.  Empty / missing arma → c(0, 0) at
+# caller can round-trip seasonal specs.  Empty / missing arma -> c(0, 0) at
 # lag 1.
 uc_to_arma <- function(model){
     p1 <- regexpr("arma\\(", model)

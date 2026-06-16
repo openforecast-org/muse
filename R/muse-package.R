@@ -19,6 +19,6 @@
 #'
 #' x <- rnorm(100,100,10)
 #'
-#' @importFrom stats end fitted frequency is.ts start ts
-#' @useDynLib muse
+#' @importFrom stats coef end fitted frequency is.ts logLik nobs predict residuals start ts vcov
+#' @useDynLib muse, .registration = TRUE
 NULL

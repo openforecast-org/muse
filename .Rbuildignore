@@ -4,3 +4,12 @@ main.R
 man-roxygen
 ^\.positai$
 ^\.claude$
+^\.github$
+^ARCHITECTURE\.md$
+^CLAUDE\.md$
+^experiments$
+^figure$
+^vignettes/figure$
+^LICENSE$
+^.*\.txt$
+^\.claude-docker$

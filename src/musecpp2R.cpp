@@ -13,7 +13,12 @@ using namespace Rcpp;
 using std::string;
 #include "musecore.h"
 
-// [[Rcpp::export]]
+// Internal-only Rcpp entry point.  The dot-prefixed name keeps the R
+// wrapper out of `ls("package:muse")`, autocomplete, and the package-
+// level `muse::` lookup; package code calls it via `.UCompC(...)`.
+// Users should never call this directly — `pts()` is the only
+// supported R-side entry point.
+// [[Rcpp::export(.UCompC)]]
 SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
             SEXP lambdas, SEXP outliers, SEXP tTests, SEXP criterions,
             SEXP periodss, SEXP rhoss, SEXP verboses, SEXP stepwises,
@@ -127,7 +132,11 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
 // Output: List with logLik / AIC / AICc / BIC / BICc / coef (AR blocks
 // concatenated, then MA blocks, both natural scale) / sigma2 / succeed.
 //
-// [[Rcpp::export]]
+// Internal-only Rcpp entry point.  Dot-prefixed for the same reason
+// as `.UCompC` — used by R/pts-translate.R::.pts_select_arma() as the
+// per-cell ARMA fitter during the IC grid search.  Not part of the
+// user-facing API.
+// [[Rcpp::export(.UCompARMAC)]]
 SEXP UCompARMAC(SEXP ys, SEXP arOrders_, SEXP maOrders_, SEXP armaLags_,
                 SEXP criterion_){
     (void)criterion_;     // unused — wrapper returns all four ICs, R picks

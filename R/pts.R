@@ -382,11 +382,3 @@ pts <- function(data,
     class(out) <- c("pts", "smooth")
     out
 }
-
-#' @rdname pts
-#' @description \code{auto.pts(data, ...)} is a thin wrapper that forces full
-#'   automatic selection (\code{model = "ZZZ"}).
-#' @export
-auto.pts <- function(data, ...){
-    pts(data, model = "ZZZ", ...)
-}

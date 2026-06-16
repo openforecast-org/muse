@@ -38,8 +38,8 @@
 }
 
 # .pts_uc_inputs: marshal y / u / model / horizon / options into the exact
-# argument list the C++ UCompC entry point expects. Returns a named list
-# that we pass to UCompC and also stash on the pts object for forecast.pts.
+# argument list the C++ .UCompC entry point expects. Returns a named list
+# that we pass to .UCompC and also stash on the pts object for forecast.pts.
 .pts_uc_inputs <- function(y, u, modelUC, h, lambda, criterion, lags,
                            verbose, armaIdent,
                            irregularOptions = "arma(0,0)",
@@ -79,11 +79,11 @@
     )
 }
 
-# .pts_call_uc: thin wrapper around UCompC() that dispatches on `command`.
+# .pts_call_uc: thin wrapper around .UCompC() that dispatches on `command`.
 # `args` is the list produced by .pts_uc_inputs (possibly with `p` swapped
 # for a previously-estimated parameter vector for forecastOnly).
 .pts_call_uc <- function(command, args){
-    UCompC(command, args$y, args$u, args$model, args$h, args$lambda,
+    .UCompC(command, args$y, args$u, args$model, args$h, args$lambda,
            args$outlier, args$tTest, args$criterion, args$periods, args$rhos,
            args$verbose, args$stepwise, args$p, args$arma, args$TVP,
            args$seas, args$trendOptions, args$seasonalOptions,
@@ -416,7 +416,7 @@
     )
 }
 
-# .pts_forecast_inputs: rebuild the UCompC argument list from a fitted
+# .pts_forecast_inputs: rebuild the .UCompC argument list from a fitted
 # pts object, using slot values directly so we don't need a separate
 # $forecast_args cache.  Used by forecast.pts (forecastOnly path).
 #

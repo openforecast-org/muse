@@ -49,14 +49,6 @@ test_that("pts ic argument is honoured (adam-style options)", {
     expect_equal(length(m_bicc$forecast), 12)
 })
 
-#### auto.pts ####
-test_that("auto.pts resolves the model and returns 'pts'", {
-    m <- auto.pts(y, h = 6)
-    expect_s3_class(m, "pts")
-    expect_true(nchar(m$model) >= 3)
-    expect_match(m$modelUC, "/")
-})
-
 #### accessors ####
 test_that("S3 accessors return sensible values", {
     m <- pts(y, model = "0NT", h = 12)

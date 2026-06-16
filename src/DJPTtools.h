@@ -139,7 +139,7 @@ uvec findChunk(uvec x, bool last){
 // Issuing errors
 void myError(const char* msg){
     vec p(1);
-        printf("%s", msg);
+        Rprintf("%s", msg);
         p = p(2) * 2;
 }
 // Adjust vectors

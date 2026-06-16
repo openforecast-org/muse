@@ -186,7 +186,7 @@ pts()                                         R/pts.R
 
 ## Task 2: Model selection (ZZZ / auto)
 
-Call: `pts(data, model = "ZZZ")`  or  `auto.pts(data)`
+Call: `pts(data, model = "ZZZ")`
 
 The "Z" in each position tells the C++ engine to search.  The UC translation
 produces `"?/none/?/?"` (question marks drive ident).  Everything up to the
