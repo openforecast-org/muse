@@ -238,8 +238,32 @@ double testBoxCox(vec y, vec periods){
         cLLIK(0) = llikDecompose(BoxCox(y, aux), periods, ind, typeDecompose) + sum(log(pow(y(ind), aux - 1)));
         if (isnan(cLLIK(0)))
             cLLIK(0) = -1e20;   // failed: must lose
-        if (bestLLIK < cLLIK(0))
+        if (bestLLIK < cLLIK(0)){
             lambda = aux;
+            bestLLIK = cLLIK(0);
+        }
+    }
+    // Coarse anchor probe to extend testBoxCox beyond the {1, 0, aux}
+    // candidate set.  Without this, non-seasonal data (periods = [1])
+    // for which BoxCoxEstim's variance-stabilisation heuristic happens
+    // to land outside [0.1, 0.9] never has any lambda except 1 or 0
+    // considered, so joint-BFGS warm-starts at the wrong basin and the
+    // ident loop misses the true global optimum.  Concrete case:
+    // BJsales prefers lambda = 2 by ~25-150 AIC units across structural
+    // candidates, but the previous testBoxCox returned 1.0 and joint-
+    // BFGS stayed there.  The probe set covers the engine's snap-anchor
+    // set ({-2, -1, -0.5, 0.5, 1.5, 2}; lambda = 0 and 1 are already
+    // tested above) and adds ~6 llikDecompose calls, each cheap.
+    const double anchors[] = {-2.0, -1.0, -0.5, 0.5, 1.5, 2.0};
+    for (double a : anchors){
+        cLLIK(0) = llikDecompose(BoxCox(y, a), periods, ind, typeDecompose)
+                   + (a - 1.0) * sum(log(y(ind)));
+        if (isnan(cLLIK(0)))
+            cLLIK(0) = -1e20;
+        if (bestLLIK < cLLIK(0)){
+            lambda = a;
+            bestLLIK = cLLIK(0);
+        }
     }
     return lambda;
 }

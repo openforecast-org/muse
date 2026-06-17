@@ -292,9 +292,7 @@
                   else c(ar[1L], ma[1L], ar[2L], ma[2L], armaLags[2L])
     modelU <- pts_to_uc(model, armaOrders = armaOrders,
                         armaSelect = armaIdent)
-    # When the series has no seasonal frequency, fix lambda = 1 (no Box-Cox).
     lambda <- modelU$lambda
-    if (stats::frequency(y) == 1) lambda <- 1
 
     args <- .pts_uc_inputs(y = y, u = u, modelUC = modelU$modelU, h = h,
                            lambda = lambda, criterion = criterion, lags = lags,
