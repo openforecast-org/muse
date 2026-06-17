@@ -408,21 +408,42 @@ forecast.pts <- function(object, h = 10, newdata = NULL,
     } else if (interval %in% c("prediction", "confidence")){
         varianceOut <- if (interval == "prediction") yForVpred else yForVconf
         se          <- sqrt(as.numeric(varianceOut))
-        # qnorm(0) = -Inf, qnorm(1) = +Inf -- pass through.  Where
-        # the BC-scale bound is +/- Inf, .inv_box_cox returns the
-        # support boundary (0 for lambda > 0, +/- Inf for identity).
+        # Quantiles of the back-transformed forecast distribution.
+        #
+        # For lambda >= 0 the BC inverse covers all of (0, infinity), so
+        # the standard formula y_q = invBoxCox(mu_BC + z*se, lambda)
+        # gives a proper quantile of a proper CDF.
+        #
+        # For lambda < 0 the BC inverse only covers x < -1/lambda; the
+        # underlying Normal puts non-zero mass above that boundary,
+        # which corresponds to a point mass at +infinity in y.  The
+        # unrenormalized CDF then saturates at
+        #     P_valid = pnorm(-1/lambda, mu_BC, se)
+        # and the naive quantile diverges to +infinity for any
+        # p > P_valid.  Renormalize to the truncated distribution on
+        # (0, infinity) -- i.e. condition on the underlying Normal
+        # falling within the valid BC inverse support -- before
+        # inverting.  This gives a proper CDF and a finite quantile
+        # for every p in (0, 1).  See Granger & Newbold (1976),
+        # Pankratz & Dudley (1987), Guerrero (1993) for the standard
+        # truncated-distribution treatment of BC at lambda < 0.
+        as_ts <- function(v) stats::ts(v,
+                                       start = stats::start(yFor_bc),
+                                       frequency = stats::frequency(yFor_bc))
         bcQuant <- function(p) {
+            if (lambda < 0) {
+                x_max   <- -1 / lambda
+                P_valid <- stats::pnorm(x_max, yFor_bc, se)
+                x_q     <- stats::qnorm(p * P_valid, yFor_bc, se)
+                return(.inv_box_cox(as_ts(as.numeric(x_q)), lambda))
+            }
             z <- stats::qnorm(p)
             if (is.finite(z))
                 .inv_box_cox(yFor_bc + z * se, lambda)
             else if (z == -Inf)
-                .inv_box_cox(stats::ts(rep(-Inf, h),
-                                       start = stats::start(yFor_bc),
-                                       frequency = stats::frequency(yFor_bc)),
-                             lambda)
+                .inv_box_cox(as_ts(rep(-Inf, h)), lambda)
             else
-                stats::ts(rep(Inf, h), start = stats::start(yFor_bc),
-                          frequency = stats::frequency(yFor_bc))
+                as_ts(rep(Inf, h))
         }
         lower_out <- .mkBands(bcQuant, qLow, mean_out)
         upper_out <- .mkBands(bcQuant, qUp,  mean_out)
