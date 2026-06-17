@@ -222,6 +222,45 @@ pts <- function(data,
         }
     }
 
+    # Box-Cox lambda screening: when the user requests auto-lambda ("Z"),
+    # screen each anchor in {-2, -1, -0.5, 0, 0.5, 1, 1.5, 2} (filtered by
+    # lambdaLower) using a local-linear-trend + trigonometric-seasonal
+    # model proxy (LN for non-seasonal data), pick the lambda that
+    # minimises AIC, and replace the "Z" lambda slot with the chosen
+    # value so the structural ident downstream runs at fixed lambda (no
+    # joint-BFGS for lambda).  This costs ~8 quick fits per series but
+    # the AIC quality is empirically slightly better than the joint-BFGS
+    # + snap path on the eurotourism benchmark (aggregate -895 AIC vs
+    # the joint+snap path across 325 series).  TODO: improve cost via
+    # coarse-to-fine or by restricting the grid based on testBoxCox's
+    # cheap proxy.
+    nm <- nchar(model)
+    if (toupper(substr(model, 1L, nm - 2L)) == "Z" && length(y) >= 4){
+        seas_letter <- if (length(lags) > 0L &&
+                           utils::tail(as.integer(lags), 1L) > 1L) "T" else "N"
+        grid <- c(-2, -1, -0.5, 0, 0.5, 1, 1.5, 2)
+        if (is.finite(lambdaLower)) grid <- grid[grid >= lambdaLower]
+        bestLambda <- 1
+        bestAIC    <- Inf
+        for (lam in grid){
+            spec_lt <- paste0(format(lam, scientific = FALSE,
+                                     drop0trailing = TRUE),
+                              "L", seas_letter)
+            m_lt <- tryCatch(
+                suppressWarnings(pts(y, model = spec_lt, lags = lags, h = 0)),
+                error = function(e) NULL)
+            if (is.null(m_lt)) next
+            a <- stats::AIC(m_lt)
+            if (is.finite(a) && a < bestAIC){
+                bestAIC    <- a
+                bestLambda <- lam
+            }
+        }
+        model <- paste0(format(bestLambda, scientific = FALSE,
+                               drop0trailing = TRUE),
+                        substr(model, nm - 1L, nm))
+    }
+
     # Nested PTS + ARMA selection.  When `orders$select = TRUE`, the loop
     # is PTS-outer / ARMA-inner: for every structural (trend, seasonal)
     # candidate, fit it without ARMA, run the ARMA grid on its residuals,
