@@ -83,20 +83,14 @@ struct MuseOutputs {
     arma::mat               covp;
     arma::vec               coef;
 
-    // filter / smooth / disturb / all
+    // innovations (part of "all").  Only `v` is consumed by the R/Python
+    // front-ends; the filtered states / smoothed disturbances the engine
+    // also computes (a, P, eps, eta, yFit, …) are not surfaced.
     bool                    hasFilter = false;
-    arma::mat               a;
-    arma::mat               P;
-    arma::mat               yFitV;   // SSinputs::F
-    arma::vec               yFit;
-    arma::vec               eps;
-    arma::mat               eta;
-    std::string             stateNamesStr;
 
     // components / all
     bool                    hasComponents = false;
     arma::mat               comp;
-    arma::mat               compV;
     int                     m = 0;
     std::string             compNames;
 
@@ -166,13 +160,11 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     inputsBSM.seasonalOptions  = in.seasonalOptions;
     inputsBSM.irregularOptions = in.irregularOptions;
 
-    // forecastOnly / simulate / lossAt: hide the user params from
-    // initParBsm (which would crash on zero / tiny variances), stash
-    // them, push them in via setEstimatedParams / lossAtRatio after
-    // construction.
-    const bool isLossAt  = (command == "lossAt");
+    // forecastOnly / simulate: hide the user params from initParBsm (which
+    // would crash on zero / tiny variances), stash them, push them in via
+    // setEstimatedParams after construction.
     const bool skipEstim = (command == "forecastOnly" || command == "simulate" ||
-                            command == "simulateInit" || isLossAt);
+                            command == "simulateInit");
     vec userParams;
     if (skipEstim){
         userParams   = in.p0;
@@ -214,9 +206,7 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     }
 
     BSMclass sysBSM(inputsSS, inputsBSM);
-    if (isLossAt){
-        sysBSM.lossAtRatio(userParams);
-    } else if (skipEstim){
+    if (skipEstim){
         sysBSM.setEstimatedParams(userParams);
     } else {
         sysBSM.estim(inputsSS.verbose);
@@ -272,8 +262,8 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     out.ns       = static_cast<int>(sum(inputs2.ns));
     out.criteria = inputs.criteria;
 
-    // -- validate / all --
-    if (command == "validate" || command == "all"){
+    // -- validate (runs as part of "all") --
+    if (command == "all"){
         sysBSM.validate(false);
         inputs  = sysBSM.SSmodel::getInputs();
         inputs2 = sysBSM.getInputs();
@@ -287,57 +277,35 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         out.typeOutliers = inputs2.typeOutliers;
     }
 
-    // -- filter / smooth / disturb / all --
-    if (command == "filter" || command == "smooth" || command == "disturb" || command == "all"){
-        if (command != "all")
-            sysBSM.validate(false);
-        if      (command == "filter")  sysBSM.filter();
-        else if (command == "smooth")  sysBSM.smooth(false);
-        else if (command == "disturb") sysBSM.disturb();
-
+    // -- innovations (part of "all") --
+    // Only `v` is consumed downstream (R derives residuals from it); the
+    // missing-value masking below is the reason this block is kept separate
+    // from the components extraction.
+    if (command == "all"){
         inputs  = sysBSM.SSmodel::getInputs();
-        inputs2 = sysBSM.getInputs();
-        string statesN = stateNames(inputs2);
-        if (command == "disturb"){
-            uvec missing = find_nonfinite(inputs.y);
-            inputs.eta.cols(missing).fill(datum::nan);
-            inputs2.eps(missing).fill(datum::nan);
-        }
-        if (iniObs > 0 && command != "disturb"){
+        if (iniObs > 0){
             uvec missing = find_nonfinite(inputs.y.rows(0, iniObs));
             mat P = inputs.P.cols(0, iniObs);
             sysBSM.interpolate(iniObs);
-            if      (command == "filter") sysBSM.filter();
-            else if (command == "smooth") sysBSM.smooth(false);
             inputs = sysBSM.SSmodel::getInputs();
             inputs.P.cols(0, iniObs) = P;
             inputs.v(missing).fill(datum::nan);
         }
-        out.hasFilter     = true;
-        out.a             = inputs.a;
-        out.P             = inputs.P;
-        out.v             = inputs.v;
-        out.ns            = static_cast<int>(sum(inputs2.ns));
-        out.yFitV         = inputs.F;
-        out.yFit          = inputs.yFit;
-        out.eps           = inputs2.eps;
-        out.eta           = inputs.eta;
-        out.stateNamesStr = statesN;
+        out.hasFilter = true;
+        out.v         = inputs.v;
     }
 
-    // -- components / all --
-    if (command == "components" || command == "all"){
+    // -- components (part of "all") --
+    if (command == "all"){
         sysBSM.components();
         inputs2 = sysBSM.getInputs();
         string compNames = inputs2.compNames;
         if (iniObs > 0){
             inputs = sysBSM.SSmodel::getInputs();
             uvec missing = find_nonfinite(inputs.y.rows(0, iniObs));
-            mat P = inputs2.compV.cols(0, iniObs);
             sysBSM.interpolate(iniObs);
             sysBSM.components();
             inputs2 = sysBSM.getInputs();
-            inputs2.compV.cols(0, iniObs) = P;
             uvec rowI(1); rowI(0) = 0;
             if (compNames.find("Level")    != string::npos) rowI++;
             if (compNames.find("Slope")    != string::npos) rowI++;
@@ -348,7 +316,6 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         }
         out.hasComponents = true;
         out.comp      = inputs2.comp;
-        out.compV     = inputs2.compV;
         out.m         = static_cast<int>(inputs2.comp.n_rows);
         out.compNames = compNames;
     }

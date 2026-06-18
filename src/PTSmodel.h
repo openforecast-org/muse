@@ -131,10 +131,6 @@ public:
         // filter so forecast() can run without re-optimisation.
         void setEstimatedParams(vec);
         // Evaluate the loss (concentrated objective) at a user-supplied
-        // parameter vector in the OPTIMISER's parameterisation (log-ratio
-        // variances + concentrated MLE).  One KF pass, no BFGS.  Sets
-        // SSmodel::inputs.objFunValue and returns the same value.
-        double lossAtRatio(vec);
         // Identification
         void ident(string, bool);
         // Outlier detection
@@ -1420,24 +1416,6 @@ void BSMclass::setEstimatedParams(vec userParams){
         // absolute scale, KF populates aEnd / PEnd as a side effect.
         SSmodel::inputs.llikFUN(SSmodel::inputs.p, &(SSmodel::inputs));
         SSmodel::inputs.estimOk = "Q-Newton: Skipped (forecast-only).\n";
-}
-// One-pass loss evaluation in the optimiser's parameterisation
-// (bsmMatrices + cLlik=true), so callers get the SAME objective the
-// BFGS sees at the supplied p.  Used by the experiment helper that
-// maps the loss surface.
-double BSMclass::lossAtRatio(vec userParams){
-        SSmodel::inputs.userModel  = bsmMatrices;
-        SSmodel::inputs.cLlik      = true;
-        SSmodel::inputs.userInputs = &inputs;
-        SSmodel::inputs.p   = userParams;
-        SSmodel::inputs.p0  = userParams;
-        if (SSmodel::inputs.augmented){
-                SSmodel::inputs.llikFUN = llikAug;
-        } else {
-                SSmodel::inputs.llikFUN = llik;
-        }
-        SSmodel::inputs.llikFUN(SSmodel::inputs.p, &(SSmodel::inputs));
-        return SSmodel::inputs.objFunValue;
 }
 /*
  // Forecast

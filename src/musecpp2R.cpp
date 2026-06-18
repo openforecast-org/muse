@@ -89,19 +89,10 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
         output("typeOutliers") = out.typeOutliers;
     }
     if (out.hasFilter){
-        output("a")          = out.a;
-        output("P")          = out.P;
         output("v")          = out.v;
-        output("ns")         = out.ns;
-        output("yFitV")      = out.yFitV;
-        output("yFit")       = out.yFit;
-        output("eps")        = out.eps;
-        output("eta")        = out.eta;
-        output("stateNames") = out.stateNamesStr;
     }
     if (out.hasComponents){
         output("comp")      = out.comp;
-        output("compV")     = out.compV;
         output("m")         = out.m;
         output("compNames") = out.compNames;
     }
