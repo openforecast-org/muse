@@ -312,7 +312,10 @@ test_that("orders rejects mismatched lengths", {
 })
 
 test_that("select=TRUE searches the seasonal grid up to the (p, q, P, Q) cap", {
-    m <- pts(AirPassengers, model = "1LT", h = 0,
+    # Pin AICc so the residual grid picks a non-zero seasonal block
+    # (BICc's stiffer penalty drops it on this short series, which
+    # produces a length-1 orders$ar and changes what we can assert).
+    m <- pts(AirPassengers, model = "1LT", h = 0, ic = "AICc",
              orders = list(ar = c(1, 1), ma = c(1, 0),
                            lags = c(1, 12), select = TRUE))
     # Residual-based grid search picks one element of the cap grid; check

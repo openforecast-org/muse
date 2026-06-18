@@ -73,8 +73,10 @@
 #' the engine's relative stiffness (LS ≈ 1.087×z, SC ≈ 1.304×z).
 #' Ignored when \code{outliers = "ignore"}.
 #' @param ic information criterion for automatic model selection; one of
-#' \code{"AICc"} (default), \code{"AIC"}, \code{"BIC"}, \code{"BICc"}.
-#' Matches the adam option set.
+#' \code{"BICc"} (default), \code{"AICc"}, \code{"BIC"}, \code{"AIC"}.
+#' Matches the adam option set.  BICc is the default because its stiffer
+#' complexity penalty guards against runaway-trend candidates whose
+#' likelihood beats simpler shapes by only a couple of units.
 #' @param h forecast horizon. If \code{h > 0} a forecast is computed at fit
 #' time and cached on the object; \code{forecast(object, h)} can later
 #' recompute for a different horizon cheaply.
@@ -125,7 +127,7 @@ pts <- function(data,
                 regressors = c("use"),
                 outliers   = c("ignore", "use", "select"),
                 level      = 0.99,
-                ic         = c("AICc", "AIC", "BIC", "BICc"),
+                ic         = c("BICc", "AICc", "BIC", "AIC"),
                 h          = 0,
                 holdout    = FALSE,
                 verbose    = FALSE,
@@ -411,9 +413,14 @@ pts <- function(data,
         # R-side Brent screen above replacing "Z" with a numeric value
         # before the structural ident runs.  Either way costs +1 DoF.
         # Matches greybox::alm at alm.R:2148 for distribution = "dbcnorm".
+        # G (deterministic) trend: drift slope is concentrated out as a
+        # regressor (PTSmodel.h:3246), so parLabels() does not push a
+        # "Slope" entry and length(res$p) misses it.  Still an estimated
+        # DoF — add it back here.
         nParam     = length(res$p) +
                      as.integer(isTRUE(res$lambdaEstimated) ||
-                                lambdaWasScreened),
+                                lambdaWasScreened) +
+                     as.integer(grepl("^td/", res$modelUC)),
         ## --- in-sample ---
         fitted     = res$fitted,        # original scale (back-transformed)
         residuals  = res$residuals,     # BC scale (engine innovations)

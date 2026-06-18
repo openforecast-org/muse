@@ -1230,10 +1230,13 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 return ic;
         };
         // k convention: optimised parameters (p.n_elem already counts the
-        // concentrated variance), outlier dummies, plus lambda when free.
+        // concentrated variance), outlier dummies, plus lambda when free,
+        // plus the deterministic-trend drift slope (G / td) which is
+        // concentrated out as a regressor and absent from pSize.
         auto kFor = [&](uword pSize) -> int {
                 return static_cast<int>(pSize + SSmodel::inputs.u.n_rows
-                                              + (inputs.lambdaEstimated ? 1 : 0));
+                                              + (inputs.lambdaEstimated ? 1 : 0)
+                                              + (inputs.Drift ? 1 : 0));
         };
 
         LLIK = computeLLIK(objFunValue);

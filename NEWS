@@ -1,6 +1,25 @@
 muse v0.0.2.41001 (in development)
 =======
 
+* Default information criterion in `pts()` switched from `"AICc"` to
+  `"BICc"`.  AICc's complexity penalty can be too soft for short
+  Box-Cox series: structurally aggressive shapes (e.g. a damped or
+  local-linear trend on top of a small inverse-BC exponent) win the
+  IC by 1-2 units and then produce runaway forecasts when the slope
+  latches onto a terminal spike.  BICc's stiffer log(n) penalty
+  resolves the tie in favour of the simpler shape on the cases that
+  matter without changing the pick on series where the structural
+  shape is clearly supported.  Specify `ic = "AICc"` to recover the
+  old default.
+* G (deterministic) trend now correctly counts its drift slope as an
+  estimated parameter for IC purposes.  The slope is concentrated out
+  as a regressor by the engine, so `parLabels()` did not push a
+  "Slope" entry and `nParam` was one short on G models.  Fixed in
+  both the C++ ident loop (`kFor` in `PTSmodel.h::estim`) and the
+  R-side selector / post-fit accounting (`R/pts.R`,
+  `R/pts-translate.R`).  This pushes G candidates down the IC ranking
+  by one DoF; AIC values printed in `verbose = TRUE` runs change
+  accordingly.
 * `pts()` checks for negative values in `data` up front: if any are
   present it warns and pins the Box-Cox lambda to 1 (no
   transformation).  Previously the same input reached the C++ engine

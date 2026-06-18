@@ -163,7 +163,7 @@ uc_to_pts <- function(modelUC, lambda){
 # .pts_ic_to_engine: map adam-style ic (AICc / AIC / BIC / BICc) to the
 # engine's lowercase criterion string.
 .pts_ic_to_engine <- function(ic){
-    ic <- match.arg(ic, c("AICc", "AIC", "BIC", "BICc"))
+    ic <- match.arg(ic, c("BICc", "AICc", "BIC", "AIC"))
     switch(ic,
            "AICc" = "aicc",
            "AIC"  = "aic",
@@ -200,11 +200,11 @@ uc_to_pts <- function(modelUC, lambda){
 # fit.  `lags` is length 1 (non-seasonal) or 2 (seasonal with seasonal
 # period in lags[2]).  Returns list(ar, ma, lags) with the winning per-lag
 # vectors.
-.pts_select_arma <- function(residuals, ar_max, ma_max, lags, ic = "AICc",
+.pts_select_arma <- function(residuals, ar_max, ma_max, lags, ic = "BICc",
                              verbose = FALSE){
     ar_max <- as.integer(ar_max); ma_max <- as.integer(ma_max)
     lags   <- as.integer(lags)
-    ic     <- match.arg(ic, c("AICc", "AIC", "BIC", "BICc"))
+    ic     <- match.arg(ic, c("BICc", "AICc", "BIC", "AIC"))
     r      <- as.numeric(residuals)
     r      <- r[is.finite(r)]
     n      <- length(r)
@@ -449,8 +449,12 @@ uc_to_pts <- function(modelUC, lambda){
                          B = NULL, verbose = FALSE),
                 error = function(e) NULL)
             if (is.null(struct)) next
+            # G (deterministic) trend: drift slope is concentrated as a
+            # regressor and missing from length(struct$p) — add +1 so
+            # the selection IC matches the post-fit nParam (pts.R).
             k_struct <- length(struct$p) +
-                        as.integer(isTRUE(struct$lambdaEstimated))
+                        as.integer(isTRUE(struct$lambdaEstimated)) +
+                        as.integer(tr == "G")
             struct_ic <- ic_from_LL(as.numeric(struct$logLik), k_struct)
             if (!is.finite(struct_ic)) next
             if (isTRUE(verbose)){

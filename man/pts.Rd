@@ -6,8 +6,8 @@
 \usage{
 pts(data, model = "ZZZ", lags = stats::frequency(data), orders = list(ar
   = 0, ma = 0, select = FALSE), formula = NULL, regressors = c("use"),
-  outliers = c("ignore", "use", "select"), level = 0.99, ic = c("AICc",
-  "AIC", "BIC", "BICc"), h = 0, holdout = FALSE, verbose = FALSE, ...)
+  outliers = c("ignore", "use", "select"), level = 0.99, ic = c("BICc",
+  "AICc", "BIC", "AIC"), h = 0, holdout = FALSE, verbose = FALSE, ...)
 }
 \arguments{
 \item{data}{response series.  Either a univariate \code{ts} / \code{zoo} /
@@ -84,8 +84,10 @@ the engine's relative stiffness (LS ≈ 1.087×z, SC ≈ 1.304×z).
 Ignored when \code{outliers = "ignore"}.}
 
 \item{ic}{information criterion for automatic model selection; one of
-\code{"AICc"} (default), \code{"AIC"}, \code{"BIC"}, \code{"BICc"}.
-Matches the adam option set.}
+\code{"BICc"} (default), \code{"AICc"}, \code{"BIC"}, \code{"AIC"}.
+Matches the adam option set.  BICc is the default because its stiffer
+complexity penalty guards against runaway-trend candidates whose
+likelihood beats simpler shapes by only a couple of units.}
 
 \item{h}{forecast horizon. If \code{h > 0} a forecast is computed at fit
 time and cached on the object; \code{forecast(object, h)} can later
