@@ -53,6 +53,8 @@ class PTS:
                 "later phase)."
             )
         lags = int(self.lags)
+        self._lags = lags
+        self._lags_all = lags / np.arange(1, max(1, lags // 2) + 1)
 
         ar = int(np.atleast_1d(self._orders_arg.get("ar", 0))[0])
         ma = int(np.atleast_1d(self._orders_arg.get("ma", 0))[0])
@@ -131,6 +133,51 @@ class PTS:
             float(lags), _TREND_OPTIONS, _SEASONAL_OPTIONS,
             f"arma({ar},{ma})", 1, 0, -math.inf,
         )
+
+    def _arma_candidate(self):
+        o = self._orders
+        lg = np.atleast_1d(o["lags"])
+        ar = np.atleast_1d(o["ar"])
+        ma = np.atleast_1d(o["ma"])
+        if lg.size == 1:
+            return f"arma({int(ar[0])},{int(ma[0])})"
+        return f"arma({int(ar[0])},{int(ma[0])},{int(ar[1])},{int(ma[1])},{int(lg[1])})"
+
+    def _forecast_engine(self, h):
+        """forecastOnly: feed the fitted natural-scale coef back in and
+        propagate h steps.  Mirrors .pts_forecast_inputs + forecastOnly."""
+        periods = np.asarray(self._lags_all, dtype=float)
+        rhos = np.ones_like(periods)
+        u = np.zeros((1, 2), dtype=float)
+        return _musecore.ucomp(
+            "forecastOnly", self._y_train, u, self._model_uc, int(h),
+            float(self._lambda), 0.0, False, "aic", periods, rhos, False,
+            False, np.asarray(self._p, dtype=float), False,
+            np.array([-9999.99]), float(self._lags), _TREND_OPTIONS,
+            _SEASONAL_OPTIONS, self._arma_candidate(), 1, 0, -math.inf,
+        )
+
+    def _forecast_paths(self, h, nsim, seed):
+        """Forward simulation from the terminal state (original scale)."""
+        periods = np.asarray(self._lags_all, dtype=float)
+        rhos = np.ones_like(periods)
+        u = np.zeros((1, 2), dtype=float)
+        out = _musecore.ucomp(
+            "simulate", self._y_train, u, self._model_uc, int(h),
+            float(self._lambda), 0.0, False, "aic", periods, rhos, False,
+            False, np.asarray(self._p, dtype=float), False,
+            np.array([-9999.99]), float(self._lags), _TREND_OPTIONS,
+            _SEASONAL_OPTIONS, self._arma_candidate(), int(nsim), int(seed),
+            -math.inf,
+        )
+        return np.asarray(out["simPaths"], dtype=float)
+
+    def predict(self, h, interval="prediction", level=0.95, side="both",
+                cumulative=False, nsim=10000, seed=0, scenarios=False):
+        from .forecaster import forecast
+        return forecast(self, h, interval=interval, level=level, side=side,
+                        cumulative=cumulative, nsim=nsim, seed=seed,
+                        scenarios=scenarios)
 
     def _fit_structural(self, spec, y, lags, criterion):
         """Lightweight no-ARMA fit used by the order selector's Pass 1."""
