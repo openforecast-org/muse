@@ -14,3 +14,5 @@ man-roxygen
 ^.*\.txt$
 ^\.claude-docker$
 tools/
+^python$
+^src/python$

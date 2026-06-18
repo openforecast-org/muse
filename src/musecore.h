@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 #include <armadillo>
+#include "muse_compat.h"   // Rprintf shim under -DMUSE_PYTHON_BUILD (no-op under R)
 #include "PTSmodel.h"
 #include "bcnorm.h"   // C++ analogue of greybox::dbcnorm; not wired into
                       // estimation yet -- available for any code path that

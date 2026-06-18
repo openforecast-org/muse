@@ -3162,9 +3162,11 @@ void BSMclass::initParBsm(){
                     }
                     int maxLag = 0;
                     for (uword b = 0; b < arOrders.n_elem; ++b)
-                        maxLag = std::max(maxLag, arOrders(b) * armaLags(b));
+                        maxLag = std::max(maxLag,
+                                          static_cast<int>(arOrders(b) * armaLags(b)));
                     for (uword b = 0; b < maOrders.n_elem; ++b)
-                        maxLag = std::max(maxLag, maOrders(b) * armaLags(b));
+                        maxLag = std::max(maxLag,
+                                          static_cast<int>(maOrders(b) * armaLags(b)));
                     arma::vec pacf = (maxLag > 0)
                         ? sampleYWpacf(SSmodel::inputs.y, maxLag)
                         : arma::vec();
