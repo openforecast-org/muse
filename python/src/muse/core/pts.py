@@ -179,6 +179,130 @@ class PTS:
                         cumulative=cumulative, nsim=nsim, seed=seed,
                         scenarios=scenarios)
 
+    def update(self, **overrides):
+        """Re-fit on the same data with selected spec changes (sklearn-clone
+        style).  e.g. m.update(h=24) or m.update(model="1LT")."""
+        kw = dict(
+            model=self.model, lags=self.lags, orders=self._orders_arg,
+            ic=self.ic, h=self.h, holdout=self.holdout, verbose=self.verbose,
+        )
+        kw.update(overrides)
+        return PTS(**kw).fit(self._y_full)
+
+    def summary(self, level=0.95):
+        """Coefficient table + variance proportions.
+
+        NB: the analytical SE patch R applies to the concentrated-out
+        variance is not (yet) replicated, so that row's Std. Error is NaN
+        here where R prints a value; all other entries match.
+        """
+        from scipy.stats import norm
+        est = self._p
+        nm = self._par_names
+        cv = self._vcov
+        if cv is not None and np.ndim(cv) == 2 and cv.shape[0] == est.size:
+            ses = np.sqrt(np.diag(cv))
+        else:
+            ses = np.full(est.size, np.nan)
+        a = (1 - level) / 2
+        z = norm.ppf([a, 1 - a])
+        coef_table = {
+            "names": nm, "estimate": est, "std_error": ses,
+            "lower": est + ses * z[0], "upper": est + ses * z[1],
+        }
+        # variance proportions (exclude AR/MA, Beta, Damping, outliers)
+        is_var = np.array([
+            not (n.startswith(("AR(", "SAR(", "MA(", "SMA(", "Beta"))
+                 or n == "Damping"
+                 or _is_outlier(n))
+            for n in nm
+        ])
+        var_vals = est[is_var]
+        S = float(np.sum(var_vals))
+        props = var_vals / S if (var_vals.size and S > 0) else var_vals
+        return {
+            "model": self._model_label, "lambda": self._lambda,
+            "nobs": self.nobs, "n_param": self._nparam, "sigma": self.sigma,
+            "logLik": self._logLik, "ic": {"AIC": self.aic, "BIC": self.bic,
+                                            "AICc": self.aicc, "BICc": self.bicc},
+            "coefficients": coef_table,
+            "proportions": {"names": [n for n, k in zip(nm, is_var) if k],
+                            "proportion": props},
+        }
+
+    # ---- diagnostics ----------------------------------------------------
+    def rstandard(self):
+        s = self.sigma
+        e = self._residuals
+        if s == 0 or not math.isfinite(s):
+            return np.full_like(e, np.nan)
+        return e / s
+
+    def rstudent(self):
+        # Same conservative approximation R uses (no per-obs leverage in a
+        # state-space model).
+        return self.rstandard()
+
+    def point_lik(self, log=True):
+        from scipy.stats import norm
+        s = self.sigma
+        e = self._residuals
+        if s == 0 or not math.isfinite(s):
+            return np.full_like(e, np.nan)
+        return norm.logpdf(e, 0.0, s) if log else norm.pdf(e, 0.0, s)
+
+    def confint(self, level=0.95):
+        from scipy.stats import norm
+        est = self._p
+        cv = self._vcov
+        if cv is not None and np.ndim(cv) == 2 and cv.shape[0] == est.size:
+            ses = np.sqrt(np.diag(cv))
+        else:
+            ses = np.full(est.size, np.nan)
+        a = (1 - level) / 2
+        z = norm.ppf([a, 1 - a])
+        lower = est + ses * z[0]
+        upper = est + ses * z[1]
+        return {
+            "names": self._par_names,
+            "lower": lower,
+            "upper": upper,
+            "level_labels": [f"{100*a:.1f} %", f"{100*(1-a):.1f} %"],
+        }
+
+    def accuracy(self, holdout=None):
+        import greybox
+        if holdout is None:
+            holdout = self._held
+        if holdout is None:
+            raise ValueError(
+                "No holdout provided and the model carries none; fit with "
+                "holdout=True or pass holdout explicitly."
+            )
+        holdout = np.asarray(holdout, dtype=float)
+        pred = np.asarray(self.predict(len(holdout), interval="none").mean,
+                          dtype=float)
+        # R's accuracy.pts scales against actuals(object) == the in-sample
+        # training series (object$data), not the full series.
+        return greybox.measures(holdout=holdout, forecast=pred,
+                                actual=np.asarray(self._y_train, dtype=float))
+
+    def simulate(self, nsim=1, seed=0):
+        """In-sample replay from the initial state (command='simulateInit').
+        Returns an (nobs x nsim) original-scale matrix."""
+        periods = np.asarray(self._lags_all, dtype=float)
+        rhos = np.ones_like(periods)
+        u = np.zeros((1, 2), dtype=float)
+        out = _musecore.ucomp(
+            "simulateInit", self._y_train, u, self._model_uc, 0,
+            float(self._lambda), 0.0, False, "aic", periods, rhos, False,
+            False, np.asarray(self._p, dtype=float), False,
+            np.array([-9999.99]), float(self._lags), _TREND_OPTIONS,
+            _SEASONAL_OPTIONS, self._arma_candidate(), int(nsim), int(seed),
+            -math.inf,
+        )
+        return np.asarray(out["simPaths"], dtype=float)
+
     def _fit_structural(self, spec, y, lags, criterion):
         """Lightweight no-ARMA fit used by the order selector's Pass 1."""
         model_uc, lam = translate.pts_to_uc(spec, arma_orders=(0, 0))
@@ -348,6 +472,11 @@ class PTS:
             f"PTS({self._model_label}, lambda={self._lambda:.3g}, "
             f"nParam={self._nparam}, logLik={self._logLik:.4g})"
         )
+
+
+def _is_outlier(name: str) -> bool:
+    import re
+    return bool(re.match(r"^(AO|LS|SC)[0-9]+$", name))
 
 
 def _fmt_lambda_str(x: float) -> str:
