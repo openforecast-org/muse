@@ -329,10 +329,16 @@ confidence / simulated), side both/upper/lower, vector level, cumulative.
 scipy.stats.norm reproduces exactly.  Parity: 6/6 specs match R within 1e-6
 (worst 6.7e-9); simulated/cumulative smoke-tested (RNG, statistical only).
 
-**Phase 4 — Diagnostics, summary, accuracy, simulate, update.**
-`summary()` (coef table + variance proportions + delta-method SEs), `rstandard`,
-`rstudent`, `point_lik`, `outlierdummy`, `confint`, `accuracy` (greybox
-`measures`), `simulate`, `update`.
+**Phase 4 — Diagnostics, summary, accuracy, simulate, update. ✅ DONE.**
+`PTS.rstandard` / `rstudent` / `point_lik` / `confint` / `accuracy`
+(greybox.measures, `actual` = training series) / `simulate`
+(command="simulateInit") / `update` / `summary` (coef table + variance
+proportions).  Parity: 4/4 specs match R within 1e-6 (worst ~1e-7);
+proportions match; update == fresh fit.  Two documented non-port gaps:
+greybox-Python MPE/MAPE (percent vs fraction) + asymmetry differ from
+greybox-R (library convention, excluded from comparison); summary() does
+not yet replicate R's analytical SE patch for the concentrated variance.
+Still open: `outlierdummy`, and `outliers="use"` (Phase 5).
 
 **Phase 5 — Outliers, plotting, polish.**
 `outliers="use"` path (incl. the λ-pinning workaround), `plotting.py`, docs,
