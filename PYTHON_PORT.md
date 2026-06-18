@@ -355,8 +355,16 @@ Still open: `outlierdummy`, and `outliers="use"` (Phase 5).
 - plotting: **reuses** `smooth.adam_general.plot_adam` via a duck-typed
   `_PlotAdapter` -- all plot types (1-7, 9, 12) render, default [1,2,4,6].
   No reimplementation needed.
-- Still open (minor): summary() concentrated-variance analytical-SE patch;
-  upstreaming greybox-Python MPE/MAPE/asymmetry conventions.
+- summary(): full parity -- concentrated-variance analytical SE
+  (|est|*sqrt(2/n)) + vcov patch + delta-method proportion SEs + G/td
+  Slope row.  5/5 specs match R to ~1e-10.
+
+### Parity coverage (all green)
+`test_engine_parity`, `test_pts_parity`, `test_forecast_parity`,
+`test_diag_parity`, `test_outlier_parity`, `test_summary_parity` -- every
+numeric output the Python front-end produces matches R within 1e-6 (most to
+machine precision).  The only intentional non-match is greybox-Python's
+MPE/MAPE/asymmetry (a greybox library convention, handled upstream).
 
 ---
 
