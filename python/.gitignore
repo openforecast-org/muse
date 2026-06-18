@@ -4,5 +4,5 @@ build/
 src/muse/_musecore*.so
 src/muse.egg-info/
 **/__pycache__/
+tests/*_reference.json
 tests/reference.json
-tests/pts_reference.json

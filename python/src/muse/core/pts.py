@@ -31,6 +31,8 @@ class PTS:
         lags: Optional[int] = None,
         orders=None,
         ic: str = "BICc",
+        outliers: str = "ignore",
+        level: float = 0.99,
         h: int = 0,
         holdout: bool = False,
         verbose: bool = False,
@@ -39,6 +41,14 @@ class PTS:
         self.lags = lags
         self._orders_arg = orders or {"ar": 0, "ma": 0, "select": False}
         self.ic = ic
+        if outliers == "select":
+            raise NotImplementedError("outliers='select' is not supported.")
+        if outliers not in ("ignore", "use"):
+            raise ValueError("outliers must be 'ignore' or 'use'.")
+        self.outliers = outliers
+        if not (0 < level < 1):
+            raise ValueError("level must be in (0, 1).")
+        self.level = float(level)
         self.h = int(h)
         self.holdout = bool(holdout)
         self.verbose = bool(verbose)
@@ -101,9 +111,17 @@ class PTS:
             ma = int(np.atleast_1d(sel["ma"])[0])
             arma_lags = sel["lags"]
 
+        # outlier detection threshold (adam-style level -> two-sided z).
+        # The lambda screen above already pins lambda to a number before the
+        # engine runs, so R's joint-lambda + outlier workaround is moot here.
+        from scipy.stats import norm
+        outlier_z = 0.0 if self.outliers == "ignore" else float(
+            norm.ppf((1 + self.level) / 2)
+        )
+
         model_uc, lam = translate.pts_to_uc(model_str, arma_orders=(ar, ma))
         out = self._engine(y, self._u, model_uc, lam, lags, criterion, ar, ma,
-                            arma_ident=False)
+                           arma_ident=False, outlier=outlier_z)
         if out.get("model") == "error":
             raise RuntimeError("muse engine returned an error for this spec.")
 
@@ -123,12 +141,13 @@ class PTS:
             u = u.T
         return u
 
-    def _engine(self, y, u, model_uc, lam, lags, criterion, ar, ma, arma_ident):
+    def _engine(self, y, u, model_uc, lam, lags, criterion, ar, ma, arma_ident,
+                outlier=0.0):
         periods = lags / np.arange(1, max(1, lags // 2) + 1)
         rhos = np.ones_like(periods)
         return _musecore.ucomp(
-            "all", y, u, model_uc, int(self.h), float(lam), 0.0, False,
-            criterion, periods, rhos, self.verbose, False,
+            "all", y, u, model_uc, int(self.h), float(lam), float(outlier),
+            False, criterion, periods, rhos, self.verbose, False,
             np.array([-9999.9]), bool(arma_ident), np.array([-9999.99]),
             float(lags), _TREND_OPTIONS, _SEASONAL_OPTIONS,
             f"arma({ar},{ma})", 1, 0, -math.inf,
@@ -364,6 +383,17 @@ class PTS:
         self._nparam = int(self._p.size) + lam_dof + td_dof
 
         self._vcov = np.asarray(out["covp"], dtype=float) if "covp" in out else None
+
+        # outliers detected by the engine: (nDetected x 2) = (type, time0).
+        det = out.get("typeOutliers")
+        rows = []
+        if det is not None:
+            det = np.atleast_2d(np.asarray(det, dtype=float))
+            if det.size and det.shape[1] == 2:
+                kinds = ["AO", "LS", "SC"]
+                for typ, t0 in det:
+                    rows.append({"time": int(t0) + 1, "type": kinds[int(typ)]})
+        self._outliers_detected = rows
         self._fit = True
 
     # ---- properties -----------------------------------------------------
@@ -439,6 +469,17 @@ class PTS:
     @property
     def orders(self):
         return self._orders
+
+    @property
+    def outliers_detected(self):
+        return self._outliers_detected
+
+    def outlierdummy(self, level=0.999, type="rstandard"):
+        from scipy.stats import norm
+        r = self.rstandard() if type == "rstandard" else self.rstudent()
+        q = norm.ppf(level)
+        ids = np.where(np.abs(np.asarray(r, dtype=float)) > q)[0]
+        return {"id": ids, "statistic": (-q, q), "type": type, "level": level}
 
     # ---- information criteria (match R/greybox formulas) ----------------
     @property
