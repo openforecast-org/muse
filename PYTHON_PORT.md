@@ -348,8 +348,15 @@ Still open: `outlierdummy`, and `outliers="use"` (Phase 5).
   `python/CMakeLists.txt` (pybind11_add_module on the shared
   `../src/python/musecpp2py.cpp`).  `pip wheel` builds a working wheel;
   installs + runs from site-packages with no source path.
-- Still open: `plotting.py`, pandas `DatetimeIndex` io, and the summary()
-  concentrated-variance analytical-SE patch.
+- pandas io (`io.py`): `PTS.fit()` accepts a pandas Series; seasonal period
+  inferred from a frequency-bearing DatetimeIndex; index carried through to
+  fitted/residuals/actuals (Series) and forecasts.  Plain arrays + explicit
+  `lags` unchanged.
+- plotting: **reuses** `smooth.adam_general.plot_adam` via a duck-typed
+  `_PlotAdapter` -- all plot types (1-7, 9, 12) render, default [1,2,4,6].
+  No reimplementation needed.
+- Still open (minor): summary() concentrated-variance analytical-SE patch;
+  upstreaming greybox-Python MPE/MAPE/asymmetry conventions.
 
 ---
 
