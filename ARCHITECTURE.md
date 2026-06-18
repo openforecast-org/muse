@@ -2,7 +2,11 @@
 
 ## Mental model (read this first)
 
-`muse` has one user-facing function — `pts()` in `R/pts.R` — and one C++ entry point — `UCompC()` in `src/musecpp2R.cpp`.  Every task (estimation, selection, forecasting, simulation, diagnostics) is driven by calling `UCompC()` with a different `command` string (`"all"`, `"forecastOnly"`, `"simulate"`, …).  `pts()` delegates immediately to `.pts_fit()` (`R/pts-internals.R`), which translates the user's 3-letter model string to a UC string via `pts_to_uc()` (`R/pts-translate.R`), marshals arguments into a flat list, and calls `UCompC()`.  The C++ side (`src/musecore.h` → `src/PTSmodel.h` → `src/SSpace.h`) runs the Kalman filter, quasi-Newton optimiser, and component extractor, then returns a named list which `.pts_fit()` post-processes into the `pts` object that `pts()` returns.  All in-sample residuals, fitted values in `$comp`, and innovations live on the **Box-Cox scale**; only `$fitted`, `$forecast`, and accuracy comparisons are back-transformed to the original scale via `.inv_box_cox()`.  One or more variance parameters may be **concentrated out** analytically (not via the optimiser); these appear in `$B` but have `NaN` rows/columns in `$vcov` — `$nParam` still counts them correctly for information criteria.  When profile-lambda fires (`model` starts with `Z`), the engine tries λ anchors {−2,−1,−0.5,0,0.5,1,2} and sets `lambdaEstimated = TRUE/FALSE` to control whether λ costs a degree of freedom; `pts()` adds the DoF on the R side based solely on that flag.  S3 dispatch for `plot`, `AIC`, `BIC`, and several greybox generics falls through to the `"smooth"` tail of the class vector — no local implementations are needed for those.
+`muse` has one user-facing function — `pts()` in `R/pts.R` — and one C++ entry point — `UCompC()` in `src/musecpp2R.cpp`.  Every task (estimation, selection, forecasting, simulation, diagnostics) is driven by calling `UCompC()` with a different `command` string (`"all"`, `"forecastOnly"`, `"simulate"`, …).  `pts()` delegates immediately to `.pts_fit()` (`R/pts-internals.R`), which translates the user's 3-letter model string to a UC string via `pts_to_uc()` (`R/pts-translate.R`), marshals arguments into a flat list, and calls `UCompC()`.  The C++ side (`src/musecore.h` → `src/PTSmodel.h` → `src/SSpace.h`) runs the Kalman filter, quasi-Newton optimiser, and component extractor, then returns a named list which `.pts_fit()` post-processes into the `pts` object that `pts()` returns.  All in-sample residuals, fitted values in `$comp`, and innovations live on the **Box-Cox scale**; only `$fitted`, `$forecast`, and accuracy comparisons are back-transformed to the original scale via `.inv_box_cox()`.  One or more variance parameters may be **concentrated out** analytically (not via the optimiser); these appear in `$B` but have `NaN` rows/columns in `$vcov` — `$nParam` still counts them correctly for information criteria.
+
+**Box-Cox λ is chosen on the R side before the engine runs.**  When `model`'s power position is `Z`, `pts()` picks λ via a fast variance-stabilisation screen — classical decomposition (`smooth::msdecompose`, `smoother = "ma"`) followed by Guerrero coefficient-of-variation minimisation over the clipped range `[0, 2]` (`.pts_guerrero_decomp_lambda` in `R/pts-internals.R`) — then rewrites the spec with that numeric λ.  The engine therefore receives a fixed λ in the normal flow; its internal joint-λ BFGS and anchor-snap path (`{−2,−1,−0.5,0,0.5,1,2}`) survive only as a fallback for series too short to screen (`length(y) < 4`).  λ counts as one degree of freedom whenever the screen ran (`lambdaWasScreened`) or the engine estimated it (`lambdaEstimated`); `pts()` adds that DoF on the R side.  The default information criterion is **BICc**.
+
+S3 dispatch for `plot`, `AIC`, `BIC`, and several greybox generics falls through to the `"smooth"` tail of the class vector — no local implementations are needed for those.
 
 ---
 
@@ -12,8 +16,8 @@
 muse/
 ├── R/
 │   ├── pts.R                      # User entry point: pts()
-│   ├── pts-internals.R            # Core fitting helpers (not exported)
-│   ├── pts-translate.R            # PTS ↔ UC string translation (not exported)
+│   ├── pts-internals.R            # Core fitting helpers + λ screen (not exported)
+│   ├── pts-translate.R            # PTS ↔ UC string translation + selection (not exported)
 │   ├── methods.R                  # print / fitted / residuals / coef / forecast / ...
 │   ├── pts-summary.R              # summary.pts with coefficient table + proportions
 │   ├── pts-methods-accessors.R    # sigma / nparam / actuals / modelType / orders / ...
@@ -23,18 +27,21 @@ muse/
 │   ├── pts-confint.R              # confint.pts (Wald intervals)
 │   ├── pts-update.R               # update.pts
 │   ├── pts-pls.R                  # profile log-likelihood utilities
+│   ├── muse-package.R            # Package-level roxygen / @useDynLib
+│   ├── zzz.R                      # .onLoad / .onAttach + greybox imports
 │   └── RcppExports.R              # Auto-generated: declares UCompC() for R
 ├── src/
 │   ├── musecpp2R.cpp              # Rcpp bridge: UCompC() → runMuseCommand()
 │   ├── musecore.h                 # Language-agnostic dispatch: MuseInputs/Outputs,
-│   │                              #   runMuseCommand()
+│   │                              #   runMuseCommand()  ← the SEXP-free seam
 │   ├── PTSmodel.h                 # BSMclass (the PTS engine): ~3700 lines
 │   ├── SSpace.h                   # SSmodel base: Kalman filter / smoother
 │   ├── ARMAmodel.h                # ARMA irregular component
 │   ├── ARIMASSmodel.h             # Included but unused (dead code)
 │   ├── boxcox.h                   # BoxCox / invBoxCox / testBoxCox
+│   ├── bcnorm.h                   # bcnormBoxCox / bcnormLogJac (BC-normal density)
 │   ├── optim.h                    # Quasi-Newton optimiser (BFGS-style)
-│   ├── stats.h                    # Statistical helpers
+│   ├── stats.h                    # Statistical helpers (infoCriteria, …)
 │   └── DJPTtools.h                # Shared utilities
 └── man/                           # Generated by roxygen2 — do not edit
 ```
@@ -42,6 +49,13 @@ muse/
 There is **one** R↔C++ boundary: `UCompC()` declared in `src/RcppExports.cpp` and
 mirrored in `R/RcppExports.R`.  Every task (estimation, forecast, simulation, …) is
 driven by passing a `command` string to the same entry point.
+
+**The Rcpp dependency is isolated to a single file.**  `src/musecpp2R.cpp` is the
+only translation unit that includes `Rcpp.h` / `RcppArmadillo.h` and traffics in
+`SEXP`.  Everything below it — `musecore.h` (`MuseInputs`, `MuseOutputs`,
+`runMuseCommand()`) and the whole engine — speaks only Armadillo and the STL.  This
+seam is what makes a second front-end (e.g. a Python `pybind11` bridge) feasible
+without touching the engine.
 
 ---
 
@@ -179,7 +193,8 @@ pts()                                         R/pts.R
    states  = .pts_wrap_states(rbind(NA, comp[, structural cols]))
    ordersList = uc_to_arma(modelUC)
    out$B   = res$p
-   out$nParam = length(p) + as.integer(lambdaEstimated)
+   out$nParam = length(p) + as.integer(lambdaEstimated || lambdaWasScreened)
+                          + as.integer(grepl("^td/", modelUC))   # G drift slope
 ```
 
 ---
@@ -188,34 +203,82 @@ pts()                                         R/pts.R
 
 Call: `pts(data, model = "ZZZ")`
 
-The "Z" in each position tells the C++ engine to search.  The UC translation
-produces `"?/none/?/?"` (question marks drive ident).  Everything up to the
-`UCompC` call is identical to Task 1.  Inside C++:
+Selection is split across three stages that run in this order:
+
+**Stage A — λ screen (R side, always for `Z` power).**  Before anything else,
+`pts()` resolves the Box-Cox λ via `.pts_guerrero_decomp_lambda()`
+(decomposition + Guerrero CV over `[0, 2]`; see "Task 1b: λ screen" below) and
+rewrites the spec from `Z??` to `<num>??`.  No state-space model is fitted here.
+
+**Stage B — structural trend/seasonal ident (C++ engine).**  The remaining `Z`
+tokens in the trend/seasonal positions become `?` in the UC string, and the engine
+searches over them:
 
 ```
 runMuseCommand("all", ...)
   BSMclass::ident()                  triggered by '?' tokens in model string
-    estimUCs()
-      Loops over candidate model combinations:
+    findUCmodels() + estimUCs()
+      Loops over candidate combinations:
         (trend ∈ {rw, llt, srw, td}) × (seasonal ∈ {none, linear, equal})
-      For each candidate:
-        profileLambda(candidate):
-          Brent search over λ ∈ [-2, 2]
-            For each λ: snap to nearest anchor {-2,-1,-0.5,0,0.5,1,2}
-                        if |λ-anchor| < tolerance → fix to anchor
-            Records llik at final λ
-          Returns ProfileResult {lambda, lambdaCounts, llik}
-        Stores criterion (AIC/AICc/BIC/BICc) for this candidate
-      Selects best candidate by chosen criterion
+        (the (damped trend, AR>0) combinations are filtered out)
+      For each candidate: estim() at the fixed λ, score by criterion
+      Selects best candidate by chosen criterion (default BICc)
     [optional] selectHarmonics() — if seasonal='?' drops unused harmonics
-    [optional] armaIdent()       — if armaIdent=TRUE searches ARMA(p,q)
   Continues with estim() / filter() / smooth() on the winner
 ```
 
-After selection the rest of the R-side post-processing is identical to Task 1.
+Because λ is already numeric by this point, the engine's joint-λ BFGS / anchor-snap
+machinery is **not exercised** in the normal flow — it remains only for the
+short-series fallback noted in the mental model.
 
+**Stage C — ARMA order selection (R side, only when `orders$select = TRUE`).**
+When the user requests ARMA search, `pts()` calls `.pts_select_pts_arma()`
+(`R/pts-translate.R`) *instead of* relying on a nested engine search.  It is a
+sequential two-pass strategy:
+
+```
+.pts_select_pts_arma()                         R/pts-translate.R
+  Pass 1: fit every PTS structural shape (no ARMA) once, rank by IC
+          (k counts λ when screened, +1 for the G/td drift slope)
+  Pass 2: cascaded ARMA on the winning structural's residuals —
+          peel highest-period seasonal lag → … → non-seasonal (lag 1),
+          each rung a small (p,q) grid scored by .UCompARMAC, the (0,0)
+          cell always present so "no ARMA at this lag" is a valid choice
+  Returns the locked (model_spec, ar, ma, lags); the final .pts_fit
+  then runs at fixed structure + fixed ARMA (armaIdent = FALSE).
+```
+
+A naive nested loop (ARMA grid inside the structural loop) would re-fit the full
+ARMA cap up to N_structural times; the sequential split fits each structural shape
+once and runs the ARMA grid only on the winner.
+
+After selection the rest of the R-side post-processing is identical to Task 1.
 The verbose ident table printed during `pts(..., verbose=TRUE)` is assembled inside
-`estimUCs()` and returned in `out$table` → stored in `object$cppOutput`.
+`estimUCs()` (Stage B) and the R-side grid printers (Stage C); the C++ block is
+returned in `out$table` → stored in `object$cppOutput`.
+
+---
+
+## Task 1b: λ screen (decomposition + Guerrero)
+
+Call path: `pts()` → `.pts_guerrero_decomp_lambda()` (`R/pts-internals.R`), invoked
+whenever the power position is `Z` and `length(y) >= 4`.
+
+```
+.pts_guerrero_decomp_lambda(y, lags, lambda_lower=0, lambda_upper=2)
+  guard: y all finite & > 0; m = tail(lags,1) >= 2; n >= 2m   (else return 1)
+  decomp = smooth::msdecompose(y, lags = m, type = "additive", smoother = "ma")
+  mu_t   = decomp$states[, 1]                  # smoothed trend (level)
+  blocks of length m (R = floor(n/m)):
+     mu_b[i] = mean(mu_t in block i)
+     sd_b[i] = sd((y - mu_t) in block i)       # keeps the seasonal swing in
+  lambda = argmin_λ∈[0,2]  CV( sd_b * mu_b^(λ-1) )      via stats::optimize
+```
+
+Rationale and the deliberate choice to keep the seasonal swing in `sd_b` (so
+multiplicative seasonality is detectable) are documented inline at the call site in
+`R/pts.R` and in `NEWS`.  The `[0, 2]` clip removes the inverse-BC `-1/λ` asymptote
+that produced `Inf` forecasts under the previous Brent-on-LT-AIC screen.
 
 ---
 
@@ -453,7 +516,11 @@ lambdaEstimated`.
 
 ## The C++ boundary in detail
 
-### UCompC() input list (17 model fields + 2 simulation fields)
+### UCompC() input list (`command` + 22 args)
+
+The full positional signature is `UCompC(command, y, u, model, h, lambda, outlier,
+tTest, criterion, periods, rhos, verbose, stepwise, p, arma, TVP, seas,
+trendOptions, seasonalOptions, irregularOptions, nsim, seed, lambdaLower)`.
 
 | Field | R type | C++ field | Notes |
 |-------|--------|-----------|-------|
@@ -478,6 +545,7 @@ lambdaEstimated`.
 | `irregularOptions` | string | — | `"arma(0,0)"` |
 | `nsim` | int | `MuseInputs.nsim` | Simulation paths (1 = off) |
 | `seed` | int | `MuseInputs.seed` | RNG seed for simulate |
+| `lambdaLower` | double | `SSinputs.lambdaLower` | Lower bound for engine-side λ (`1e-10` when data has zeros; `-Inf` = unbounded) |
 
 ### UCompC() output list (command-dependent)
 
@@ -617,10 +685,20 @@ by the model type; only the variance entries of Q (and H) are free parameters.
   concentrating out the largest variance keeps all remaining ratios ≤ 1, giving a
   better-conditioned BFGS search space.
 
-- **Lambda DoF.** When profile-lambda is used (`model` starts with `Z`) and the
-  optimised λ does not snap to a fixed anchor, `lambdaEstimated = TRUE` and
-  `nParam = length(B) + 1`.  When it snaps, `lambdaEstimated = FALSE` and `nParam
-  = length(B)`.  The R side never re-counts; it just reads `lambdaEstimated`.
+- **Lambda DoF.** λ costs one degree of freedom whenever it was chosen from the
+  data.  In the normal flow this happens via the R-side screen
+  (`lambdaWasScreened = TRUE`); on the short-series fallback the engine's joint-λ
+  path sets `lambdaEstimated = TRUE` instead (and clears it when the optimised λ
+  snaps to a fixed anchor).  `pts()` adds `as.integer(lambdaEstimated ||
+  lambdaWasScreened)`.  A fixed numeric λ in the spec (e.g. `"0.5LT"`) costs no DoF.
+
+- **G/td drift slope DoF.** The deterministic-trend (`G` → `td`) drift slope is
+  concentrated out as a regressor, so `BSMclass::parLabels()` emits no `Slope`
+  entry and it is absent from `length(B)`.  It is nonetheless an estimated DoF, so
+  the count is corrected in three coupled places that must stay in sync: the C++
+  `kFor` lambda in `BSMclass::estim()` (`+ (inputs.Drift ? 1 : 0)`), the R-side
+  selector `k_struct` in `.pts_select_pts_arma()` (`+ (tr == "G")`), and the
+  post-fit `nParam` in `pts()` (`+ grepl("^td/", modelUC)`).
 
 - **MLE σ̂² and BCnorm consistency.**  Both `llik()` and `llikAug()` in
   `src/SSpace.h` use the **MLE divisor** `n_finite` (= total finite observations)
