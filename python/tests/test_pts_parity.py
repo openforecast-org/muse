@@ -40,6 +40,9 @@ SPECS = {
     "1ZN": dict(model="1ZN"),
     "1LT_ar1": dict(model="1LT", orders={"ar": 1, "ma": 0, "select": False}),
     "1LT_ma1": dict(model="1LT", orders={"ar": 0, "ma": 1, "select": False}),
+    "ZNN": dict(model="ZNN"),
+    "ZLT": dict(model="ZLT"),
+    "ZZZ": dict(model="ZZZ"),
 }
 
 TOL = 1e-6

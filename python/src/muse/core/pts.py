@@ -54,30 +54,36 @@ class PTS:
             )
         lags = int(self.lags)
 
-        # Power position must be numeric for Phase 1 (auto-lambda screen is
-        # Phase 2).  Trend/seasonal "Z" are fine -- the engine resolves them.
-        nm = len(self.model)
-        power = self.model[: nm - 2].lower()
-        if power == "z":
-            raise NotImplementedError(
-                "Auto-lambda (power='Z') needs the decomposition+Guerrero "
-                "screen (Phase 2). Use a numeric power, e.g. '1ZZ'."
-            )
-
         ar = int(self.orders.get("ar", 0))
         ma = int(self.orders.get("ma", 0))
         if self.orders.get("select", False):
-            raise NotImplementedError("orders$select is Phase 2.")
+            raise NotImplementedError("orders$select is Phase 2 (next step).")
 
-        model_uc, lam = translate.pts_to_uc(self.model, arma_orders=(ar, ma))
         criterion = translate.ic_to_engine(self.ic)
 
-        # holdout split
+        # holdout split (before the lambda screen, matching R's order)
         y_full = y
         held = None
         if self.holdout and self.h > 0:
             held = y[len(y) - self.h :]
             y = y[: len(y) - self.h]
+
+        # Box-Cox lambda screen for auto-lambda (power == "Z").  Mirrors
+        # pts(): decomposition + Guerrero CV over [0, 2], then rewrite the
+        # spec's power slot with the chosen numeric lambda (rounded to R's
+        # 7-significant-digit string round-trip) and flag the +1 DoF.
+        nm = len(self.model)
+        power = self.model[: nm - 2].lower()
+        lambda_screened = False
+        model_str = self.model
+        if power == "z" and len(y) >= 4:
+            from .lambda_screen import guerrero_decomp_lambda
+            best = guerrero_decomp_lambda(y, lags, lower=0.0, upper=2.0)
+            best = float(f"{best:.7g}")  # match R format(..., digits = 7)
+            model_str = _fmt_lambda_str(best) + self.model[nm - 2 :]
+            lambda_screened = True
+
+        model_uc, lam = translate.pts_to_uc(model_str, arma_orders=(ar, ma))
 
         # regressors (Phase 1: none -> engine sentinel matrix(0, 1, 2))
         if X is None:
@@ -102,11 +108,11 @@ class PTS:
         if out.get("model") == "error":
             raise RuntimeError("muse engine returned an error for this spec.")
 
-        self._post_process(out, y, y_full, held, lam)
+        self._post_process(out, y, y_full, held, lam, lambda_screened)
         return self
 
     # ---- post-processing (mirror .pts_fit + pts()) ----------------------
-    def _post_process(self, out, y_train, y_full, held, lam_in):
+    def _post_process(self, out, y_train, y_full, held, lam_in, lambda_screened):
         self._out = out
         self._y_train = y_train
         self._y_full = y_full
@@ -144,7 +150,8 @@ class PTS:
         )
 
         # nParam = len(p) + (lambda estimated|screened) + (G/td drift slope)
-        lam_dof = 1 if bool(out.get("lambdaEstimated", False)) else 0
+        lam_dof = 1 if (bool(out.get("lambdaEstimated", False))
+                        or lambda_screened) else 0
         td_dof = 1 if self._model_uc.startswith("td/") else 0
         self._nparam = int(self._p.size) + lam_dof + td_dof
 
@@ -253,6 +260,14 @@ class PTS:
             f"PTS({self._model_label}, lambda={self._lambda:.3g}, "
             f"nParam={self._nparam}, logLik={self._logLik:.4g})"
         )
+
+
+def _fmt_lambda_str(x: float) -> str:
+    """Decimal (non-scientific) lambda string, trailing zeros stripped --
+    matches R's format(x, scientific = FALSE, drop0trailing = TRUE) used when
+    the screened lambda is written back into the model spec."""
+    s = f"{x:.10f}".rstrip("0").rstrip(".")
+    return s if s else "0"
 
 
 def _build_comp(raw, names, v):

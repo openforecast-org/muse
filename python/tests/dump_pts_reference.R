@@ -15,7 +15,11 @@ specs <- list(
     list(name = "1ZZ",    model = "1ZZ"),       # engine structural selection
     list(name = "1ZN",    model = "1ZN"),
     list(name = "1LT_ar1", model = "1LT", ar = 1, ma = 0),
-    list(name = "1LT_ma1", model = "1LT", ar = 0, ma = 1)
+    list(name = "1LT_ma1", model = "1LT", ar = 0, ma = 1),
+    # auto-lambda screen (power Z): decomposition + Guerrero
+    list(name = "ZNN",  model = "ZNN"),
+    list(name = "ZLT",  model = "ZLT"),
+    list(name = "ZZZ",  model = "ZZZ")
 )
 
 y <- as.numeric(AirPassengers)
