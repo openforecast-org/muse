@@ -1,5 +1,7 @@
 # muse - Multiple Unobserved Sources of Error
 
+![muse logo](man/figures/muse-purple-light-web.png){width=300px}
+
 [![License: LGPL v2.1](https://img.shields.io/badge/License-LGPL_v2.1-blue.svg)](https://www.gnu.org/licenses/old-licenses/lgpl-2.1)
 
 <!-- badges: start -->
