@@ -176,35 +176,6 @@ SSmodel::SSmodel(SSinputs inputs, SSmatrix system){
 }
 // Destructor
 SSmodel::~SSmodel(){}
-// Print inputs on screen
- // void SSmodel::print(){
- //   cout << "**************************" << endl;
- //   cout << "Start of SS system:" << endl;
- //   inputs.y.t().print("y:");
- //   inputs.p.t().print("p:");
- //   inputs.p0.t().print("p0:");
- //   inputs.stdP.t().print("stdP:");
- //   inputs.u.print("u:");
- //   cout << "h: " << inputs.h << endl;
- //   cout << "cLlik: " << inputs.cLlik << endl;
- //   inputs.v.t().print("v:");
- //   inputs.betaAug.t().print("betaAug:");
- //   inputs.criteria.print("criteria:");
- //   inputs.eta.t().print("eta:");
- //   cout << "objFunValue: " << inputs.objFunValue << endl;
- //   cout << "outlier: " << inputs.outlier << endl;
- //   cout << "estimOk: " << inputs.estimOk << endl;
- //   inputs.grad.t().print("grad:");
- //   cout << "d_t: " << inputs.d_t << endl;
- //   cout << "nonStationaryTerms: " << inputs.nonStationaryTerms << endl;
- //   cout << "flag: " << inputs.flag << endl;
- //   cout << "innVariance: " << inputs.innVariance << endl;
- //   cout << "exact: " << inputs.exact << endl;
- //   cout << "verbose: " << inputs.verbose << endl;
- //   cout << "augmented: " << inputs.augmented << endl;
- //   cout << "End of SS system:" << endl;
- //   cout << "**************************" << endl;
- // }
 // Estimation by Maximum-Likelihood
 void SSmodel::estim(){
   SSmodel::estim(inputs.p0);

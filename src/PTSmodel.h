@@ -739,110 +739,6 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
         // Building UComp system
         //BSMclass sysBSM(inputsSS, inputsBSM);
 }
-// // Interpolation
-// void BSMclass::interpolate(){
-//     BSMmodel sysCopy = inputs;
-//     SSinputs ssCopy = SSmodel::inputs;
-//     SSmodel::inputs.h = 0;
-//     SSmodel::inputs.verbose = false;
-//     SSmodel::inputs.h = 0;
-//     vec y = SSmodel::inputs.y;
-//     mat u = SSmodel::inputs.u;
-//     string seasTypes, model;
-//     vector<string>models;
-//     if (max(inputs.periods) == 1){
-//         seasTypes = "none";
-//         //model1 = "llt/none/none/arma(0,0)";
-//         //model2 = "rw/none/none/arma(0,0)";
-//     } else {
-//         seasTypes = "equal";
-//         //model1 = "llt/none/equal/arma(0,0)";
-//         //model2 = "llt/none/equal/arma(0,0)";
-//     }
-//     //inputs.model = model1;
-//     double minCrit;
-//     vec y1(inputs.missing.n_elem), y2(inputs.missing.n_elem), aux(SSmodel::inputs.y.n_elem);
-//     uvec col(1); col(0) = 1;
-//     int iMin = min(inputs.missing), iMax = max(inputs.missing),
-//         iniObs = 0, finalObs = SSmodel::inputs.y.n_elem;
-//     uvec indFinite, poly(3, fill::ones), aux3;
-//     vec fit;
-//     // Forward interpolation
-//     if (iMin > 4){
-//         //setModel(inputs.model, inputs.periods, inputs.rhos, false);
-//         ///////// no funciona identificación
-//         findUCmodels("llt/rw", "none", seasTypes, "arma(0,0)", models);
-//         estimUCs(models, inputs.harmonics, minCrit, false, 1e12, SSmodel::inputs.u.n_rows);
-//         model = inputs.model;
-//         SSmodel::smooth(false);
-//         y1 = SSmodel::inputs.yFit(inputs.missing);
-//     } else {
-//         // Missing from start
-//         indFinite = find_finite(y.rows(iMin, y.n_elem - 1));
-//         aux3 = conv(diff(indFinite), poly);
-//         iniObs = indFinite(min(find(aux3.rows(2, aux3.n_elem - 1) == 3))) + iMin;
-//         SSmodel::inputs.y = y.rows(iniObs, y.n_elem - 1);
-//         if (u.n_rows > 0)
-//             SSmodel::inputs.u = u.cols(iniObs, y.n_elem - 1);
-//         findUCmodels("llt/rw", "none", seasTypes, "arma(0,0)", models);
-//         estimUCs(models, inputs.harmonics, minCrit, false, 1e12, SSmodel::inputs.u.n_rows);
-//         model = inputs.model;
-//         SSmodel::smooth(false);
-//         fit = join_vert(zeros(iniObs), inputs.comp.col(1));
-//         y1 = fit(inputs.missing);
-//         SSmodel::inputs.y = y;
-//         SSmodel::inputs.u = u;
-//     }
-//     bool VERBOSE = SSmodel::inputs.verbose;
-//     if (y.n_elem - iMax - 1 > 5){
-//         // Backwards interpolation
-//         SSmodel::inputs.y = reverse(SSmodel::inputs.y);
-//         setModel(model, inputs.periods, inputs.rhos, false);
-//         SSmodel::inputs.verbose = false;
-//         SSmodel::estim();
-//         SSmodel::inputs.verbose = VERBOSE;
-//         SSmodel::smooth(false);
-//         aux = reverse(SSmodel::inputs.yFit);
-//         y2 = aux(inputs.missing);
-//     } else {
-//         // Missing at the right end
-//         indFinite = find_finite(y.rows(0, iMax));
-//         aux3 = conv(diff(indFinite), poly);
-//         finalObs = indFinite(max(find(aux3.rows(0, aux3.n_elem - 3) == 3)) + 1);
-//         SSmodel::inputs.y = reverse(y.rows(0, finalObs));
-//         if (u.n_rows > 0)
-//             SSmodel::inputs.u = reverse(u.cols(0, finalObs), 1);
-//         setModel(model, inputs.periods, inputs.rhos, false);
-//         SSmodel::inputs.verbose = false;
-//         SSmodel::estim();
-//         SSmodel::inputs.verbose = VERBOSE;
-//         SSmodel::smooth(false);
-//         fit = join_vert(reverse(SSmodel::inputs.yFit), zeros(finalObs));
-//         y2 = fit(inputs.missing);
-//         SSmodel::inputs.y = y;
-//         SSmodel::inputs.u = u;
-//     }
-//     y(inputs.missing) = (y1 + y2) / 2;
-//     if (iMin < 6){
-//         // Correcting first chunk
-//         uvec missInd = inputs.missing(find(inputs.missing < iniObs));
-//         y(missInd) = y2.rows(0, missInd.n_elem - 1);
-//     }
-//     if (y.n_elem - iMax < 6){
-//         // Correcting last chunk
-//         uvec missInd = inputs.missing(find(inputs.missing > finalObs));
-//         y(missInd) = y1.rows(y1.n_elem - missInd.n_elem, y1.n_elem - 1);
-//     }
-//     // Restoring initial values and interpolating
-//     SSmodel::inputs = ssCopy;
-//     inputs = sysCopy;
-//     SSmodel::inputs.y = y;
-//     setModel(inputs.model, inputs.periods, inputs.rhos, false);
-// }
-
-// Estim SSOE system
-//void BSMclass::estimSSOE(){
-//}
 // Set model (part of constructor)
 void BSMclass::setModel(string model, vec periods, vec rhos, bool runFromConstructor){
         string trend, cycle, seasonal, irregular;
@@ -934,36 +830,6 @@ void BSMclass::bsm2msoe(){
         //    cout << "model: " << inputs.model << endl;
         //    cout << "here" << endl;
 }
-// Print inputs on screen
-// void BSMclass::showInputs(){
-//   cout << "**************************" << endl;
-//   cout << "Start of BSM system:" << endl;
-//   cout << "Model: " << inputs.model << endl;
-//   cout << "criterion: " << inputs.criterion << endl;
-//   cout << "trend: " << inputs.trend << endl;
-//   cout << "cycle: " << inputs.cycle << endl;
-//   cout << "seasonal: " << inputs.seasonal << endl;
-//   cout << "irregular: " << inputs.irregular << endl;
-//   cout << "cycle0: " << inputs.cycle0 << endl;
-//   cout << "ar: " << inputs.ar << endl;
-//   cout << "ma: " << inputs.ma << endl;
-//   inputs.periods.t().print("periods:");
-//   inputs.rhos.t().print("rhos:");
-//   inputs.ns.t().print("ns:");
-//   inputs.nPar.t().print("nPar:");
-//   inputs.typePar.t().print("typePar:");
-//   inputs.beta0ARMA.t().print("beta0ARMA:");
-//   inputs.constPar.t().print("constPar");
-//   inputs.harmonics.t().print("harmonics:");
-//   inputs.typeOutliers.t().print("typeOutliers:");
-//   inputs.cycleLimits.print("cycleLimits:");
-//   cout << "stepwise: " << inputs.stepwise << endl;
-//   cout << "tTest: " << inputs.tTest << endl;
-//   cout << "arma: " << inputs.arma << endl;
-//   inputs.eps.t().print("eps:");
-//   cout << "End of BSM system:" << endl;
-//   cout << "**************************" << endl;
-// }
 // Interpolation of initial NaN values
 void BSMclass::interpolate(int iniObs){
         BSMmodel sysCopy = inputs;
@@ -1417,41 +1283,6 @@ void BSMclass::setEstimatedParams(vec userParams){
         SSmodel::inputs.llikFUN(SSmodel::inputs.p, &(SSmodel::inputs));
         SSmodel::inputs.estimOk = "Q-Newton: Skipped (forecast-only).\n";
 }
-/*
- // Forecast
- void BSMclass::forecast(){
- SSmodel::forecast();
- // Correcting for Box-Cox lambda
- inputs.yFor = SSmodel::inputs.yFor;
- inputs.yForV.reshape(SSmodel::inputs.FFor.n_rows, 2);
- vec aux = sqrt(SSmodel::inputs.FFor);
- inputs.yForV.col(1) = invBoxCox(inputs.yFor + aux, inputs.lambda);
- inputs.yForV.col(0) = invBoxCox(inputs.yFor - aux, inputs.lambda);
- inputs.yFor = invBoxCox(inputs.yFor, inputs.lambda);
- }
- // Filter
- void BSMclass::filter(){
- SSmodel::filter();
- // Correcting for Box-Cox lambda
- inputs.yFit = SSmodel::inputs.yFit;
- inputs.yFitV.reshape(SSmodel::inputs.yFit.n_rows, 2);
- vec aux = sqrt(SSmodel::inputs.F);
- inputs.yFitV.col(1) = invBoxCox(inputs.yFit + aux, inputs.lambda);
- inputs.yFitV.col(0) = invBoxCox(inputs.yFit - aux, inputs.lambda);
- inputs.yFit = invBoxCox(inputs.yFit, inputs.lambda);
- }
- // Smooth
- void BSMclass::smooth(bool outlier){
- SSmodel::smooth(outlier);
- // Correcting for Box-Cox lambda
- inputs.yFit = SSmodel::inputs.yFit;
- inputs.yFitV.reshape(SSmodel::inputs.yFit.n_rows, 2);
- vec aux = sqrt(SSmodel::inputs.F);
- inputs.yFitV.col(1) = invBoxCox(inputs.yFit + aux, inputs.lambda);
- inputs.yFitV.col(0) = invBoxCox(inputs.yFit - aux, inputs.lambda);
- inputs.yFit = invBoxCox(inputs.yFit, inputs.lambda);
- }
- */
 // Estimation of a family of UC models
 void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                         double& minCrit, bool VERBOSE,
@@ -1856,40 +1687,6 @@ void BSMclass::ident(string show, bool VERBOSE){
                 }
                 // Selecting best pure ARMA (in case best model is trend + noise of any kind so far)
                 pos = inputs.model.find("/none/none/");
-                // if (pos < 5 && inputs.model[0] != 'n' && SSmodel::inputs.y.n_elem > 30){
-                //     // Searching for pure ARMA when trend + noise has been detected previously
-                //      int maxSearch = season + 4;
-                //     if (maxSearch > 28){
-                //         maxSearch = 28;
-                //     }
-                //     maxLag = 5;
-                //     if (season == 1){
-                //         maxSearch = 8;
-                //     }
-                //     vec orders1(2);
-                //     orders1.fill(0);
-                //     vec beta1;
-                //     if (SSmodel::inputs.y.n_rows - maxLag - maxSearch > 3 * season){
-                //        selectARMA(SSmodel::inputs.y, maxLag, maxSearch, "bic", orders1, beta1);
-                //     }
-                //     inputs.beta0ARMA = beta1;
-                //     if (sum(orders1) > 0){
-                //         armaModel = "";
-                //         modelNew = "";
-                //         armaModel.append(to_string((int)orders1(0))).append(",").append(to_string((int)orders1(1)));
-                //         modelNew.append("none/none/none/arma(").append(armaModel).append(")");
-                //         allUCModels.clear();
-                //         allUCModels.push_back(modelNew);
-                //         // Estimating potential best model
-                //         estimUCs(allUCModels, harmonics, minCrit, VERBOSE, minCrit, nuInit);
-                //     }
-                //     if (inputs.model[0] == 'n'){
-                //         beta0.reset();
-                //         beta0 = beta1;
-                //         orders = orders1;
-                //     }
-                //     inputs.beta0ARMA = beta1;
-                // }
                 if (VERBOSE && outlierCopy > 0 && outlierCopy < 1000){
                         Rprintf("------------------------------------------------------------\n");
                         Rprintf(" Final model WITH outlier detection\n");
