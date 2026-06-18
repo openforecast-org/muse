@@ -214,44 +214,82 @@ class PTS:
         return PTS(**kw).fit(self._y_full)
 
     def summary(self, level=0.95):
-        """Coefficient table + variance proportions.
+        """Coefficient table + variance proportions, replicating summary.pts.
 
-        NB: the analytical SE patch R applies to the concentrated-out
-        variance is not (yet) replicated, so that row's Std. Error is NaN
-        here where R prints a value; all other entries match.
+        The concentrated-out variance (NaN on the inverse-Hessian diagonal)
+        gets the analytical Gaussian-variance MLE SE |est|*sqrt(2/n); the
+        joint vcov is patched (diag = se^2, cross terms zeroed) so the
+        delta-method proportion SEs match R.  For a G/td trend the
+        deterministic drift slope is injected as a Slope row (NaN SE).
         """
         from scipy.stats import norm
-        est = self._p
-        nm = self._par_names
-        cv = self._vcov
-        if cv is not None and np.ndim(cv) == 2 and cv.shape[0] == est.size:
-            ses = np.sqrt(np.diag(cv))
-        else:
-            ses = np.full(est.size, np.nan)
+        est = self._p.astype(float)
+        nm = list(self._par_names)
+        n = self.nobs
+        cv = (self._vcov.astype(float).copy()
+              if (self._vcov is not None and np.ndim(self._vcov) == 2)
+              else None)
+
+        ses = np.full(est.size, np.nan)
+        if cv is not None:
+            k = cv.shape[0]
+            cvdiag = np.diag(cv).copy()
+            ses[:k] = np.sqrt(cvdiag)
+            conc = np.where(np.isnan(cvdiag))[0]
+            if conc.size and n > 0:
+                se_conc = np.abs(est[conc]) * math.sqrt(2.0 / n)
+                ses[conc] = se_conc
+                for j, i in enumerate(conc):
+                    cv[i, :] = 0.0
+                    cv[:, i] = 0.0
+                    cv[i, i] = se_conc[j] ** 2
+
         a = (1 - level) / 2
         z = norm.ppf([a, 1 - a])
-        coef_table = {
-            "names": nm, "estimate": est, "std_error": ses,
+        coef = {
+            "names": list(nm), "estimate": est.copy(), "std_error": ses.copy(),
             "lower": est + ses * z[0], "upper": est + ses * z[1],
         }
+        # deterministic drift slope row (G / td), inserted after Level
+        det_slope = None
+        if self._model_uc.startswith("td/") and "Slope" in self._comp_names:
+            det_slope = float(self._comp[0, self._comp_names.index("Slope")])
+            if "Level" in coef["names"]:
+                pos = coef["names"].index("Level") + 1
+                coef["names"].insert(pos, "Slope")
+                for key, val in (("estimate", det_slope), ("std_error", np.nan),
+                                 ("lower", np.nan), ("upper", np.nan)):
+                    coef[key] = np.insert(coef[key], pos, val)
+
         # variance proportions (exclude AR/MA, Beta, Damping, outliers)
         is_var = np.array([
             not (n.startswith(("AR(", "SAR(", "MA(", "SMA(", "Beta"))
-                 or n == "Damping"
-                 or _is_outlier(n))
+                 or n == "Damping" or _is_outlier(n))
             for n in nm
         ])
         var_vals = est[is_var]
         S = float(np.sum(var_vals))
         props = var_vals / S if (var_vals.size and S > 0) else var_vals
+        prop_ses = np.full(var_vals.size, np.nan)
+        if var_vals.size > 1 and cv is not None and S > 0:
+            var_idx = np.where(is_var)[0]
+            if var_idx.max() < cv.shape[0]:
+                Sv = cv[np.ix_(var_idx, var_idx)]
+                if np.all(np.isfinite(Sv)):
+                    L = var_vals.size
+                    J = (np.eye(L) - np.ones((L, 1)) @ props[None, :]) / S
+                    prop_var = np.diag(J @ Sv @ J.T)
+                    prop_ses = np.sqrt(np.maximum(0.0, prop_var))
+
         return {
             "model": self._model_label, "lambda": self._lambda,
-            "nobs": self.nobs, "n_param": self._nparam, "sigma": self.sigma,
-            "logLik": self._logLik, "ic": {"AIC": self.aic, "BIC": self.bic,
-                                            "AICc": self.aicc, "BICc": self.bicc},
-            "coefficients": coef_table,
-            "proportions": {"names": [n for n, k in zip(nm, is_var) if k],
-                            "proportion": props},
+            "nobs": n, "n_param": self._nparam, "sigma": self.sigma,
+            "logLik": self._logLik,
+            "ic": {"AIC": self.aic, "BIC": self.bic, "AICc": self.aicc,
+                   "BICc": self.bicc},
+            "coefficients": coef,
+            "proportions": {"names": [x for x, kk in zip(nm, is_var) if kk],
+                            "proportion": props, "std_error": prop_ses},
         }
 
     # ---- plotting (reuses smooth's plot_adam via a duck-typed adapter) --
