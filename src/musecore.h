@@ -228,18 +228,8 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     }
     inputs  = sysBSM.SSmodel::getInputs();
     inputs2 = sysBSM.getInputs();
-
-    // Cycle bookkeeping.
-    if (inputs2.cycle[0] != 'n' && inputs2.cycle != "?"){
-        string model1 = inputs2.model, cycle = inputs2.cycle, cycle0 = inputs2.cycle0;
-        vec periods = inputs2.periods, rhos = inputs2.rhos;
-        modelCorrect(in.model, cycle, inputsBSM.cycle0, periods, rhos);
-        inputs2.model = model1; inputs2.cycle = cycle; inputs2.cycle0 = cycle0;
-        inputs2.periods = periods; inputs2.rhos = rhos;
-        sysBSM.setInputs(inputs2);
-    }
-    inputs  = sysBSM.SSmodel::getInputs();
-    inputs2 = sysBSM.getInputs();
+    // (PTS never uses stochastic cycles: the cycle slot is always "none",
+    // so the old cycle-string correction step here was unreachable.)
     if (!inputs2.succeed){
         out.isError = true;
         return;

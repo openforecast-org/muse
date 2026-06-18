@@ -162,12 +162,6 @@ public:
 /***************************************************
  * Auxiliar function declarations
  ****************************************************/
-// Main aux function
-void BSMaux(vec, mat, string, int, double, bool, string, vec, bool, bool,
-            vec, bool, string, string, string, vec, double, SSinputs&, BSMmodel&);
-// Main function
-void BSM(vec, mat, string, int, double, bool, string, vec, bool, bool,
-         vec, bool, string, string, string, vec, double);
 // Convert UC model to PTS
 string UC2PTS(string, double);
 // States names for filtering and smoothing
@@ -191,10 +185,6 @@ uvec selectOutliers(vec&, int, float);
 void dummy(uword, uword, rowvec&);
 // combining UC models
 void findUCmodels(string, string, string, string, vector<string>&);
-// Corrects model, cycle string, periods and rhos for modelling cycles
-void modelCorrect(string&, string&, string&, vec&, vec&);
-// Calculate limits for cycle periods for estimation
-void calculateLimits(int, vec, vec, mat&, double);
 // Find first observation of n non-nan contiguous values
 int findFirst(vec, int);
 // Show SS model
@@ -219,189 +209,6 @@ BSMclass::BSMclass(SSinputs data, BSMmodel inputs) : SSmodel(data){
         if (!reserve.has_nan() && reserve.n_elem > 0)
                 this->inputs.constPar = reserve;
         this->inputs.harmonics = regspace<uvec>(0, inputs.periods.n_elem - 1);
-}
-// main aux function
-void BSMaux(vec y, mat u, string model, int h, double outlier, bool tTest, string criterion,
-            vec periods, bool verbose, bool stepwise, vec p0, bool arma, string trendOptions,
-            string seasonalOptions, string irregularOptions, vec TVP, double lambda,
-            SSinputs& inputsSS, BSMmodel& inputsBSM){
-        // Correcting dimensions of u (k x n)
-        size_t k = u.n_rows;
-        size_t n = u.n_cols;
-        if (k > n){
-                u = u.t();
-        }
-        if (k == 1 && n == 2){
-                u.resize(0);
-        }
-        int iniObs = max(periods);
-        // Pre-processing
-        bool errorExit = preProcess(y, u, model, h, outlier, criterion, periods, p0, iniObs,
-                                    trendOptions, seasonalOptions, irregularOptions, TVP, lambda);
-        // if (sum(TVP) > 0)
-        //         outlier = 0;
-        if (errorExit)
-                Rprintf("%d", errorExit);
-        // End of pre-processing
-        inputsSS.y = y.rows(iniObs, y.n_elem - 1);
-        mat uIni;
-        if (iniObs > 0 && u.n_rows > 0){ // && command == "estimate"){
-                inputsSS.u = u.cols(iniObs, u.n_cols - 1);
-                uIni = u.cols(0, iniObs - 1);
-        } else {
-                inputsSS.u= u;
-        }
-        inputsBSM.model = model;
-        inputsBSM.periods = periods;
-        inputsBSM.rhos = ones(periods.n_elem);
-        inputsSS.h = h;
-        inputsBSM.tTest = tTest;
-        inputsBSM.criterion = criterion;
-        inputsBSM.trendOptions = trendOptions;
-        inputsBSM.seasonalOptions = seasonalOptions;
-        inputsBSM.irregularOptions = irregularOptions;
-        inputsBSM.TVP = TVP;
-        inputsSS.p0 = p0;
-        inputsSS.outlier = outlier;
-        inputsSS.verbose = verbose;
-        inputsBSM.seas = max(periods);
-        inputsBSM.stepwise = stepwise;
-        inputsBSM.harmonics = regspace<uvec>(0, periods.n_elem - 1);
-        inputsBSM.arma = arma;
-
-        // BoxCox transformation; mirror musecore.h::runMuseCommand.  y_raw
-        // is always preserved so joint-BFGS can re-transform at each
-        // candidate lambda inside the inner llik / llikAug loop.
-        inputsSS.y_raw           = inputsSS.y;
-        inputsSS.estimateLambda  = false;
-        inputsBSM.estimateLambda = false;
-        if (lambda == 9999.9){
-                inputsBSM.profileLambda = true;
-                inputsBSM.lambda        = testBoxCox(y, periods);
-                inputsSS.y              = BoxCox(inputsSS.y, inputsBSM.lambda);
-        } else {
-                inputsBSM.profileLambda = false;
-                inputsBSM.lambda        = lambda;
-                inputsSS.y              = BoxCox(inputsSS.y, inputsBSM.lambda);
-        }
-}
-// Main function
-void BSM(vec y, mat u, string model, int h, double outlier, bool tTest, string criterion,
-         vec periods, bool verbose, bool stepwise, vec p0, bool arma, string trendOptions,
-         string seasonalOptions, string irregularOptions, vec TVP, double lambda){
-        // y:         otuput data (one time series)
-        // u:         input data (excluding constant)
-        // model:     string with three or four letters with model for error, trend and seasonal
-        // h:         forecasting horizon (if inputs it is recalculated as the length differences
-        //            between u and y
-        // outlier:   standard deviation for outlier detection
-        // tTest:     use of unit root tests for stationarity detection true/false
-        // criterion: information criterion to use in identification (aic / bic / aicc)
-        // periods:   seasonal period
-        // verbose:   shows estimation intermediate results
-        // stepwise:  use of stepwise faster identification procedure true / false
-        // p0:        initial values for parameters to start search
-        // arma:      testing for arma innovations true / false
-        // trendOptions:     set of trends to choose among (none/rw/llt/irw/dt/td)
-        // seasonalOptions:  set of seasonal models to choose among (none/equal/different)
-        // irregularOptions: set of irregular models to choose amongst (none/arma(0,0)/arma(0,1)/...)
-        // TVP:       vector of zeros and ones where to allocate TVP parameters for inputs
-        // lambda:    BoxCox transformation value (9999.9 for estimation)
-
-
-        /*
-         // Correcting dimensions of u (k x n)
-         size_t k = u.n_rows;
-         size_t n = u.n_cols;
-         if (k > n){
-         u = u.t();
-         }
-         if (k == 1 && n == 2){
-         u.resize(0);
-         }
-         int iniObs = max(periods);
-         // Setting inputs
-         SSinputs inputsSS;
-         BSMmodel inputsBSM;
-         // Pre-processing
-         bool errorExit = preProcess(y, u, model, h, outlier, criterion, periods, p0, iniObs,
-         trendOptions, seasonalOptions, irregularOptions, TVP, lambda);
-         if (sum(TVP) > 0)
-         outlier = 0;
-         if (errorExit)
-         Rprintf("%d", errorExit);
-         // End of pre-processing
-         inputsSS.y = y.rows(iniObs, y.n_elem - 1);
-         mat uIni;
-         if (iniObs > 0 && u.n_rows > 0){ // && command == "estimate"){
-         inputsSS.u = u.cols(iniObs, u.n_cols - 1);
-         uIni = u.cols(0, iniObs - 1);
-         } else {
-         inputsSS.u= u;
-         }
-         inputsBSM.model = model;
-         inputsBSM.periods = periods;
-         inputsBSM.rhos = ones(periods.n_elem);
-         inputsSS.h = h;
-         inputsBSM.tTest = tTest;
-         inputsBSM.criterion = criterion;
-         inputsBSM.trendOptions = trendOptions;
-         inputsBSM.seasonalOptions = seasonalOptions;
-         inputsBSM.irregularOptions = irregularOptions;
-         inputsBSM.TVP = TVP;
-         inputsBSM.MSOE = false;
-         inputsSS.p0 = p0;
-         inputsSS.outlier = outlier;
-         inputsSS.verbose = verbose;
-         inputsBSM.seas = max(periods);
-         inputsBSM.stepwise = stepwise;
-         inputsBSM.harmonics = regspace<uvec>(0, periods.n_elem - 1);
-         inputsBSM.arma = arma;
-
-         // BoxCox transformation
-         if (lambda == 9999.9)
-         lambda = testBoxCox(y, periods);
-         inputsBSM.lambda = lambda;
-         inputsSS.y = BoxCox(inputsSS.y, inputsBSM.lambda);
-         */
-
-        SSinputs inputsSS;
-        BSMmodel inputsBSM;
-        BSMaux(y, u, model, h, outlier, tTest, criterion, periods, verbose, stepwise, p0, arma, trendOptions,
-               seasonalOptions, irregularOptions, TVP, lambda, inputsSS, inputsBSM);
-        // Building model
-        BSMclass m = BSMclass(inputsSS, inputsBSM);
-
-        // Estimating
-        BSMmodel inputs = m.getInputs();
-        if (inputs.irregular == "?" || inputs.trend == "?" || inputs.seasonal == "?" || inputs.arma)
-                m.ident("both", verbose);
-        else {
-                m.estim(verbose);
-        }
-        // next lines to correct cycles
-        BSMmodel aux2 = m.getInputs();
-        if (aux2.cycle[0] != 'n' && aux2.cycle != "?"){
-                string model1 = aux2.model, cycle = aux2.cycle, cycle0 = aux2.cycle0;
-                vec periods = aux2.periods, rhos = aux2.rhos;
-                modelCorrect(model, cycle, inputs.cycle0, periods, rhos);
-                aux2.model= model1, aux2.cycle= cycle, aux2.cycle0= cycle0;
-                aux2.periods = periods, aux2.rhos = rhos;
-                m.setInputs(aux2);
-        }
-        m.forecast();
-        Rprintf("empiezo validated:\n");
-        m.validate(true);
-        Rprintf("empiezo components:\n");
-        m.components();
-        //BSMmodel aux = m.getInputs();
-        //aux.comp.print("components 358");
-        Rprintf("empiezo filter:\n");
-        m.filter();
-        Rprintf("empiezo distturb:\n");
-        m.disturb();
-        Rprintf("empiezo forecast:\n");
-
 }
 // Pre-processing
 bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
@@ -743,24 +550,14 @@ bool preProcess(vec y, mat& u, string& model, int& h, double& outlier,
 void BSMclass::setModel(string model, vec periods, vec rhos, bool runFromConstructor){
         string trend, cycle, seasonal, irregular;
         vec ns(7), nPar(7), typePar, noVar, constPar;
-        mat cycleLimits;
         splitModel(model, trend, cycle, seasonal, irregular);
-        // Checking cycle model and correcting from string input
-        if (cycle[0] != 'n' && cycle != "?"){
-                modelCorrect(model, cycle, inputs.cycle0, periods, rhos);
-                this->inputs.periods = periods;
-                this->inputs.rhos = rhos;
-        }
+        // (PTS never uses stochastic cycles -- cycle is always "none" -- so
+        // the cycle-string correction and cycle-period limit computation that
+        // used to sit here were unreachable and have been removed.)
         this->inputs.trend = trend;
         this->inputs.cycle = cycle;
         this->inputs.seasonal = seasonal;
         this->inputs.irregular = irregular;
-        if (cycle[0] != 'n' && inputs.cycleLimits.has_nan()){
-                calculateLimits(SSmodel::inputs.y.n_elem, periods, rhos, cycleLimits, inputs.seas);
-                this->inputs.cycleLimits = cycleLimits;
-        } else if (cycle[0] != 'n') {
-                cycleLimits = inputs.cycleLimits;
-        }
         // Checking for arma identification
         if (irregular != "?"){
                 inputs.arma = 0;
@@ -774,10 +571,6 @@ void BSMclass::setModel(string model, vec periods, vec rhos, bool runFromConstru
         if (trend != "?" && cycle != "?" && seasonal != "?" && irregular != "?"){  // One model
                 initMatricesBsm(periods, rhos, trend, cycle, seasonal, irregular);
                 this->inputs.model = model;
-                if (cycle[0] != 'n'){
-                        this->inputs.periods = periods;
-                        this->inputs.rhos = rhos;
-                }
                 this->SSmodel::inputs.userInputs = &this->inputs;
                 // User function to fill the changing matrices
                 this->SSmodel::inputs.userModel = bsmMatrices;
@@ -3985,109 +3778,6 @@ void findUCmodels(string trend, string cycle, string seasonal, string irregular,
                                         allModels.push_back(cModel);
                                 }
                         }
-                }
-        }
-}
-// Corrects model, cycle string, periods and rhos for modelling cycles
-void modelCorrect(string& model, string& cycle, string& cycle0, vec& periods, vec& rhos){
-        size_t pos0, pos1; //, pos2;
-        vec number(1);
-        cycle0 = cycle;
-        // Is there any "?" in cycle
-        pos1 = cycle.find("?");
-        if (pos1 < cycle.length()){
-                strReplace(cycle, "?", model);
-                cycle = "?";
-                strReplace("?", "", cycle0);
-        }
-        // Adapt periods and rhos to cycle specification
-        pos1 = 0;
-        vec mOne(1);
-        mOne(0) = -1;
-        do {
-                pos0 = pos1;
-                pos1 = min(cycle0.find('+', pos1 + 1), cycle0.find('-', pos1 + 1));
-                number(0) = stod(cycle0.substr(pos0, pos1 - pos0));
-                periods = join_vert(number, periods);
-                rhos = join_vert(mOne, rhos);
-        } while(pos1 != string::npos);
-        // Chechking validity of cycles
-        vec pCycles = periods(find(rhos < 0));
-        double s = max(periods(find(rhos > 0)));
-        if (any(abs(pCycles) < 1.5 * s) || any(abs(pCycles) <= 2)){
-                myError("\n\nERROR: Cycle period too small!!");
-        }
-        uvec sIndex = sort_index(abs(periods), "descend");
-        periods = sign(periods(sIndex)) % sort(abs(periods), "descend");
-        rhos = rhos(sIndex);
-        // Eliminating duplicities
-        sIndex = find_unique(periods);
-        periods = periods(sIndex);
-        rhos = rhos(sIndex);
-}
-// Calculate limits for cycle periods for estimation
-void calculateLimits(int n, vec periods, vec rhos, mat& cycleLimits, double s){
-        double media;
-        vec pCycles;
-        int nCycles = sum(rhos < 0);
-        cycleLimits.resize(nCycles, 2);
-        pCycles = periods(arma::span(0, nCycles - 1));
-        //double s = max(periods(arma::span(nCycles, periods.n_elem - 1)));
-        // Sorting intermediate limits
-        if (any(abs(pCycles) < 1.5 * s) || any(abs(pCycles) <= 2)){
-                myError("\n\nERROR: Cycle period too small!!");
-        }
-        for (int i = 1; i < nCycles; i++){
-                if (pCycles(i) > 0){
-                        cycleLimits(i, 1) = pCycles(i);
-                }
-                if (pCycles(i - 1) > 0){
-                        cycleLimits(i - 1, 0) = pCycles(i - 1);
-                }
-                if (pCycles(i) > 0 && pCycles(i - 1) < 0){
-                        cycleLimits(i - 1, 0) = pCycles(i) + 1;
-                } else if (pCycles(i) < 0 && pCycles(i - 1) > 0){
-                        cycleLimits(i, 1) = pCycles(i - 1) - 1;
-                } else if (pCycles(i) < 0 && pCycles(i - 1) < 0){
-                        media = (-pCycles(i) - pCycles(i - 1)) / 2;
-                        cycleLimits(i, 1) = media;
-                        cycleLimits(i - 1, 0) = media + 1;
-                }
-        }
-        // Correcting extreme limits
-        cycleLimits(0, 1) = pCycles(0);
-        cycleLimits(nCycles - 1, 0) = pCycles(nCycles - 1);
-        if (pCycles(0) < 0){
-                vec aux(2);
-                if (s == 1){
-                        aux(0) = n / 1.5;
-                        aux(1) = 70;
-                        cycleLimits(0, 1) = min(aux);
-                } else if (s == 4){
-                        aux(0) =  1.5 * abs(cycleLimits(0, 1));
-                        aux(1) = 24;
-                        cycleLimits(0, 1) = max(aux);
-                        aux(0) = cycleLimits(0, 1);
-                        aux(1) = n / 1.5;
-                        cycleLimits(0, 1) = min(aux);
-                } else {
-                        aux(0) = n / 1.5;
-                        aux(1) = 70 * s;
-                        cycleLimits(0, 1) = min(aux);
-                }
-                if (-pCycles(0) <= cycleLimits(0, 0)){
-                        myError("\n\nERROR: Initial condition for cycle too small!!!\n\n");
-                } else if (-pCycles(0) >= cycleLimits(0, 1)){
-                        myError("\n\nERROR: Initial condition for cycle too big!!!\n\n");
-                }
-        }
-        int nCycles1 = nCycles - 1;
-        if (pCycles(nCycles1) < 0){
-                cycleLimits(nCycles1, 0) = s * 1.5;
-                if (-pCycles(nCycles1) <= cycleLimits(nCycles1, 0)){
-                        myError("\n\nERROR: Initial condition for cycle too small!!!\n\n");
-                } else if (-pCycles(nCycles1) >= cycleLimits(nCycles1, 1)){
-                        myError("\n\nERROR: Initial condition for cycle too big!!!\n\n");
                 }
         }
 }
