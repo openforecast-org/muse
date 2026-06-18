@@ -319,10 +319,15 @@ not yet exercised against R.
 - Parity: **17/17 specs** match R within 1e-6 (worst 3.5e-9), incl.
   auto-lambda (ZNN/ZLT/ZZZ) and ARMA-select (1LT_sel, ZZZ_sel).
 
-**Phase 3 — Forecasting + intervals.**
-`forecaster.py` (`command="forecastOnly"`), `ForecastResult`, all interval types
-(prediction / confidence / simulated / none), `side`, `cumulative`, vector
-`level`, inverse-BC endpoint transform.  Bind greybox-Python bcnorm quantiles.
+**Phase 3 — Forecasting + intervals. ✅ DONE.**
+`core/forecaster.py` + `PTS.predict()` + `ForecastResult`.  forecastOnly
+engine call (fitted natural-scale coef fed back via p0), inverse-BC mean,
+intervals by endpoint-transforming BC-scale +/- z*se (incl. the lambda<0
+truncated-normal renormalisation).  All interval types (none / prediction /
+confidence / simulated), side both/upper/lower, vector level, cumulative.
+**greybox not needed** -- R's forecast path uses base pnorm/qnorm, which
+scipy.stats.norm reproduces exactly.  Parity: 6/6 specs match R within 1e-6
+(worst 6.7e-9); simulated/cumulative smoke-tested (RNG, statistical only).
 
 **Phase 4 — Diagnostics, summary, accuracy, simulate, update.**
 `summary()` (coef table + variance proportions + delta-method SEs), `rstandard`,
