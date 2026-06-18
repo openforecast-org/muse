@@ -1,5 +1,53 @@
 # Internal helpers used by pts() and forecast.pts(). Not exported.
 
+# .pts_guerrero_decomp_lambda: Box-Cox lambda screen via msdecompose +
+# Guerrero CV minimisation.  Used by pts() when the user requests
+# auto-lambda ("Z" in the model spec).  See the long comment in
+# R/pts.R::pts where this is invoked for the full recipe; this is just
+# the encapsulated implementation.
+#
+# Returns a numeric lambda in [lambda_lower, lambda_upper].  Falls back
+# to 1 (identity) on any precondition failure.
+.pts_guerrero_decomp_lambda <- function(y, lags,
+                                        lambda_lower = 0,
+                                        lambda_upper = 2){
+    yv <- as.numeric(y)
+    if (any(!is.finite(yv)) || any(yv <= 0)) return(1)
+    m <- as.integer(utils::tail(as.integer(lags), 1L))
+    if (length(m) == 0L || is.na(m) || m < 2L) return(1)
+    n <- length(yv)
+    if (n < 2L * m) return(1)
+
+    decomp <- tryCatch(
+        smooth::msdecompose(yv, lags = m, type = "additive",
+                            smoother = "ma"),
+        error = function(e) NULL)
+    if (is.null(decomp)) return(1)
+
+    mu_t <- as.numeric(decomp$states[, 1L])
+    R    <- n %/% m
+    idx  <- rep(seq_len(R), each = m)
+    keep <- seq_len(R * m)
+    mu_b <- as.numeric(tapply(mu_t[keep],            idx, mean, na.rm = TRUE))
+    sd_b <- as.numeric(tapply((yv - mu_t)[keep],     idx, sd,   na.rm = TRUE))
+    ok   <- is.finite(mu_b) & is.finite(sd_b) & mu_b > 0 & sd_b > 0
+    mu_b <- mu_b[ok]; sd_b <- sd_b[ok]
+    if (length(mu_b) < 2L) return(1)
+
+    if (lambda_lower >= lambda_upper) return(lambda_lower)
+    obj <- function(L){
+        r <- sd_b * mu_b^(L - 1)
+        if (any(!is.finite(r))) return(Inf)
+        sd(r) / mean(r)
+    }
+    opt <- tryCatch(stats::optimize(obj, lower = lambda_lower,
+                                    upper = lambda_upper, tol = 1e-4),
+                    error = function(e) NULL)
+    if (is.null(opt) || !is.finite(opt$objective)) return(1)
+    opt$minimum
+}
+
+
 # .pts_parse_data: extract a response vector + regressor matrix from any of
 # the input shapes pts() accepts.  Returns
 #   list(y = <response>, u = <NULL or k x n matrix>,

@@ -1,6 +1,28 @@
 muse v0.0.2.41001 (in development)
 =======
 
+* `pts()` auto-lambda screen replaced.  The previous Brent-on-LT-AIC
+  search (which fitted ~20 proxy state-space models per series) is
+  now a single classical decomposition + Guerrero coefficient-of-
+  variation minimisation.  Steps:
+    1. `smooth::msdecompose(y, lags = m, type = "additive",
+       smoother = "ma")` — centred moving average of order m, plus
+       an averaged seasonal.
+    2. Within each non-overlapping block of length m, take
+       `mu_b = mean(smoothed trend)` and `sd_b = sd(y - trend)` —
+       the within-block dispersion *retains* the seasonal swing
+       since that swing's scaling with level is the signal we want
+       Guerrero to detect.
+    3. Pick lambda minimising CV(`sd_b * mu_b^(lambda-1)`) via
+       `optimize()` over `[0, 2]`.  Clipping at 0 eliminates the
+       `-1/lambda` asymptote of the inverse Box-Cox (the source of
+       Inf forecasts under the old screen); upper 2 is the standard
+       FPP generous cap.
+  No more proxy structural fits during lambda screening — the screen
+  is now ~50x faster while correctly identifying log territory for
+  textbook multiplicative cases (AirPassengers) and pinning lambda
+  at 1 for spike-contaminated series where the old Brent search
+  drifted into the explosive negative-lambda region.
 * Default information criterion in `pts()` switched from `"AICc"` to
   `"BICc"`.  AICc's complexity penalty can be too soft for short
   Box-Cox series: structurally aggressive shapes (e.g. a damped or

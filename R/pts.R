@@ -225,49 +225,53 @@ pts <- function(data,
     }
 
     # Box-Cox lambda screening: when the user requests auto-lambda ("Z"),
-    # use Brent's method to minimise the AIC of a fixed-structure proxy
-    # model (local linear trend + trigonometric seasonal -- LN when the
-    # series is non-seasonal) over the continuous lambda range
-    # [lambdaLower, LAMBDA_BOUND_UPPER].  The "Z" lambda slot is then
-    # rewritten with the resulting numeric value, so the downstream
-    # structural ident runs at fixed lambda (no joint-BFGS for lambda).
+    # pick lambda by variance stabilisation on a classically-decomposed
+    # version of the series — a fast, model-free alternative to fitting a
+    # proxy structural model per candidate lambda.
     #
-    # On the eurotourism benchmark (325 monthly series) Brent gives the
-    # best aggregate AIC of any approach measured (-7700 AIC vs the
-    # joint-BFGS + snap path), substantially better than the previous
-    # 8-anchor LT screen (-895 vs joint+snap).  An earlier variant that
-    # also tested each engine snap anchor on top of Brent (8 extra LT
-    # fits per series) added 30% runtime for ~0 AIC benefit -- Brent
-    # already converges to the continuous AIC minimum, and the snap
-    # anchors aren't load-bearing once lambda is fixed before entering
-    # the engine.
+    # Procedure (matches the "decomp + Guerrero (ma)" recipe explored in
+    # the lambda-screen comparison; see scripts/guerrero_decomp.R):
     #
-    # nParam is incremented by one when Brent runs, since lambda was
-    # then effectively estimated from data (Brent does cost ~1 DoF
-    # despite the engine running with a numerically-fixed lambda).
+    #   1. Run smooth::msdecompose(y, lags = m, type = "additive",
+    #      smoother = "ma") with m = structural seasonal period.  This
+    #      fits a centred moving average of order m for the trend and an
+    #      averaged seasonal pattern.
+    #   2. Take the smoothed trend as level: mu_t = states[, 1].
+    #   3. Form non-overlapping blocks of length m (R = floor(n/m) blocks).
+    #      Inside each block i compute:
+    #         mu_b[i] = mean(mu_t in block i)           # block-average level
+    #         sd_b[i] = sd(y - mu_t in block i)         # within-block dispersion,
+    #                                                   # i.e. seasonal swing + noise
+    #      sd_b deliberately retains the seasonal swing — for multiplicative
+    #      seasonality the swing grows with the level, which is exactly the
+    #      signal Guerrero needs.  Subtracting the additive seasonal
+    #      component would erase that signal.
+    #   4. Minimise the coefficient of variation:
+    #         CV(lambda) = sd_i( sd_b[i] * mu_b[i]^(lambda-1) ) /
+    #                     mean_i( sd_b[i] * mu_b[i]^(lambda-1) )
+    #      via stats::optimize over the *clipped* range [0, 2].  Clipping
+    #      at 0 eliminates the -1/lambda vertical asymptote of the inverse
+    #      BC — without it, lambda can drift negative on outlier-contaminated
+    #      series and produce Inf forecasts.  Upper 2 is the FPP-standard
+    #      generous cap (inverse BC is sub-linear above 1, never explosive).
+    #
+    # Falls back to lambda = 1 (identity, no transform) when:
+    #   * Series is too short relative to the seasonal period (n < 2m).
+    #   * Any y_t <= 0 (BC undefined; already gated earlier but defensive).
+    #   * m < 2 (no seasonal structure to decompose by).
+    #   * msdecompose fails or every block has sd_b = 0.
+    #
+    # The "Z" lambda slot is rewritten with the resulting numeric value,
+    # so the downstream structural ident runs at fixed lambda (no joint
+    # BFGS for lambda).  nParam is incremented by one when the screen
+    # runs since lambda was estimated from data.
     lambdaWasScreened <- FALSE
     nm <- nchar(model)
     if (toupper(substr(model, 1L, nm - 2L)) == "Z" && length(y) >= 4){
-        seas_letter <- if (length(lags) > 0L &&
-                           utils::tail(as.integer(lags), 1L) > 1L) "T" else "N"
-        ltAIC <- function(lam){
-            spec_lt <- paste0(format(lam, scientific = FALSE,
-                                     drop0trailing = TRUE),
-                              "L", seas_letter)
-            m_lt <- tryCatch(
-                suppressWarnings(pts(y, model = spec_lt, lags = lags, h = 0)),
-                error = function(e) NULL)
-            if (is.null(m_lt)) return(Inf)
-            a <- stats::AIC(m_lt)
-            if (!is.finite(a)) Inf else a
-        }
-        lower <- if (is.finite(lambdaLower)) max(lambdaLower, -2) else -2
-        upper <- 2
-        opt <- tryCatch(stats::optimize(ltAIC, lower = lower, upper = upper,
-                                        tol = 1e-3),
-                        error = function(e) NULL)
-        bestLambda <- if (!is.null(opt) && is.finite(opt$objective))
-                          opt$minimum else 1
+        bestLambda <- .pts_guerrero_decomp_lambda(y, lags = lags,
+                                                  lambda_lower = max(0,
+                                                                     if (is.finite(lambdaLower)) lambdaLower else 0),
+                                                  lambda_upper = 2)
         model <- paste0(format(bestLambda, scientific = FALSE,
                                drop0trailing = TRUE),
                         substr(model, nm - 1L, nm))
