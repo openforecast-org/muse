@@ -307,10 +307,17 @@ Still open in this phase for later: pandas `DatetimeIndex` handling
 `Z` raises `NotImplementedError` (Phase 2); `vcov` is passed through but
 not yet exercised against R.
 
-**Phase 2 — λ screen + selection.**
-Port `lambda_screen.py` (reuse `smooth.msdecompose`) and `selector.py`
-(PTS-then-ARMA).  Wire `model="ZZZ"` and `orders=...select=True`.  Bind
-`UCompARMAC`.  Verify λ and selected structure match R.
+**Phase 2 — λ screen + selection. ✅ DONE.**
+- `core/lambda_screen.py` (reuses Python `smooth.msdecompose`, smoother="ma").
+  Parity gotcha: block stats must be nan-aware to match R's
+  `tapply(..., na.rm=TRUE)` over the centred-MA boundary half-blocks.
+- `UCompARMAC` extracted into `musecore.h::runArmaScore` (shared core) and
+  bound as `_musecore.ucomp_arma`; the R `.UCompARMAC` now just marshals to
+  it (R golden master unchanged).
+- `core/selector.py` ports `.pts_select_pts_arma` / `.pts_select_arma_at_lag`.
+- `PTS.fit()` handles `model="ZZZ"` (screen) and `orders={...,"select":True}`.
+- Parity: **17/17 specs** match R within 1e-6 (worst 3.5e-9), incl.
+  auto-lambda (ZNN/ZLT/ZZZ) and ARMA-select (1LT_sel, ZZZ_sel).
 
 **Phase 3 — Forecasting + intervals.**
 `forecaster.py` (`command="forecastOnly"`), `ForecastResult`, all interval types
