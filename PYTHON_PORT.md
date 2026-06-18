@@ -340,9 +340,16 @@ greybox-R (library convention, excluded from comparison); summary() does
 not yet replicate R's analytical SE patch for the concentrated variance.
 Still open: `outlierdummy`, and `outliers="use"` (Phase 5).
 
-**Phase 5 — Outliers, plotting, polish.**
-`outliers="use"` path (incl. the λ-pinning workaround), `plotting.py`, docs,
-`NEWS.md`, packaging.
+**Phase 5 — Outliers + packaging. ✅ (plotting/pandas-io still open.)**
+- `outliers="use"` + `level` + `outlierdummy`: 3/3 parity cases match R
+  within 1e-6 (incl. auto-lambda + detection combined).  The R λ-pinning
+  workaround is unnecessary -- the screen already pins λ before the engine.
+- Packaging: `python/pyproject.toml` (scikit-build-core) +
+  `python/CMakeLists.txt` (pybind11_add_module on the shared
+  `../src/python/musecpp2py.cpp`).  `pip wheel` builds a working wheel;
+  installs + runs from site-packages with no source path.
+- Still open: `plotting.py`, pandas `DatetimeIndex` io, and the summary()
+  concentrated-variance analytical-SE patch.
 
 ---
 
