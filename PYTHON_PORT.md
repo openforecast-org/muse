@@ -285,10 +285,27 @@ expected, since it is the same engine.  Findings that update the plan:
   inputs + R outputs to `reference.json`; `python/tests/test_engine_parity.py`
   feeds them to the binding and asserts ≤1e-6.
 
-**Phase 1 — Estimation path.**
-`PTS` class + `fit()` for fixed specs; `translate.py`; `io.py` index handling;
-core properties (`fitted`, `residuals`, `coef`, `vcov`, `scale`, `n_param`,
-`log_lik`, ICs).  Parity tests vs R on a CSV battery.
+**Phase 1 — Estimation path. ✅ DONE (fixed-lambda specs).**
+`PTS` class (`core/pts.py`) with `fit(y)`, `core/translate.py`
+(pts_to_uc / uc_to_pts / uc_to_arma / ic_to_engine), `core/boxcox.py`
+(inv_box_cox), and the `.pts_fit` post-processing replicated
+(`_build_comp`).  Properties: `coef`, `vcov`, `fitted`, `residuals`,
+`lambda_`, `model_label`, `nobs`, `n_param`, `log_lik`, `scale`, `sigma`,
+`comp`, and `aic`/`bic`/`aicc`/`bicc`.  Key correctness note discovered
+here: coefficients come from the engine's `out["coef"]` (natural-scale
+variances), **not** `out["p"]` (optimiser/log-ratio space) — R's `coef()`
+uses `out$coef`.
+
+Parity (`python/tests/test_pts_parity.py` vs `dump_pts_reference.R`, on a
+hard-coded AirPassengers shared by both sides): **12/12 specs match R to
+~1e-13** — fixed structural (1NN/1LT/1DT/1ND), lambdas 0/0.5/1, the G/td
+drift DoF (1GT), engine structural selection (1ZZ→L,T; 1ZN→N,N), and
+ARMA(1,0)/(0,1).
+
+Still open in this phase for later: pandas `DatetimeIndex` handling
+(`io.py`) — fit currently takes a plain array + explicit `lags`; auto-lambda
+`Z` raises `NotImplementedError` (Phase 2); `vcov` is passed through but
+not yet exercised against R.
 
 **Phase 2 — λ screen + selection.**
 Port `lambda_screen.py` (reuse `smooth.msdecompose`) and `selector.py`
