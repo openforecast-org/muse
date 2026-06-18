@@ -56,3 +56,37 @@ y[100] <- 3 * y[100]            # inject an obvious additive spike
 m_out <- pts(y, model = "ZZZ", outliers = "use", level = 0.99)
 m_out$outliersDetected
 
+## ----seatbelts-xreg-----------------------------------------------------------
+sb <- Seatbelts[, c("drivers", "kms", "PetrolPrice", "law")]
+m_sb <- pts(sb, model = "ZZZ", h = 12, holdout = TRUE)
+m_sb
+
+## ----seatbelts-fc, eval = FALSE-----------------------------------------------
+# # Holdout values of the regressors are stashed on $holdout for accuracy
+# fc_sb <- forecast(m_sb, h = 12, newdata = tail(Seatbelts, 12))
+# plot(fc_sb)
+
+## ----seatbelts-outliers-------------------------------------------------------
+m_sb_out <- pts(Seatbelts[, "drivers"], model = "ZZZ",
+                outliers = "use", level = 0.99)
+m_sb_out$outliersDetected
+
+## ----air-accuracy-------------------------------------------------------------
+accuracy(air)
+
+## ----air-sim------------------------------------------------------------------
+set.seed(42)
+sim <- simulate(air, nsim = 200, h = 12)
+str(sim, max.level = 1)
+
+## ----air-accessors, eval = FALSE----------------------------------------------
+# summary(air)         # Coefficient table + variance proportions
+# coef(air)            # Estimated parameter vector
+# vcov(air)            # Parameter covariance matrix
+# confint(air)         # Wald confidence intervals
+# logLik(air); AIC(air); BIC(air)
+# fitted(air); residuals(air)
+# rstandard(air); rstudent(air)
+# nparam(air); nobs(air); sigma(air)
+# modelType(air); orders(air); lags(air); errorType(air)
+
