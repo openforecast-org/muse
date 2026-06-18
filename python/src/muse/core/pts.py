@@ -37,7 +37,7 @@ class PTS:
     ):
         self.model = model
         self.lags = lags
-        self.orders = orders or {"ar": 0, "ma": 0, "select": False}
+        self._orders_arg = orders or {"ar": 0, "ma": 0, "select": False}
         self.ic = ic
         self.h = int(h)
         self.holdout = bool(holdout)
@@ -54,10 +54,9 @@ class PTS:
             )
         lags = int(self.lags)
 
-        ar = int(self.orders.get("ar", 0))
-        ma = int(self.orders.get("ma", 0))
-        if self.orders.get("select", False):
-            raise NotImplementedError("orders$select is Phase 2 (next step).")
+        ar = int(np.atleast_1d(self._orders_arg.get("ar", 0))[0])
+        ma = int(np.atleast_1d(self._orders_arg.get("ma", 0))[0])
+        user_select = bool(self._orders_arg.get("select", False))
 
         criterion = translate.ic_to_engine(self.ic)
 
@@ -67,6 +66,7 @@ class PTS:
         if self.holdout and self.h > 0:
             held = y[len(y) - self.h :]
             y = y[: len(y) - self.h]
+        self._u = self._prepare_u(X)
 
         # Box-Cox lambda screen for auto-lambda (power == "Z").  Mirrors
         # pts(): decomposition + Guerrero CV over [0, 2], then rewrite the
@@ -83,33 +83,70 @@ class PTS:
             model_str = _fmt_lambda_str(best) + self.model[nm - 2 :]
             lambda_screened = True
 
+        arma_lags = [1]
+        if user_select:
+            from . import selector
+            sel = selector.select_pts_arma(
+                y, model_str, lags, ar, ma, arma_lags, self.ic,
+                fit_structural=lambda spec: self._fit_structural(
+                    spec, y, lags, criterion
+                ),
+            )
+            # model_spec already carries the screened lambda + the selected
+            # trend/seasonal letters; use it verbatim (do not re-slice).
+            model_str = sel["model_spec"]
+            ar = int(np.atleast_1d(sel["ar"])[0])
+            ma = int(np.atleast_1d(sel["ma"])[0])
+            arma_lags = sel["lags"]
+
         model_uc, lam = translate.pts_to_uc(model_str, arma_orders=(ar, ma))
-
-        # regressors (Phase 1: none -> engine sentinel matrix(0, 1, 2))
-        if X is None:
-            u = np.zeros((1, 2), dtype=float)
-        else:
-            u = np.asarray(X, dtype=float)
-            if u.ndim == 1:
-                u = u.reshape(1, -1)
-            if u.shape[0] > u.shape[1]:
-                u = u.T  # engine wants k x n
-
-        periods = lags / np.arange(1, max(1, lags // 2) + 1)
-        rhos = np.ones_like(periods)
-
-        out = _musecore.ucomp(
-            "all", y, u, model_uc, int(self.h), float(lam), 0.0, False,
-            criterion, periods, rhos, self.verbose, False,
-            np.array([-9999.9]), False, np.array([-9999.99]), float(lags),
-            _TREND_OPTIONS, _SEASONAL_OPTIONS, f"arma({ar},{ma})", 1, 0,
-            -math.inf,
-        )
+        out = self._engine(y, self._u, model_uc, lam, lags, criterion, ar, ma,
+                            arma_ident=False)
         if out.get("model") == "error":
             raise RuntimeError("muse engine returned an error for this spec.")
 
         self._post_process(out, y, y_full, held, lam, lambda_screened)
+        self._orders = {"ar": ar, "ma": ma, "lags": arma_lags, "select": user_select}
         return self
+
+    # ---- engine helpers -------------------------------------------------
+    @staticmethod
+    def _prepare_u(X):
+        if X is None:
+            return np.zeros((1, 2), dtype=float)
+        u = np.asarray(X, dtype=float)
+        if u.ndim == 1:
+            u = u.reshape(1, -1)
+        if u.shape[0] > u.shape[1]:
+            u = u.T
+        return u
+
+    def _engine(self, y, u, model_uc, lam, lags, criterion, ar, ma, arma_ident):
+        periods = lags / np.arange(1, max(1, lags // 2) + 1)
+        rhos = np.ones_like(periods)
+        return _musecore.ucomp(
+            "all", y, u, model_uc, int(self.h), float(lam), 0.0, False,
+            criterion, periods, rhos, self.verbose, False,
+            np.array([-9999.9]), bool(arma_ident), np.array([-9999.99]),
+            float(lags), _TREND_OPTIONS, _SEASONAL_OPTIONS,
+            f"arma({ar},{ma})", 1, 0, -math.inf,
+        )
+
+    def _fit_structural(self, spec, y, lags, criterion):
+        """Lightweight no-ARMA fit used by the order selector's Pass 1."""
+        model_uc, lam = translate.pts_to_uc(spec, arma_orders=(0, 0))
+        out = self._engine(y, self._u, model_uc, lam, lags, criterion, 0, 0,
+                            arma_ident=False)
+        if out.get("model") == "error":
+            return None
+        v = np.asarray(out["v"], dtype=float)
+        return {
+            "logLik": float(np.asarray(out["criteria"], dtype=float)[0]),
+            "residuals": v[: len(y)],
+            "n_p": int(np.asarray(out["coef"], dtype=float).size),
+            "lambda": float(out["lambda"]),
+            "lambdaEstimated": bool(out.get("lambdaEstimated", False)),
+        }
 
     # ---- post-processing (mirror .pts_fit + pts()) ----------------------
     def _post_process(self, out, y_train, y_full, held, lam_in, lambda_screened):
@@ -227,6 +264,10 @@ class PTS:
     @property
     def comp(self):
         return self._comp, self._comp_names
+
+    @property
+    def orders(self):
+        return self._orders
 
     # ---- information criteria (match R/greybox formulas) ----------------
     @property

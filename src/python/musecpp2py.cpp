@@ -158,8 +158,45 @@ static py::dict ucomp(std::string command,
     return d;
 }
 
+// ---- standalone ARMA scorer (mirrors .UCompARMAC) -----------------------
+static arma::ivec np_to_ivec(const py::array_t<long long>& a) {
+    auto buf = a.request();
+    arma::ivec v(static_cast<arma::uword>(buf.size));
+    auto r = a.unchecked<1>();
+    for (py::ssize_t i = 0; i < buf.size; ++i)
+        v(i) = static_cast<arma::sword>(r(i));
+    return v;
+}
+
+static py::dict ucomp_arma(py::array_t<double> y,
+                           py::array_t<long long> ar_orders,
+                           py::array_t<long long> ma_orders,
+                           py::array_t<long long> arma_lags) {
+    ArmaScoreOutput res;
+    runArmaScore(np_to_vec(y), np_to_ivec(ar_orders), np_to_ivec(ma_orders),
+                 np_to_ivec(arma_lags), res);
+    py::dict d;
+    d["succeed"] = res.succeed;
+    if (!res.succeed)
+        return d;
+    d["logLik"] = res.logLik;
+    d["AIC"] = res.AIC;
+    d["AICc"] = res.AICc;
+    d["BIC"] = res.BIC;
+    d["BICc"] = res.BICc;
+    d["sigma2"] = res.sigma2;
+    d["coef"] = vec_to_np(res.coef);
+    d["residuals"] = vec_to_np(res.residuals);
+    return d;
+}
+
 PYBIND11_MODULE(_musecore, mod) {
     mod.doc() = "muse C++ engine (PTS state-space) - pybind11 binding";
+    mod.def("ucomp_arma", &ucomp_arma,
+            "Standalone ARMA/SARMA scorer on a residual vector. "
+            "Mirrors the R-side .UCompARMAC entry point.",
+            py::arg("y"), py::arg("ar_orders"), py::arg("ma_orders"),
+            py::arg("arma_lags"));
     mod.def("ucomp", &ucomp,
             "Run the muse engine. Mirrors the R-side .UCompC entry point.",
             py::arg("command"), py::arg("y"), py::arg("u"), py::arg("model"),

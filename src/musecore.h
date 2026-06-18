@@ -377,4 +377,155 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     }
 }
 
+// ---------------------------------------------------------------------------
+// runArmaScore: standalone ARMA / SARMA fitter on a residual vector, shared by
+// both front-ends (the R `.UCompARMAC` and the Python `ucomp_arma`).  Used by
+// the PTS-then-ARMA order selector to score each (p, q)(P, Q) candidate by IC.
+// Plain Armadillo I/O, no R / Python types -- the binding layers only marshal.
+struct ArmaScoreOutput {
+    bool        succeed = false;
+    double      logLik = arma::datum::nan;
+    double      AIC = arma::datum::nan, AICc = arma::datum::nan;
+    double      BIC = arma::datum::nan, BICc = arma::datum::nan;
+    double      sigma2 = arma::datum::nan;
+    arma::vec   coef;        // AR blocks concatenated, then MA blocks (natural)
+    arma::vec   residuals;   // one-step-ahead innovations
+};
+
+inline void runArmaScore(arma::vec y, arma::ivec arOrders, arma::ivec maOrders,
+                         arma::ivec armaLags, ArmaScoreOutput& out){
+    using namespace arma;
+
+    int arFree = (arOrders.n_elem > 0) ? (int)sum(arOrders) : 0;
+    int maFree = (maOrders.n_elem > 0) ? (int)sum(maOrders) : 0;
+    if (arFree < 0) arFree = 0;
+    if (maFree < 0) maFree = 0;
+
+    uvec ok = find_finite(y);
+    vec yClean = y(ok);
+    if (yClean.n_elem < (uword)std::max(4, arFree + maFree + 2)){
+        out.succeed = false;
+        return;
+    }
+    int n_finite = (int)yClean.n_elem;
+
+    SSinputs ssIn;
+    ssIn.y          = yClean;
+    ssIn.y_raw      = yClean;
+    ssIn.lambda     = 1.0;
+    ssIn.u          = mat(0, yClean.n_elem);
+    ssIn.cLlik      = true;
+    ssIn.augmented  = false;
+    ssIn.exact      = (arFree == 0);
+    ssIn.h          = 0;
+    ssIn.verbose    = false;
+    ssIn.userInputs = nullptr;
+    ssIn.estimateLambda = false;
+
+    if (arFree == 0 && maFree == 0){
+        double sigma2 = var(yClean, 1);
+        double LL = -0.5 * n_finite *
+                    (std::log(2.0 * datum::pi) + std::log(sigma2) + 1.0);
+        int k = 1;
+        out.logLik = LL;
+        out.AIC  = -2.0 * LL + 2.0 * k;
+        out.BIC  = -2.0 * LL + std::log((double)n_finite) * k;
+        out.AICc = out.AIC + (2.0 * k * (k + 1)) / std::max(1, n_finite - k - 1);
+        out.BICc = out.BIC + (std::log((double)n_finite) * k * (k + 1)) /
+                             std::max(1, n_finite - k - 1);
+        out.sigma2 = sigma2;
+        out.residuals = yClean - mean(yClean);
+        out.coef = vec();
+        out.succeed = true;
+        return;
+    }
+
+    int maxLag = 0;
+    for (uword b = 0; b < arOrders.n_elem; ++b)
+        maxLag = std::max(maxLag, static_cast<int>(arOrders(b) * armaLags(b)));
+    for (uword b = 0; b < maOrders.n_elem; ++b)
+        maxLag = std::max(maxLag, static_cast<int>(maOrders(b) * armaLags(b)));
+    vec pacf = (maxLag > 0) ? sampleYWpacf(yClean, maxLag) : vec();
+    vec acf  = (maxLag > 0) ? sampleACF (yClean, maxLag) : vec();
+    auto clampSeed = [](double v, double fb){
+        if (!std::isfinite(v)) return fb;
+        if (v >  0.85) return  0.85;
+        if (v < -0.85) return -0.85;
+        return v;
+    };
+
+    vec p0(arFree + maFree + 1, fill::zeros);
+    p0(0) = -1.0;
+    uword pos = 1;
+    for (uword b = 0; b < arOrders.n_elem; ++b){
+        int pi = arOrders(b), Li = armaLags(b);
+        for (int j = 0; j < pi; ++j){
+            int lagIdx = (j + 1) * Li;
+            double seed = (lagIdx <= (int)pacf.n_elem) ? pacf(lagIdx - 1) : 0.1;
+            p0(pos++) = clampSeed(seed, 0.1);
+        }
+    }
+    uword maStart = pos;
+    for (uword b = 0; b < maOrders.n_elem; ++b){
+        int qi = maOrders(b), Li = armaLags(b);
+        for (int j = 0; j < qi; ++j){
+            int lagIdx = (j + 1) * Li;
+            double seed = (lagIdx <= (int)acf.n_elem) ? acf(lagIdx - 1) : -0.1;
+            p0(pos++) = clampSeed(seed, -0.1);
+        }
+    }
+    if (arOrders.n_elem > 0 && maOrders.n_elem > 0 &&
+        arOrders(0) > 0 && maOrders(0) > 0){
+        double a = p0(1), m = p0(maStart);
+        if (std::abs(a - m) < 0.1){
+            double offset = (m > 0.0) ? -0.2 : 0.2;
+            p0(maStart) = clampSeed(m + offset, -0.1);
+        }
+    }
+
+    ARMAmodel sys(ssIn, arOrders, maOrders, armaLags);
+    SSinputs sysIn = sys.SSmodel::getInputs();
+    sysIn.llikFUN = llik;
+    sysIn.p0      = p0;
+    sys.SSmodel::setInputs(sysIn);
+    sys.SSmodel::estim();
+
+    SSinputs sysOut = sys.SSmodel::getInputs();
+    vec criteria = sysOut.criteria;   // {LLIK, AIC, BIC, AICc, BICc}
+    if (criteria.n_elem < 5){
+        out.succeed = false;
+        return;
+    }
+    out.logLik = criteria(0);
+    out.AIC    = criteria(1);
+    out.BIC    = criteria(2);
+    out.AICc   = criteria(3);
+    out.BICc   = criteria(4);
+
+    vec coef(arFree + maFree);
+    {
+        uword pIn = 1, pOut = 0;
+        for (uword b = 0; b < arOrders.n_elem; ++b){
+            int pi = arOrders(b);
+            if (pi == 0) continue;
+            vec block = sysOut.p.rows(pIn, pIn + pi - 1);
+            polyStationary(block);
+            for (int j = 0; j < pi; ++j) coef(pOut++) = -block(j);
+            pIn += pi;
+        }
+        for (uword b = 0; b < maOrders.n_elem; ++b){
+            int qi = maOrders(b);
+            if (qi == 0) continue;
+            vec block = sysOut.p.rows(pIn, pIn + qi - 1);
+            polyStationary(block);
+            for (int j = 0; j < qi; ++j) coef(pOut++) = block(j);
+            pIn += qi;
+        }
+    }
+    out.coef      = coef;
+    out.sigma2    = sysOut.innVariance;
+    out.residuals = sysOut.v;
+    out.succeed   = std::isfinite(out.logLik);
+}
+
 #endif // MUSE_CORE_H

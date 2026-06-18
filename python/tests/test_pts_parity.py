@@ -43,6 +43,8 @@ SPECS = {
     "ZNN": dict(model="ZNN"),
     "ZLT": dict(model="ZLT"),
     "ZZZ": dict(model="ZZZ"),
+    "1LT_sel": dict(model="1LT", orders={"ar": 2, "ma": 2, "select": True}),
+    "ZZZ_sel": dict(model="ZZZ", orders={"ar": 2, "ma": 2, "select": True}),
 }
 
 TOL = 1e-6
@@ -85,6 +87,10 @@ def main():
         )
 
         model_ok = m.model_label == r["model"]
+        if "orders" in r:
+            ro = r["orders"]
+            diffs["ar"] = abs(int(np.atleast_1d(m.orders["ar"])[0]) - int(ro["ar"]))
+            diffs["ma"] = abs(int(np.atleast_1d(m.orders["ma"])[0]) - int(ro["ma"]))
         cworst = max(diffs.values())
         worst = max(worst, cworst)
         ok = cworst <= TOL and model_ok

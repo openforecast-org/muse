@@ -131,192 +131,28 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
 // [[Rcpp::export(.UCompARMAC)]]
 SEXP UCompARMAC(SEXP ys, SEXP arOrders_, SEXP maOrders_, SEXP armaLags_,
                 SEXP criterion_){
-    (void)criterion_;     // unused — wrapper returns all four ICs, R picks
+    (void)criterion_;     // unused -- wrapper returns all four ICs, R picks
     NumericVector yr(ys);
     vec y(yr.begin(), yr.size(), false);
-    IntegerVector arOrdersR(arOrders_);
-    IntegerVector maOrdersR(maOrders_);
-    IntegerVector armaLagsR(armaLags_);
+    IntegerVector arOrdersR(arOrders_), maOrdersR(maOrders_), armaLagsR(armaLags_);
     ivec arOrders(arOrdersR.size()), maOrders(maOrdersR.size()),
          armaLags(armaLagsR.size());
     for (R_xlen_t i = 0; i < arOrdersR.size(); ++i) arOrders(i) = arOrdersR[i];
     for (R_xlen_t i = 0; i < maOrdersR.size(); ++i) maOrders(i) = maOrdersR[i];
     for (R_xlen_t i = 0; i < armaLagsR.size(); ++i) armaLags(i) = armaLagsR[i];
 
-    int arFree = (arOrders.n_elem > 0) ? (int)arma::sum(arOrders) : 0;
-    int maFree = (maOrders.n_elem > 0) ? (int)arma::sum(maOrders) : 0;
-    if (arFree < 0) arFree = 0;
-    if (maFree < 0) maFree = 0;
-
-    // Drop non-finite entries up front so the KF doesn't crash on NaN.
-    uvec ok = find_finite(y);
-    vec yClean = y(ok);
-    if (yClean.n_elem < (uword)std::max(4, arFree + maFree + 2))
+    ArmaScoreOutput res;
+    runArmaScore(y, arOrders, maOrders, armaLags, res);
+    if (!res.succeed)
         return List::create(Named("succeed") = false);
-
-    int n_finite = (int)yClean.n_elem;
-
-    // SSinputs setup mirroring BSMclass's pattern at musecore.h:170+.
-    SSinputs ssIn;
-    ssIn.y          = yClean;
-    ssIn.y_raw      = yClean;
-    ssIn.lambda     = 1.0;          // residuals already on the BC scale
-    ssIn.u          = mat(0, yClean.n_elem);
-    ssIn.cLlik      = true;         // concentrated MLE σ̂²
-    ssIn.augmented  = false;        // ARMA is stationary, no diffuse init
-    ssIn.exact      = (arFree == 0);
-    ssIn.h          = 0;
-    ssIn.verbose    = false;
-    ssIn.userInputs = nullptr;
-    ssIn.estimateLambda = false;
-
-    // ARMA(0, 0) — fit σ̂² in closed form and compute the IC with the
-    // SAME formula the engine uses for any ARMA(p, q): k = p.n_elem +
-    // nonStationaryTerms = 1.  Keeping the comparison IC-fair across the
-    // grid so the (0, 0) cell isn't artificially favoured / penalised.
-    if (arFree == 0 && maFree == 0){
-        double sigma2 = arma::var(yClean, 1);     // 1/n divisor (MLE)
-        double LL = -0.5 * n_finite *
-                    (std::log(2.0 * datum::pi) + std::log(sigma2) + 1.0);
-        int k = 1;     // σ² only
-        double aic  = -2.0 * LL + 2.0 * k;
-        double bic  = -2.0 * LL + std::log((double)n_finite) * k;
-        double aicc = aic + (2.0 * k * (k + 1)) /
-                            std::max(1, n_finite - k - 1);
-        double bicc = bic + (std::log((double)n_finite) * k * (k + 1)) /
-                            std::max(1, n_finite - k - 1);
-        // For ARMA(0, 0) the "residuals" are the input series minus its
-        // mean — no model, no innovations.  Return the centred series so
-        // the cascade can pass through cleanly.
-        double mu = arma::mean(yClean);
-        NumericVector resids(yClean.n_elem);
-        for (uword t = 0; t < yClean.n_elem; ++t) resids[t] = yClean(t) - mu;
-        return List::create(
-            Named("logLik")    = LL,
-            Named("AIC")       = aic,
-            Named("AICc")      = aicc,
-            Named("BIC")       = bic,
-            Named("BICc")      = bicc,
-            Named("coef")      = NumericVector(),
-            Named("sigma2")    = sigma2,
-            Named("residuals") = resids,
-            Named("succeed")   = true);
-    }
-
-    // ACF/PACF asymmetric init — per-lag layout matching armaMatrices()'s
-    // consumption order:
-    //   p[0]                       = log-stddev seed
-    //   p[1..arFree]               = AR coefs, block-by-block
-    //   p[arFree+1..arFree+maFree] = MA coefs, block-by-block
-    int maxLag = 0;
-    for (uword b = 0; b < arOrders.n_elem; ++b)
-        maxLag = std::max(maxLag, arOrders(b) * armaLags(b));
-    for (uword b = 0; b < maOrders.n_elem; ++b)
-        maxLag = std::max(maxLag, maOrders(b) * armaLags(b));
-    vec pacf = (maxLag > 0) ? sampleYWpacf(yClean, maxLag) : vec();
-    vec acf  = (maxLag > 0) ? sampleACF (yClean, maxLag) : vec();
-    auto clamp = [](double v, double fb){
-        if (!std::isfinite(v)) return fb;
-        if (v >  0.85) return  0.85;
-        if (v < -0.85) return -0.85;
-        return v;
-    };
-
-    vec p0(arFree + maFree + 1, fill::zeros);
-    p0(0) = -1.0;
-    uword pos = 1;
-    for (uword b = 0; b < arOrders.n_elem; ++b){
-        int pi = arOrders(b);
-        int Li = armaLags(b);
-        for (int j = 0; j < pi; ++j){
-            int lagIdx = (j + 1) * Li;
-            double seed = (lagIdx <= (int)pacf.n_elem) ? pacf(lagIdx - 1) : 0.1;
-            p0(pos++) = clamp(seed, 0.1);
-        }
-    }
-    uword maStart = pos;
-    for (uword b = 0; b < maOrders.n_elem; ++b){
-        int qi = maOrders(b);
-        int Li = armaLags(b);
-        for (int j = 0; j < qi; ++j){
-            int lagIdx = (j + 1) * Li;
-            double seed = (lagIdx <= (int)acf.n_elem) ? acf(lagIdx - 1) : -0.1;
-            p0(pos++) = clamp(seed, -0.1);
-        }
-    }
-    // Tie-breaker on the leading (AR_1, MA_1) pair when arOrders[0] > 0 and
-    // maOrders[0] > 0 — pushes MA off the φ_i == θ_i manifold.
-    if (arOrders.n_elem > 0 && maOrders.n_elem > 0 &&
-        arOrders(0) > 0 && maOrders(0) > 0){
-        double a = p0(1);
-        double m = p0(maStart);
-        if (std::abs(a - m) < 0.1){
-            double offset = (m > 0.0) ? -0.2 : 0.2;
-            p0(maStart) = clamp(m + offset, -0.1);
-        }
-    }
-
-    // Construct ARMA model with per-lag SARMA support.
-    ARMAmodel sys(ssIn, arOrders, maOrders, armaLags);
-
-    SSinputs sysIn = sys.SSmodel::getInputs();
-    sysIn.llikFUN = llik;
-    sysIn.p0      = p0;
-    sys.SSmodel::setInputs(sysIn);
-
-    sys.SSmodel::estim();
-
-    SSinputs sysOut = sys.SSmodel::getInputs();
-    vec criteria = sysOut.criteria;   // {LLIK, AIC, BIC, AICc, BICc}
-    if (criteria.n_elem < 5)
-        return List::create(Named("succeed") = false);
-    double LL   = criteria(0);
-    double aic  = criteria(1);
-    double bic  = criteria(2);
-    double aicc = criteria(3);
-    double bicc = criteria(4);
-
-    // Convert the BFGS p-vector into natural-scale AR / MA coefficients
-    // per block.  polyStationary is applied per-block (matching how
-    // armaMatrices() reads its slice).
-    NumericVector coef(arFree + maFree);
-    {
-        uword pIn  = 1;
-        uword pOut = 0;
-        for (uword b = 0; b < arOrders.n_elem; ++b){
-            int pi = arOrders(b);
-            if (pi == 0) continue;
-            vec block = sysOut.p.rows(pIn, pIn + pi - 1);
-            polyStationary(block);
-            for (int j = 0; j < pi; ++j) coef[pOut++] = -block(j);
-            pIn += pi;
-        }
-        for (uword b = 0; b < maOrders.n_elem; ++b){
-            int qi = maOrders(b);
-            if (qi == 0) continue;
-            vec block = sysOut.p.rows(pIn, pIn + qi - 1);
-            polyStationary(block);
-            for (int j = 0; j < qi; ++j) coef[pOut++] = block(j);
-            pIn += qi;
-        }
-        (void)pOut;
-    }
-    double sigma2 = sysOut.innVariance;
-
-    // Innovations (= one-step-ahead residuals).  Pack as a NumericVector
-    // so the R-side cascade can feed them back into the next-lag ARMA fit
-    // without round-tripping through a refit.
-    NumericVector resids(sysOut.v.n_elem);
-    for (uword t = 0; t < sysOut.v.n_elem; ++t) resids[t] = sysOut.v(t);
-
     return List::create(
-        Named("logLik")    = LL,
-        Named("AIC")       = aic,
-        Named("AICc")      = aicc,
-        Named("BIC")       = bic,
-        Named("BICc")      = bicc,
-        Named("coef")      = coef,
-        Named("sigma2")    = sigma2,
-        Named("residuals") = resids,
-        Named("succeed")   = std::isfinite(LL));
+        Named("logLik")    = res.logLik,
+        Named("AIC")       = res.AIC,
+        Named("AICc")      = res.AICc,
+        Named("BIC")       = res.BIC,
+        Named("BICc")      = res.BICc,
+        Named("coef")      = NumericVector(res.coef.begin(), res.coef.end()),
+        Named("sigma2")    = res.sigma2,
+        Named("residuals") = NumericVector(res.residuals.begin(), res.residuals.end()),
+        Named("succeed")   = true);
 }

@@ -19,14 +19,17 @@ specs <- list(
     # auto-lambda screen (power Z): decomposition + Guerrero
     list(name = "ZNN",  model = "ZNN"),
     list(name = "ZLT",  model = "ZLT"),
-    list(name = "ZZZ",  model = "ZZZ")
+    list(name = "ZZZ",  model = "ZZZ"),
+    list(name = "1LT_sel", model = "1LT", ar = 2, ma = 2, select = TRUE),
+    list(name = "ZZZ_sel", model = "ZZZ", ar = 2, ma = 2, select = TRUE)
 )
 
 y <- as.numeric(AirPassengers)
 out <- list()
 for (sp in specs) {
     ord <- list(ar = if (is.null(sp$ar)) 0 else sp$ar,
-                ma = if (is.null(sp$ma)) 0 else sp$ma, select = FALSE)
+                ma = if (is.null(sp$ma)) 0 else sp$ma,
+                select = isTRUE(sp$select))
     m <- pts(y, model = sp$model, lags = 12, h = 0, orders = ord)
     out[[sp$name]] <- list(
         model    = m$model,
@@ -42,7 +45,8 @@ for (sp in specs) {
         nParam   = m$nParam,
         sigma    = as.numeric(sigma(m)),
         fitted   = as.numeric(fitted(m)),
-        residuals = as.numeric(residuals(m))
+        residuals = as.numeric(residuals(m)),
+        orders = list(ar = orders(m)$ar, ma = orders(m)$ma)
     )
 }
 jsonlite::write_json(out, "pts_reference.json", auto_unbox = TRUE,
