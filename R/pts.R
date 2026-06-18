@@ -223,42 +223,53 @@ pts <- function(data,
     }
 
     # Box-Cox lambda screening: when the user requests auto-lambda ("Z"),
-    # screen each anchor in {-2, -1, -0.5, 0, 0.5, 1, 1.5, 2} (filtered by
-    # lambdaLower) using a local-linear-trend + trigonometric-seasonal
-    # model proxy (LN for non-seasonal data), pick the lambda that
-    # minimises AIC, and replace the "Z" lambda slot with the chosen
-    # value so the structural ident downstream runs at fixed lambda (no
-    # joint-BFGS for lambda).  This costs ~8 quick fits per series but
-    # the AIC quality is empirically slightly better than the joint-BFGS
-    # + snap path on the eurotourism benchmark (aggregate -895 AIC vs
-    # the joint+snap path across 325 series).  TODO: improve cost via
-    # coarse-to-fine or by restricting the grid based on testBoxCox's
-    # cheap proxy.
+    # use Brent's method to minimise the AIC of a fixed-structure proxy
+    # model (local linear trend + trigonometric seasonal -- LN when the
+    # series is non-seasonal) over the continuous lambda range
+    # [lambdaLower, LAMBDA_BOUND_UPPER].  The "Z" lambda slot is then
+    # rewritten with the resulting numeric value, so the downstream
+    # structural ident runs at fixed lambda (no joint-BFGS for lambda).
+    #
+    # On the eurotourism benchmark (325 monthly series) Brent gives the
+    # best aggregate AIC of any approach measured (-7700 AIC vs the
+    # joint-BFGS + snap path), substantially better than the previous
+    # 8-anchor LT screen (-895 vs joint+snap).  An earlier variant that
+    # also tested each engine snap anchor on top of Brent (8 extra LT
+    # fits per series) added 30% runtime for ~0 AIC benefit -- Brent
+    # already converges to the continuous AIC minimum, and the snap
+    # anchors aren't load-bearing once lambda is fixed before entering
+    # the engine.
+    #
+    # nParam is incremented by one when Brent runs, since lambda was
+    # then effectively estimated from data (Brent does cost ~1 DoF
+    # despite the engine running with a numerically-fixed lambda).
+    lambdaWasScreened <- FALSE
     nm <- nchar(model)
     if (toupper(substr(model, 1L, nm - 2L)) == "Z" && length(y) >= 4){
         seas_letter <- if (length(lags) > 0L &&
                            utils::tail(as.integer(lags), 1L) > 1L) "T" else "N"
-        grid <- c(-2, -1, -0.5, 0, 0.5, 1, 1.5, 2)
-        if (is.finite(lambdaLower)) grid <- grid[grid >= lambdaLower]
-        bestLambda <- 1
-        bestAIC    <- Inf
-        for (lam in grid){
+        ltAIC <- function(lam){
             spec_lt <- paste0(format(lam, scientific = FALSE,
                                      drop0trailing = TRUE),
                               "L", seas_letter)
             m_lt <- tryCatch(
                 suppressWarnings(pts(y, model = spec_lt, lags = lags, h = 0)),
                 error = function(e) NULL)
-            if (is.null(m_lt)) next
+            if (is.null(m_lt)) return(Inf)
             a <- stats::AIC(m_lt)
-            if (is.finite(a) && a < bestAIC){
-                bestAIC    <- a
-                bestLambda <- lam
-            }
+            if (!is.finite(a)) Inf else a
         }
+        lower <- if (is.finite(lambdaLower)) max(lambdaLower, -2) else -2
+        upper <- 2
+        opt <- tryCatch(stats::optimize(ltAIC, lower = lower, upper = upper,
+                                        tol = 1e-3),
+                        error = function(e) NULL)
+        bestLambda <- if (!is.null(opt) && is.finite(opt$objective))
+                          opt$minimum else 1
         model <- paste0(format(bestLambda, scientific = FALSE,
                                drop0trailing = TRUE),
                         substr(model, nm - 1L, nm))
+        lambdaWasScreened <- TRUE
     }
 
     # Nested PTS + ARMA selection.  When `orders$select = TRUE`, the loop
@@ -395,8 +406,14 @@ pts <- function(data,
                                         # C++ "all" command at no extra cost
         # Count the Box-Cox lambda as one additional DoF when the user
         # asked the engine to estimate it (model spec started with "Z").
+        # Two paths can produce an estimated lambda: (a) the engine's
+        # joint-BFGS path returning lambdaEstimated = TRUE; (b) the
+        # R-side Brent screen above replacing "Z" with a numeric value
+        # before the structural ident runs.  Either way costs +1 DoF.
         # Matches greybox::alm at alm.R:2148 for distribution = "dbcnorm".
-        nParam     = length(res$p) + as.integer(isTRUE(res$lambdaEstimated)),
+        nParam     = length(res$p) +
+                     as.integer(isTRUE(res$lambdaEstimated) ||
+                                lambdaWasScreened),
         ## --- in-sample ---
         fitted     = res$fitted,        # original scale (back-transformed)
         residuals  = res$residuals,     # BC scale (engine innovations)
