@@ -46,12 +46,35 @@ lines of numerically delicate state-space code (concentrated likelihood, dynamic
 variance switching, anchor-snap, harmonic selection) that already exists and is
 tested.  We bind it.
 
+### File organisation mirrors smooth's three-part split
+
+smooth separates engine / R-binding / Python-binding as:
+
+| Role | smooth | muse (today → after port) |
+|------|--------|---------------------------|
+| Engine (header-only) | `src/headers/adamCore.h` | `src/musecore.h` + `PTSmodel.h` + `SSpace.h` + … (unchanged) |
+| R binding | `src/adamGeneral.cpp` (RCPP_MODULE) | `src/musecpp2R.cpp` (unchanged) |
+| Python binding | `src/python/adamPython.cpp` (PYBIND11_MODULE) | **`src/python/musecpp2py.cpp`** (new) |
+
+R's build compiles only `src/*.cpp`, so a `src/python/` subfolder is invisible to
+`R CMD build` and the two front-ends coexist — exactly how smooth does it.
+
+**Binding style — keep muse's command dispatch, do not refactor to a class.**
+smooth binds a *class* (`adamCore` with `.fit`/`.forecast` methods exposed via
+`RCPP_MODULE` / pybind11 `class_<>`).  muse instead has a single stateless
+entry point `UCompC(command, …) → runMuseCommand(MuseInputs, MuseOutputs)`.
+For the port we keep muse's style: the seam already exists and is clean, and
+`forecastOnly` re-runs the filter from stored params so there is no need for
+persistent C++ state.  Wrapping `runMuseCommand` in a `PTSCore` class to mimic
+smooth's object API is a separable, optional follow-up — not required.
+
 ### What has to change in C++ (small)
 
-- **New file `src/musecpp2py.cpp`** — a pybind11 module mirroring
+- **New file `src/python/musecpp2py.cpp`** — a pybind11 module mirroring
   `musecpp2R.cpp` field-for-field: numpy/`carma` → `MuseInputs`, call
   `runMuseCommand`, `MuseOutputs` → a Python dict.  This is the bulk of the C++
-  work and it is mechanical.
+  work and it is mechanical (no class refactor; same command-string dispatch).
+  Bind `UCompARMAC` here too (needed by the R-side ARMA selector port).
 - **RNG**: under RcppArmadillo, `arma::randn` is remapped to R's RNG via
   `ARMA_RNG_ALT`; under pybind11 it falls back to Armadillo's default
   (`std::mt19937_64`).  Functionally fine; seeds will not match R (already an
@@ -232,8 +255,9 @@ muse/python/
     └── ...                        # R↔Python parity tests on shared CSVs
 ```
 
-C++ binding source lives in the existing `src/` next to `musecpp2R.cpp`
-(`src/musecpp2py.cpp`), so the two front-ends share the engine headers verbatim.
+C++ binding source lives in `src/python/musecpp2py.cpp` (mirroring smooth's
+`src/python/adamPython.cpp`), so the two front-ends share the engine headers in
+`src/` verbatim while R's build ignores the `src/python/` subfolder.
 
 ---
 
