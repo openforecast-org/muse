@@ -56,13 +56,15 @@ class PTS:
 
     # ---- fit ------------------------------------------------------------
     def fit(self, y, X=None):
-        y = np.asarray(y, dtype=float).ravel()
-        if self.lags is None:
+        from . import io
+        y, self._index, inferred = io.parse_input(y)
+        lags_in = self.lags if self.lags is not None else inferred
+        if lags_in is None:
             raise ValueError(
-                "lags must be supplied (pandas-index inference lands in a "
-                "later phase)."
+                "lags could not be inferred; pass lags=<seasonal period>, or "
+                "fit a pandas Series with a frequency-bearing DatetimeIndex."
             )
-        lags = int(self.lags)
+        lags = int(lags_in)
         self._lags = lags
         self._lags_all = lags / np.arange(1, max(1, lags // 2) + 1)
 
@@ -78,6 +80,9 @@ class PTS:
         if self.holdout and self.h > 0:
             held = y[len(y) - self.h :]
             y = y[: len(y) - self.h]
+        self._index_full = self._index
+        self._index_train = (self._index[: len(y)]
+                             if self._index is not None else None)
         self._u = self._prepare_u(X)
 
         # Box-Cox lambda screen for auto-lambda (power == "Z").  Mirrors
@@ -249,6 +254,17 @@ class PTS:
                             "proportion": props},
         }
 
+    # ---- plotting (reuses smooth's plot_adam via a duck-typed adapter) --
+    def plot(self, which=(1, 2, 4, 6), level=0.95, legend=False, lowess=True,
+             **kwargs):
+        """Diagnostic plots, reusing smooth.adam's plot_adam on an adapter
+        that exposes the attributes it duck-types on.  Plots 1-7,9 (incl. the
+        default 1,2,4,6) need only fitted/residuals/scale/distribution; the
+        states plot (12) is best-effort."""
+        from smooth.adam_general.core.plotting import plot_adam
+        return plot_adam(_PlotAdapter(self), which=list(np.atleast_1d(which)),
+                         level=level, legend=legend, lowess=lowess, **kwargs)
+
     # ---- diagnostics ----------------------------------------------------
     def rstandard(self):
         s = self.sigma
@@ -415,15 +431,18 @@ class PTS:
 
     @property
     def fitted(self):
-        return self._fitted
+        from . import io
+        return io.wrap(self._fitted, self._index_train)
 
     @property
     def residuals(self):
-        return self._residuals
+        from . import io
+        return io.wrap(self._residuals, self._index_train)
 
     @property
     def actuals(self):
-        return self._y_full
+        from . import io
+        return io.wrap(self._y_full, self._index_full)
 
     @property
     def lambda_(self):
@@ -513,6 +532,59 @@ class PTS:
             f"PTS({self._model_label}, lambda={self._lambda:.3g}, "
             f"nParam={self._nparam}, logLik={self._logLik:.4g})"
         )
+
+
+class _OutlierDummyResult:
+    """Mirror of smooth's outlierdummy return (it reads `.statistic`)."""
+    def __init__(self, statistic, ids, type_, level):
+        self.statistic = np.asarray(statistic, dtype=float)
+        self.id = ids
+        self.type = type_
+        self.level = level
+
+
+class _PlotAdapter:
+    """Duck-typed view of a fitted PTS exposing the attribute names that
+    smooth.adam_general.core.plotting.plot_adam reads."""
+    def __init__(self, m):
+        self._m = m
+        self.fitted = np.asarray(m._fitted, dtype=float)
+        # in-sample actuals (training); the holdout lives in holdout_data,
+        # matching smooth's plot convention (so fitted/actuals align).
+        self.actuals = np.asarray(m._y_train, dtype=float)
+        self.residuals = np.asarray(m._residuals, dtype=float)
+        self.scale = m._scale
+        self.distribution_ = "dnorm"
+        self.model_name = m._model_label
+        self.is_combined = False
+        self.holdout_data = (np.asarray(m._held, dtype=float)
+                             if m._held is not None else None)
+        self._config = {}
+        # states (n_states x T+1): the structural state columns of comp
+        # (Level / Slope / Seasonal), excluding Error / Fit / Irregular.
+        comp, names = m._comp, m._comp_names
+        struct = [i for i, n in enumerate(names)
+                  if n not in ("Error", "Fit", "Irregular")
+                  and not _is_outlier(n)
+                  and not n.startswith(("AR(", "MA(", "SAR(", "SMA(", "Beta"))]
+        S = comp[:, struct].T if struct else np.zeros((1, comp.shape[0]))
+        self.states = np.hstack([S[:, :1], S])
+        self._components = {
+            "model_is_trendy": "Slope" in names,
+            "components_number_ets_seasonal": 1 if "Seasonal" in names else 0,
+            "components_number_arima": 0,
+        }
+
+    def rstandard(self):
+        return np.asarray(self._m.rstandard(), dtype=float)
+
+    def rstudent(self):
+        return np.asarray(self._m.rstudent(), dtype=float)
+
+    def outlierdummy(self, level=0.999, type="rstandard"):
+        d = self._m.outlierdummy(level=level, type=type)
+        return _OutlierDummyResult(d["statistic"], d["id"], d["type"],
+                                   d["level"])
 
 
 def _is_outlier(name: str) -> bool:
