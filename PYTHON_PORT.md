@@ -263,11 +263,27 @@ C++ binding source lives in `src/python/musecpp2py.cpp` (mirroring smooth's
 
 ## 6. Phased roadmap
 
-**Phase 0 — Engine binding spike (highest risk first).**
-Write a minimal `src/musecpp2py.cpp` exposing `UCompC("all", ...)` only.  Build
-with scikit-build-core + carma.  Goal: fit one fixed-spec model (`"1NN"` on
-AirPassengers) from Python and match R's `coef`/`logLik` to 1e-6.  This de-risks
-the entire project (toolchain, carma marshalling, LAPACK linking, RNG fallback).
+**Phase 0 — Engine binding spike (highest risk first). ✅ DONE.**
+`src/python/musecpp2py.cpp` exposes `runMuseCommand` via pybind11 (`_musecore.ucomp`),
+a field-for-field mirror of `musecpp2R.cpp`.  Outcome: **bit-exact** parity with R
+(worst abs diff 0.0e0) across 6 fixed-spec cases incl. damped trend and ARMA(1,0) —
+expected, since it is the same engine.  Findings that update the plan:
+
+- The engine's only R C-API dependency is `Rprintf` (71×, plus inside `myError`,
+  which "throws" via a deliberate Armadillo out-of-bounds access — no `Rf_error`).
+  A 7-line shim (`src/muse_compat.h`, gated on `-DMUSE_PYTHON_BUILD`) resolves it;
+  the R build is untouched.
+- One portability fix in `PTSmodel.h`: cast an arma integer-element product to
+  `int` in a `std::max` call (system Armadillo's `sword` is `long long`; the R
+  toolchain's matched `int`).  Numerically neutral.
+- carma was **not** needed for the spike — numpy↔Armadillo by copy is enough and
+  avoids a version-compat dependency (pybind11 3.0 / numpy 2.4 / Armadillo 15).
+  Revisit carma only if profiling shows the copy matters.
+- Built directly with `g++` (`python/build_spike.sh`); scikit-build-core + CMake
+  packaging is Phase 1 work.
+- Parity harness: `python/tests/dump_reference.R` emits byte-identical engine
+  inputs + R outputs to `reference.json`; `python/tests/test_engine_parity.py`
+  feeds them to the binding and asserts ≤1e-6.
 
 **Phase 1 — Estimation path.**
 `PTS` class + `fit()` for fixed specs; `translate.py`; `io.py` index handling;
