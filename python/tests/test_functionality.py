@@ -216,3 +216,24 @@ def test_auto_lambda_plus_select():
             orders={"ar": 2, "ma": 2, "select": True}).fit(Y)
     assert 0.0 <= m.lambda_ <= 2.0
     assert m.orders["ar"] <= 2 and m.orders["ma"] <= 2
+
+
+@needs_smooth
+def test_lambda_screen_handles_missing_values():
+    """Missing values must not collapse the auto-lambda screen to 1.0 --
+    msdecompose imputes the gaps and the block stats are nan-aware."""
+    from muse.core.lambda_screen import guerrero_decomp_lambda
+    rng = np.random.default_rng(3)
+    t = np.arange(120)
+    # multiplicative series -> screen picks lambda well below 1
+    mult = np.maximum(
+        1.0, (40 + t) * (1 + 0.3 * np.sin(2 * np.pi * t / LAGS))
+        * (1 + rng.normal(0, 0.05, 120))
+    )
+    lam_clean = guerrero_decomp_lambda(mult, LAGS)
+    yn = mult.copy()
+    yn[40:43] = np.nan
+    lam_na = guerrero_decomp_lambda(yn, LAGS)
+    assert lam_clean < 0.95            # screen is meaningful (not ~1)
+    assert lam_na != 1.0               # gaps did not force the bail-out
+    assert abs(lam_na - lam_clean) < 0.05

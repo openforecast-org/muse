@@ -178,3 +178,18 @@ test_that("fitted/forecast are positive when lambda in (0,1] for positive data",
         expect_true(all(m$forecast > 0), info = lam)
     }
 })
+
+## ---- missing values: lambda screen must still run -------------------------
+test_that("auto-lambda screen runs through missing values (not forced to 1)", {
+    # AirPassengers is multiplicative -> the screen picks lambda ~ 0 (log).
+    # A few NAs must not collapse the screen back to lambda = 1: msdecompose
+    # imputes the gaps and the block stats use na.rm.
+    yc <- AirPassengers
+    yn <- yc; yn[41:43] <- NA
+    mc <- pts(yc, model = "ZZZ", h = 0)
+    mn <- pts(yn, model = "ZZZ", h = 0)
+    expect_lt(mn$lambda, 0.5)                          # not collapsed to 1
+    expect_lt(abs(mn$lambda - mc$lambda), 1e-3)        # matches the gap-free fit
+    # residuals are finite except at the (3) missing observations
+    expect_gte(sum(is.finite(residuals(mn))), nobs(mn) - 3L)
+})

@@ -12,7 +12,13 @@
                                         lambda_lower = 0,
                                         lambda_upper = 2){
     yv <- as.numeric(y)
-    if (any(!is.finite(yv)) || any(yv <= 0)) return(1)
+    # Disqualify only on a Box-Cox domain violation (non-positive values).
+    # NA / NaN are missing data, not a domain problem: msdecompose imputes
+    # them and the block statistics below use na.rm, so the screen runs
+    # normally on series with gaps.  (Filter to finite first; `NA <= 0` is
+    # NA, which would error inside `if`.)
+    fin <- yv[is.finite(yv)]
+    if (length(fin) < 4L || any(fin <= 0)) return(1)
     m <- as.integer(utils::tail(as.integer(lags), 1L))
     if (length(m) == 0L || is.na(m) || m < 2L) return(1)
     n <- length(yv)
