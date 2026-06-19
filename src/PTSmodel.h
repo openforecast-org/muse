@@ -91,7 +91,8 @@ struct BSMmodel{
                                         // is a vestige of an earlier Brent
                                         // implementation (now removed)
                 lambdaEstimated = false;// engine's authoritative DoF flag for lambda
-                                        // (true => lambda* kept; false => snapped to anchor)
+                                        // (true => lambda jointly estimated, +1 DoF;
+                                        //  false => lambda held fixed)
         vector<string> parNames;    // Parameter names
 };
 /**************************
@@ -1321,7 +1322,7 @@ void BSMclass::ident(string show, bool VERBOSE){
                         Rprintf("    Model          Lambda           AIC          AICc           BIC          BICc\n");
                 else
                         Rprintf("          Model                     Lambda      AIC     AICc      BIC     BICc\n");
-                Rprintf("           (Lambda values marked with '*' were snapped to a fixed anchor.)\n");
+                Rprintf("           (Lambda values marked with '*' were held fixed, not estimated.)\n");
                 Rprintf("-----------------------------------------------------------------------------------\n");
         }
         // Finding models to identify

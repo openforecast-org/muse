@@ -38,7 +38,9 @@ for (sp in specs) {
                 ma = if (is.null(sp$ma)) 0 else sp$ma,
                 select = isTRUE(sp$select))
     yi <- y
-    if (!is.null(sp$na)) yi[sp$na] <- NA
+    # NB: use [["na"]] (exact), not $na -- $ partial-matches "name" for specs
+    # with no na field, which would index yi by the model string and append.
+    if (!is.null(sp[["na"]])) yi[sp[["na"]]] <- NA
     m <- pts(yi, model = sp$model, lags = 12, h = 0, orders = ord)
     out[[sp$name]] <- list(
         model    = m$model,

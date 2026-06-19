@@ -65,19 +65,12 @@ def _to_float_array(x):
 
 
 def vdiff(a, b):
-    """Max abs diff over finite positions; NaN positions must agree on both
-    sides (else inf).  Handles fitted/residuals on missing-value series.
-
-    Compared over the common length: R's fitted/residuals occasionally carry
-    one extra (spurious) trailing element across sessions -- a latent R-engine
-    comp/fitted off-by-one, unrelated to the values -- while Python is always
-    nobs-long.  A length gap > 1 still fails."""
+    """Max abs diff over aligned positions; NaN positions must agree on both
+    sides (else inf).  Handles fitted/residuals on missing-value series."""
     a = np.atleast_1d(np.asarray(a, dtype=float))
     b = _to_float_array(b)
-    if abs(a.size - b.size) > 1:
+    if a.size != b.size:
         return np.inf
-    n = min(a.size, b.size)
-    a, b = a[:n], b[:n]
     if np.any(np.isfinite(a) != np.isfinite(b)):
         return np.inf
     mask = np.isfinite(a) & np.isfinite(b)
