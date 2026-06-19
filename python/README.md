@@ -29,7 +29,18 @@ Currently, the package only implements the PTS model, which is a multiple-source
 
 ## Installation
 
-> Not yet on PyPI. Install from source (the C++ extension is built on install).
+The distribution is named **`muse-py`** on PyPI (the name `muse` was taken), but
+it is imported as **`muse`**:
+
+```bash
+pip install muse-py
+```
+```python
+from muse import PTS
+```
+
+> Not yet released on PyPI. Until then, install from source (the C++ extension is
+> built on install):
 
 ```bash
 pip install "git+https://github.com/config-i1/muse.git@python#subdirectory=python"
