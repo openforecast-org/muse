@@ -40,3 +40,27 @@ build-dir = "build/{wheel_tag}"
 
 [tool.scikit-build.cmake.define]
 # nothing project-specific yet
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# CI runs functionality tests only; the R<->Python parity scripts
+# (test_*_parity.py) need R + reference dumps and are excluded.
+addopts = "--ignore-glob=*_parity.py"
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+# parity scripts are R-comparison dev tooling (path-insert before imports);
+# not shipped, not run in CI -- excluded from lint and tests alike.
+extend-exclude = ["tests/*_parity.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+files = ["src/muse"]

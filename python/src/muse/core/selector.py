@@ -11,7 +11,7 @@ import math
 
 import numpy as np
 
-from .. import _musecore
+from .. import _musecore  # type: ignore[attr-defined]
 
 _TREND_ORDER = ["N", "L", "G", "D"]
 _SEAS_ORDER = ["N", "D", "T"]

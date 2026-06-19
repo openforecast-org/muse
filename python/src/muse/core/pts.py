@@ -12,11 +12,10 @@ forecasting/intervals arrive in later phases.
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 import numpy as np
 
-from .. import _musecore
+from .. import _musecore  # type: ignore[attr-defined]
 from . import translate
 from .boxcox import inv_box_cox
 
@@ -28,7 +27,7 @@ class PTS:
     def __init__(
         self,
         model: str = "ZZZ",
-        lags: Optional[int] = None,
+        lags: int | None = None,
         orders=None,
         ic: str = "BICc",
         outliers: str = "ignore",
@@ -288,7 +287,7 @@ class PTS:
             "ic": {"AIC": self.aic, "BIC": self.bic, "AICc": self.aicc,
                    "BICc": self.bicc},
             "coefficients": coef,
-            "proportions": {"names": [x for x, kk in zip(nm, is_var) if kk],
+            "proportions": {"names": [x for x, kk in zip(nm, is_var, strict=False) if kk],
                             "proportion": props, "std_error": prop_ses},
         }
 
@@ -367,7 +366,7 @@ class PTS:
         rhos = np.ones_like(periods)
         u = np.zeros((1, 2), dtype=float)
         out = _musecore.ucomp(
-            "simulateInit", self._y_train, u, self._model_uc, 0,
+            "simulateInit", self._y_train, u, self._model_uc, int(self.nobs),
             float(self._lambda), 0.0, False, "aic", periods, rhos, False,
             False, np.asarray(self._p, dtype=float), False,
             np.array([-9999.99]), float(self._lags), _TREND_OPTIONS,
@@ -453,7 +452,7 @@ class PTS:
     # ---- properties -----------------------------------------------------
     @property
     def coef(self):
-        return dict(zip(self._par_names, self._p)) if self._par_names else self._p
+        return dict(zip(self._par_names, self._p, strict=False)) if self._par_names else self._p
 
     @property
     def coef_values(self):

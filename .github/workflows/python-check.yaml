@@ -1,0 +1,52 @@
+name: python-check
+
+on:
+  pull_request:
+    branches: [main, master, python]
+  push:
+    branches: [python]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  python-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The pybind11 binding compiles the shared C++ engine (../src), which
+      # uses Armadillo header-only + LAPACK/BLAS at link time.
+      - name: System dependencies (Armadillo + LAPACK/BLAS)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarmadillo-dev liblapack-dev libblas-dev
+
+      # Builds _musecore via scikit-build-core + CMake and installs muse.
+      # smooth / greybox are NOT installed: the auto-lambda + accuracy tests
+      # skip cleanly, so engine-only functionality is exercised without the
+      # sibling (non-PyPI) packages.
+      - name: Install muse + tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pytest ruff mypy
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Types (mypy)
+        run: mypy
+
+      # Functionality tests only; the R<->Python parity scripts
+      # (test_*_parity.py) are excluded via pyproject (addopts +
+      # ruff extend-exclude) since they need R and reference dumps.
+      - name: Functionality tests
+        run: pytest -q

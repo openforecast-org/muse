@@ -50,7 +50,9 @@ def pts_to_uc(model: str, arma_orders=(0, 0)) -> tuple[str, float]:
         if aux == "z":
             lam = 9999.9  # C++ sentinel for "estimate"
         else:
-            raise ValueError(f"Invalid power letter in PTS spec: '{aux}'")
+            raise ValueError(
+                f"Invalid power letter in PTS spec: '{aux}'"
+            ) from None
     return modelu, lam
 
 
