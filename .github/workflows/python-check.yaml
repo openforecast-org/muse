@@ -3,8 +3,19 @@ name: python-check
 on:
   pull_request:
     branches: [main, master, python]
+    # Only run when Python-relevant code changes.  The Python build compiles
+    # the shared C++ engine in src/ (plus src/python/musecpp2py.cpp), so any
+    # src/ change triggers this check too.
+    paths:
+      - 'python/**'
+      - 'src/**'
+      - '.github/workflows/python-check.yaml'
   push:
     branches: [python]
+    paths:
+      - 'python/**'
+      - 'src/**'
+      - '.github/workflows/python-check.yaml'
   workflow_dispatch:
 
 permissions: read-all

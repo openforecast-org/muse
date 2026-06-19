@@ -1,0 +1,194 @@
+name: Build release wheels
+
+# Builds release-quality Python wheels (muse-py) and stages them on a
+# **draft** GitHub release.  Run manually; this workflow does NOT publish to
+# PyPI and does NOT create a git tag.  The draft release is the staging area:
+# re-running with the same `tag` replaces the draft's assets in place, so a
+# bad build is fully recoverable.
+#
+# Once the draft looks right, go to the repo's Releases page and click
+# "Publish release" -- that creates the git tag and fires release.yml, which
+# uploads the attached wheels to PyPI.
+#
+# PR-time checks go through python-check.yaml (intentionally lighter).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag for the draft release (e.g. v0.1.0). Re-runs with the same tag replace the existing draft.'
+        required: true
+        type: string
+
+# Opt JavaScript actions into Node.js 24 (GitHub removes Node 20 in 2026).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build_wheels:
+    name: Build ${{ matrix.cibw-build }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # `tag` is an artifact-/cache-key-safe version of `cibw-build`
+        # (GitHub expressions have no replace(), so the `*` glob cannot
+        # appear in artifact names).
+        include:
+          - { os: ubuntu-latest,  cibw-build: 'cp310-manylinux*', tag: 'cp310-linux' }
+          - { os: ubuntu-latest,  cibw-build: 'cp311-manylinux*', tag: 'cp311-linux' }
+          - { os: ubuntu-latest,  cibw-build: 'cp312-manylinux*', tag: 'cp312-linux' }
+          - { os: ubuntu-latest,  cibw-build: 'cp313-manylinux*', tag: 'cp313-linux' }
+          - { os: macos-latest,   cibw-build: 'cp310-macosx*',    tag: 'cp310-macos' }
+          - { os: macos-latest,   cibw-build: 'cp311-macosx*',    tag: 'cp311-macos' }
+          - { os: macos-latest,   cibw-build: 'cp312-macosx*',    tag: 'cp312-macos' }
+          - { os: macos-latest,   cibw-build: 'cp313-macosx*',    tag: 'cp313-macos' }
+          - { os: windows-latest, cibw-build: 'cp310-win_amd64',  tag: 'cp310-win' }
+          - { os: windows-latest, cibw-build: 'cp311-win_amd64',  tag: 'cp311-win' }
+          - { os: windows-latest, cibw-build: 'cp312-win_amd64',  tag: 'cp312-win' }
+          - { os: windows-latest, cibw-build: 'cp313-win_amd64',  tag: 'cp313-win' }
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache vcpkg installed ports (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: C:/vcpkg/installed
+          key: vcpkg-armadillo-openblas-lapack-x64-windows-release-v1
+
+      - name: Cache cibuildwheel
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/cibuildwheel
+            ~/AppData/Local/Temp/cibuildwheel/Cache
+          key: cibuildwheel-${{ matrix.tag }}-v1
+
+      - name: Build & test wheels
+        uses: pypa/cibuildwheel@v3.1
+        with:
+          package-dir: python
+          output-dir: wheelhouse
+        env:
+          CIBW_BUILD: ${{ matrix.cibw-build }}
+          CIBW_SKIP: "*-win32 *-manylinux_i686 *-musllinux*"
+
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_ARCHS_MACOS: x86_64 arm64
+          CIBW_ARCHS_WINDOWS: AMD64
+
+          # manylinux_2_28 = AlmaLinux 8: Armadillo lives in EPEL.  Install
+          # the headers + OpenBLAS + LAPACK so the engine compiles and
+          # CMakeLists' find_package(BLAS/LAPACK) succeeds.  (Unlike smooth,
+          # muse uses the SYSTEM Armadillo rather than a vendored copy.)
+          CIBW_BEFORE_ALL_LINUX: |
+            (yum install -y epel-release && yum install -y armadillo-devel openblas-devel lapack-devel) || \
+            (apt-get update && apt-get install -y libarmadillo-dev libopenblas-dev liblapack-dev)
+
+          # macOS: brew's armadillo pulls in OpenBLAS (which ships LAPACK).
+          CIBW_BEFORE_ALL_MACOS: brew install armadillo openblas
+
+          # Windows: vcpkg ports.  Armadillo + OpenBLAS + LAPACK reference;
+          # delvewheel bundles the DLLs into the wheel.
+          CIBW_BEFORE_ALL_WINDOWS: vcpkg install armadillo:x64-windows-release openblas:x64-windows-release lapack:x64-windows-release
+          CIBW_BEFORE_BUILD_WINDOWS: pip install delvewheel
+          CIBW_ENVIRONMENT_WINDOWS: CMAKE_ARGS="-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-release"
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: delvewheel repair -w {dest_dir} {wheel} --add-path C:/vcpkg/installed/x64-windows-release/bin
+
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+
+          # Smoke-test each built wheel: the functionality suite only (the
+          # *_parity.py scripts need R + reference dumps and are excluded by
+          # pyproject's addopts; smooth-the-package is not installed here, so
+          # the auto-lambda tests skip cleanly).
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: pytest {project}/python/tests/test_functionality.py -v --tb=short
+
+      - name: Upload wheels as artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: wheels-${{ matrix.tag }}
+          path: ./wheelhouse/*.whl
+          retention-days: 14
+          if-no-files-found: error
+
+  build_sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install build
+        run: python -m pip install build
+      - name: Build sdist
+        run: python -m build --sdist python
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: sdist
+          path: ./python/dist/*.tar.gz
+          retention-days: 14
+          if-no-files-found: error
+
+  prepare_draft_release:
+    name: Stage wheels on draft GitHub release
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create / update the draft release
+    steps:
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+          pattern: 'wheels-*'
+
+      - name: Download sdist artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: sdist
+          path: dist
+
+      - name: List staged files
+        run: ls -R dist/
+
+      - name: Create or update draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          # draft: true => no git tag yet; GitHub creates it at
+          # target_commitish when the user clicks "Publish release".
+          # Re-running with the same tag_name replaces the draft's assets.
+          tag_name: ${{ inputs.tag }}
+          target_commitish: ${{ github.sha }}
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          files: dist/*
+          fail_on_unmatched_files: true
+          body: |
+            ## Installation
+
+            ```bash
+            pip install muse-py     # imported as `muse`
+            ```
+
+            ## Verification
+
+            Wheels are signed with [Sigstore](https://www.sigstore.dev/) and ship with [PEP 740 attestations](https://peps.python.org/pep-0740/) (SLSA Build Level 3 provenance). Verify a downloaded wheel:
+
+            ```bash
+            pip install pypi-attestations
+            pypi-attestations verify pypi --repository https://github.com/config-i1/muse muse_py-*.whl
+            ```
+
+            ## What's Changed
+            See the auto-generated release notes below.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

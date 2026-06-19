@@ -3,6 +3,21 @@ name: R-CMD-check
 on:
   pull_request:
     branches: [main, master]
+    # Only run when R-relevant code changes.  The C++ engine (src/) is shared
+    # with the Python front-end, so it triggers both checks; src/python/ (the
+    # pybind11 binding) is Python-only and excluded here.
+    paths:
+      - 'R/**'
+      - 'src/**'
+      - '!src/python/**'
+      - 'man/**'
+      - 'man-roxygen/**'
+      - 'tests/**'
+      - 'vignettes/**'
+      - 'DESCRIPTION'
+      - 'NAMESPACE'
+      - '.Rbuildignore'
+      - '.github/workflows/R-CMD-check.yaml'
   workflow_dispatch:
 
 permissions: read-all

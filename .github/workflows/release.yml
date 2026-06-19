@@ -1,0 +1,51 @@
+name: Publish release to PyPI
+
+# Fires when a GitHub release is published (you click "Publish release" on the
+# draft staged by build-release-wheels.yml).  The flow:
+#
+#   1. build-release-wheels.yml (manual) builds the wheels + sdist and
+#      attaches them to a *draft* release with the supplied tag.
+#   2. You review the draft, edit the notes, and click "Publish release".
+#   3. That creates the git tag and fires the `release: published` event
+#      that runs this workflow.
+#   4. This workflow downloads the just-attached assets and uploads them to
+#      PyPI (muse-py) with PEP 740 attestations.
+#
+# Publishing uses PyPI Trusted Publishing -- configure the `muse-py` project
+# on PyPI to trust this repo + the `pypi` environment (no API token needed).
+on:
+  release:
+    types: [published]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/muse-py
+    permissions:
+      id-token: write       # trusted publishing
+      attestations: write   # PEP 740 / Sigstore attestations
+      contents: read        # gh release download
+
+    steps:
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p dist
+          # Pull every asset attached to the published release into dist/ --
+          # the wheels + sdist staged by build-release-wheels.yml.
+          gh release download "$TAG" --repo "${{ github.repository }}" --dir dist
+          ls -R dist/
+
+      - name: Publish to PyPI (with PEP 740 attestations)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+          skip-existing: true
