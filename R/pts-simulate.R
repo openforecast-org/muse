@@ -4,7 +4,7 @@
 # The C++ "simulateInit" command propagates
 #     a_{t+1} = T * a_t + R * eta,   eta ~ N(0, Q)
 #     y_t    = Z * a_t + eps,        eps ~ N(0, H)
-# starting from `betaAug` (the augmented KF's MLE of α_0), runs for `obs`
+# starting from `betaAug` (the augmented KF's MLE of alpha_0), runs for `obs`
 # steps, then back-transforms with invBoxCox(., lambda) so the user sees
 # original-scale series anchored to the same start as `object$data`.
 #
@@ -36,7 +36,7 @@ simulate.pts <- function(object, nsim = 1, seed = NULL,
     args$nsim <- as.integer(nsim)
     args$seed <- 0L     # C++ set_seed ignored; R RNG drives reproducibility
     # The engine runs its smoother internally for "simulateInit" and uses
-    # the smoothed α_{t=1} as the seed (see musecore.h dispatch).
+    # the smoothed alpha_{t=1} as the seed (see musecore.h dispatch).
     out       <- suppressWarnings(.pts_call_uc("simulateInit", args))
 
     paths <- as.matrix(out$simPaths)   # obs x nsim, original scale

@@ -28,21 +28,21 @@ encode Power / Trend / Seasonal:
 
 \item{lags}{seasonal period (default \code{frequency(data)}).  Scalar for
 the structural seasonal; may also be a vector \code{c(1, s)} mirroring
-\code{smooth::adam}'s convention — the last entry is the structural
+\code{smooth::adam}'s convention -- the last entry is the structural
 period, the full vector becomes the default lag set for the irregular's
 ARMA blocks (overridable per-fit via \code{orders$lags}).}
 
 \item{orders}{ARMA / SARMA spec for the irregular component.  Three forms:
 \itemize{
   \item Full list \code{list(ar, ma, select)} for a non-seasonal
-    \eqn{ARMA(p, q)} — \code{ar}, \code{ma} non-negative scalars (default
+    \eqn{ARMA(p, q)} -- \code{ar}, \code{ma} non-negative scalars (default
     0); \code{select = TRUE} asks the engine to search ARMA orders up to
     that cap.
-  \item Numeric shortcut \code{c(p, q)} — equivalent to
+  \item Numeric shortcut \code{c(p, q)} -- equivalent to
     \code{list(ar = p, ma = q, select = FALSE)}; \code{c(p)} is treated
     as \code{c(p, 0)}.
   \item Seasonal \code{list(ar = c(p, P), ma = c(q, Q), lags = c(1, s))}
-    for \eqn{SARMA(p, q)(P, Q)_s} — \code{ar} / \code{ma} are length-L
+    for \eqn{SARMA(p, q)(P, Q)_s} -- \code{ar} / \code{ma} are length-L
     vectors paired position-wise with \code{lags}, with \code{lags[1] =
     1} (non-seasonal block) and \code{lags[2] = s} (seasonal block).
     If \code{orders$lags} is omitted the default falls back to the
@@ -53,7 +53,7 @@ ARMA blocks (overridable per-fit via \code{orders$lags}).}
     \eqn{(p', q', P', Q')} tuple with \eqn{0 \le p' \le} \code{ar[1]} and
     so on, and picks the candidate with the lowest \code{ic}.
 }
-PTS has no differencing — any \code{orders$i} supplied is silently
+PTS has no differencing -- any \code{orders$i} supplied is silently
 ignored.}
 
 \item{formula}{optional formula \code{response ~ x1 + x2 + ...}; only
@@ -65,12 +65,12 @@ pick the response column + xreg columns explicitly.}
 \code{"select"} and \code{"adapt"} modes are not yet implemented.}
 
 \item{outliers}{what to do about outliers, mirroring \code{adam()}'s
-interface: \code{"ignore"} (default — fit ignores the possibility of
+interface: \code{"ignore"} (default -- fit ignores the possibility of
 outliers) or \code{"use"} (run the engine's outlier detector once
 after the structural fit, classify each event as AO / LS / SC, and
 refit with the detected events as fixed regressor dummies).  Adam's
 \code{"select"} mode (IC-pruning of detected dummies) is not yet
-supported — passing it errors with a clear message.  When
+supported -- passing it errors with a clear message.  When
 \code{outliers = "use"} the detected events are returned on the
 fitted object as \code{$outliersDetected} (a data frame with
 \code{time} and \code{type} columns) and the corresponding dummy
@@ -78,9 +78,9 @@ coefficients appear in \code{coef(m)} as \code{Beta(...)} entries.}
 
 \item{level}{confidence level driving the outlier z-score threshold
 (default 0.99).  Translated to a two-sided z via
-\code{qnorm((1 + level) / 2)}: 0.99 → ≈ 2.576, 0.95 → ≈ 1.960.  The
+\code{qnorm((1 + level) / 2)}: 0.99 -> ~= 2.576, 0.95 -> ~= 1.960.  The
 z drives the AO threshold; LS / SC scale proportionally to preserve
-the engine's relative stiffness (LS ≈ 1.087×z, SC ≈ 1.304×z).
+the engine's relative stiffness (LS ~= 1.087*z, SC ~= 1.304*z).
 Ignored when \code{outliers = "ignore"}.}
 
 \item{ic}{information criterion for automatic model selection; one of
@@ -138,6 +138,17 @@ for a univariate time series.  This is the user-facing entry point of the
 the \pkg{smooth} family: \code{pts()} estimates the model, and
 \code{\link{forecast.pts}} produces forecasts from the fitted object
 without re-estimating.
+}
+\examples{
+# Automatic model selection (Power / Trend / Seasonal) on monthly data
+model <- pts(AirPassengers, model = "ZZZ", h = 12, holdout = TRUE)
+model
+
+# A fixed specification: no transform, local-linear trend, trigonometric
+# seasonality, with a 12-step forecast
+fixedModel <- pts(AirPassengers, model = "1LT", h = 12)
+forecast(fixedModel, h = 12)
+
 }
 \seealso{
 \code{\link{forecast.pts}}

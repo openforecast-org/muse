@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "muse"
-version = "0.0.2"
+version = "0.1.0"
 description = "Power / Trend / Seasonal (PTS) multiple-source-of-error state-space models"
 readme = "README.md"
 requires-python = ">=3.10"

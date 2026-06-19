@@ -450,7 +450,7 @@ uc_to_pts <- function(modelUC, lambda){
                 error = function(e) NULL)
             if (is.null(struct)) next
             # G (deterministic) trend: drift slope is concentrated as a
-            # regressor and missing from length(struct$p) — add +1 so
+            # regressor and missing from length(struct$p) -- add +1 so
             # the selection IC matches the post-fit nParam (pts.R).
             k_struct <- length(struct$p) +
                         as.integer(isTRUE(struct$lambdaEstimated)) +

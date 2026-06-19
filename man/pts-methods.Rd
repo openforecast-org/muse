@@ -117,6 +117,14 @@ horizon into one total -- exact for \code{interval = "simulated"}
 (sum within each path); the engine does not expose cross-step state
 covariance, so the other intervals fall back to simulation totals.
 }
+\examples{
+model <- pts(AirPassengers, model = "1LT", h = 12, holdout = TRUE)
+print(model)
+fitted(model)
+residuals(model)
+# forecast 12 steps ahead with 95\% prediction intervals
+forecast(model, h = 12, interval = "prediction", level = 0.95)
+}
 \references{
 \itemize{
   \item Granger, C. W. J., & Newbold, P. (1976).  Forecasting transformed

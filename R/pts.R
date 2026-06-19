@@ -23,20 +23,20 @@
 #' }
 #' @param lags seasonal period (default \code{frequency(data)}).  Scalar for
 #' the structural seasonal; may also be a vector \code{c(1, s)} mirroring
-#' \code{smooth::adam}'s convention — the last entry is the structural
+#' \code{smooth::adam}'s convention -- the last entry is the structural
 #' period, the full vector becomes the default lag set for the irregular's
 #' ARMA blocks (overridable per-fit via \code{orders$lags}).
 #' @param orders ARMA / SARMA spec for the irregular component.  Three forms:
 #' \itemize{
 #'   \item Full list \code{list(ar, ma, select)} for a non-seasonal
-#'     \eqn{ARMA(p, q)} — \code{ar}, \code{ma} non-negative scalars (default
+#'     \eqn{ARMA(p, q)} -- \code{ar}, \code{ma} non-negative scalars (default
 #'     0); \code{select = TRUE} asks the engine to search ARMA orders up to
 #'     that cap.
-#'   \item Numeric shortcut \code{c(p, q)} — equivalent to
+#'   \item Numeric shortcut \code{c(p, q)} -- equivalent to
 #'     \code{list(ar = p, ma = q, select = FALSE)}; \code{c(p)} is treated
 #'     as \code{c(p, 0)}.
 #'   \item Seasonal \code{list(ar = c(p, P), ma = c(q, Q), lags = c(1, s))}
-#'     for \eqn{SARMA(p, q)(P, Q)_s} — \code{ar} / \code{ma} are length-L
+#'     for \eqn{SARMA(p, q)(P, Q)_s} -- \code{ar} / \code{ma} are length-L
 #'     vectors paired position-wise with \code{lags}, with \code{lags[1] =
 #'     1} (non-seasonal block) and \code{lags[2] = s} (seasonal block).
 #'     If \code{orders$lags} is omitted the default falls back to the
@@ -47,7 +47,7 @@
 #'     \eqn{(p', q', P', Q')} tuple with \eqn{0 \le p' \le} \code{ar[1]} and
 #'     so on, and picks the candidate with the lowest \code{ic}.
 #' }
-#' PTS has no differencing — any \code{orders$i} supplied is silently
+#' PTS has no differencing -- any \code{orders$i} supplied is silently
 #' ignored.
 #' @param formula optional formula \code{response ~ x1 + x2 + ...}; only
 #' meaningful when \code{data} is a matrix or \code{data.frame}.  Used to
@@ -56,21 +56,21 @@
 #' (apply all supplied xregs as fixed-coefficient covariates).  Adam's
 #' \code{"select"} and \code{"adapt"} modes are not yet implemented.
 #' @param outliers what to do about outliers, mirroring \code{adam()}'s
-#' interface: \code{"ignore"} (default — fit ignores the possibility of
+#' interface: \code{"ignore"} (default -- fit ignores the possibility of
 #' outliers) or \code{"use"} (run the engine's outlier detector once
 #' after the structural fit, classify each event as AO / LS / SC, and
 #' refit with the detected events as fixed regressor dummies).  Adam's
 #' \code{"select"} mode (IC-pruning of detected dummies) is not yet
-#' supported — passing it errors with a clear message.  When
+#' supported -- passing it errors with a clear message.  When
 #' \code{outliers = "use"} the detected events are returned on the
 #' fitted object as \code{$outliersDetected} (a data frame with
 #' \code{time} and \code{type} columns) and the corresponding dummy
 #' coefficients appear in \code{coef(m)} as \code{Beta(...)} entries.
 #' @param level confidence level driving the outlier z-score threshold
 #' (default 0.99).  Translated to a two-sided z via
-#' \code{qnorm((1 + level) / 2)}: 0.99 → ≈ 2.576, 0.95 → ≈ 1.960.  The
+#' \code{qnorm((1 + level) / 2)}: 0.99 -> ~= 2.576, 0.95 -> ~= 1.960.  The
 #' z drives the AO threshold; LS / SC scale proportionally to preserve
-#' the engine's relative stiffness (LS ≈ 1.087×z, SC ≈ 1.304×z).
+#' the engine's relative stiffness (LS ~= 1.087*z, SC ~= 1.304*z).
 #' Ignored when \code{outliers = "ignore"}.
 #' @param ic information criterion for automatic model selection; one of
 #' \code{"BICc"} (default), \code{"AICc"}, \code{"BIC"}, \code{"AIC"}.
@@ -117,6 +117,16 @@
 #'
 #' @seealso \code{\link{forecast.pts}}
 #'
+#' @examples
+#' # Automatic model selection (Power / Trend / Seasonal) on monthly data
+#' model <- pts(AirPassengers, model = "ZZZ", h = 12, holdout = TRUE)
+#' model
+#'
+#' # A fixed specification: no transform, local-linear trend, trigonometric
+#' # seasonality, with a 12-step forecast
+#' fixedModel <- pts(AirPassengers, model = "1LT", h = 12)
+#' forecast(fixedModel, h = 12)
+#'
 #' @template authors
 #' @export
 pts <- function(data,
@@ -144,10 +154,10 @@ pts <- function(data,
         level <= 0 || level >= 1)
         stop("`level` must be a length-1 numeric in (0, 1).",
              call. = FALSE)
-    # Engine takes a z-score threshold (positive → enable outlier
+    # Engine takes a z-score threshold (positive -> enable outlier
     # detection); adam-style `level` converts to a two-sided z via the
-    # standard normal quantile at (1 + level)/2.  At the default 0.99 →
-    # ≈ 2.576 ≈ qnorm(0.995, 0, 1).
+    # standard normal quantile at (1 + level)/2.  At the default 0.99 ->
+    # ~= 2.576 ~= qnorm(0.995, 0, 1).
     outlier_z <- if (outliers == "ignore") 0
                  else stats::qnorm((1 + level) / 2)
     # Internal hatch (adam-style): if the caller passes B via ..., use it
@@ -158,7 +168,7 @@ pts <- function(data,
     B    <- dots$B
     criterion  <- .pts_ic_to_engine(ic)
     # `lags` historically is the scalar structural-seasonal period.  As an
-    # adam-style ergonomic, also accept a vector c(1, s, ...) — the last
+    # adam-style ergonomic, also accept a vector c(1, s, ...) -- the last
     # entry is taken as the structural period; the full vector becomes the
     # default ARMA-block lag set when `orders$lags` is not supplied.
     if (length(lags) > 1L){
@@ -226,7 +236,7 @@ pts <- function(data,
 
     # Box-Cox lambda screening: when the user requests auto-lambda ("Z"),
     # pick lambda by variance stabilisation on a classically-decomposed
-    # version of the series — a fast, model-free alternative to fitting a
+    # version of the series -- a fast, model-free alternative to fitting a
     # proxy structural model per candidate lambda.
     #
     # Procedure (matches the "decomp + Guerrero (ma)" recipe explored in
@@ -242,7 +252,7 @@ pts <- function(data,
     #         mu_b[i] = mean(mu_t in block i)           # block-average level
     #         sd_b[i] = sd(y - mu_t in block i)         # within-block dispersion,
     #                                                   # i.e. seasonal swing + noise
-    #      sd_b deliberately retains the seasonal swing — for multiplicative
+    #      sd_b deliberately retains the seasonal swing -- for multiplicative
     #      seasonality the swing grows with the level, which is exactly the
     #      signal Guerrero needs.  Subtracting the additive seasonal
     #      component would erase that signal.
@@ -251,7 +261,7 @@ pts <- function(data,
     #                     mean_i( sd_b[i] * mu_b[i]^(lambda-1) )
     #      via stats::optimize over the *clipped* range [0, 2].  Clipping
     #      at 0 eliminates the -1/lambda vertical asymptote of the inverse
-    #      BC — without it, lambda can drift negative on outlier-contaminated
+    #      BC -- without it, lambda can drift negative on outlier-contaminated
     #      series and produce Inf forecasts.  Upper 2 is the FPP-standard
     #      generous cap (inverse BC is sub-linear above 1, never explosive).
     #
@@ -281,13 +291,13 @@ pts <- function(data,
     # Nested PTS + ARMA selection.  When `orders$select = TRUE`, the loop
     # is PTS-outer / ARMA-inner: for every structural (trend, seasonal)
     # candidate, fit it without ARMA, run the ARMA grid on its residuals,
-    # and score combined_IC = structural_IC + (best_ARMA_IC − ARMA(0,0)_IC).
+    # and score combined_IC = structural_IC + (best_ARMA_IC - ARMA(0,0)_IC).
     # The (PTS structure, ARMA orders) pair with the lowest combined IC
     # wins; the final fit then runs at fixed structure + fixed ARMA.
     #
     # The damped (D / srw) trend is paired only with AR-less ARMA
-    # candidates because srw's α parameter and AR persistence are
-    # jointly unidentified — same rule the engine's findUCmodels() applies.
+    # candidates because srw's alpha parameter and AR persistence are
+    # jointly unidentified -- same rule the engine's findUCmodels() applies.
     userSelect <- isTRUE(ordersUC$select)
     if (userSelect){
         sel <- .pts_select_pts_arma(y = y, u = u,
@@ -379,8 +389,8 @@ pts <- function(data,
                        # reports `$orders$select = TRUE`.
                        select = userSelect)
 
-    # Flat AR / MA coefficient vectors (smooth::adam convention — `$arma`).
-    # Lag-by-lag concatenation: c(φ_1, ..., φ_p [, Φ_1, ..., Φ_P]) for AR
+    # Flat AR / MA coefficient vectors (smooth::adam convention -- `$arma`).
+    # Lag-by-lag concatenation: c(phi_1, ..., phi_p [, Phi_1, ..., Phi_P]) for AR
     # and analogously for MA.  Empty when the fit has no ARMA structure.
     Bnames  <- names(res$p)
     armaList <- list(
@@ -420,7 +430,7 @@ pts <- function(data,
         # G (deterministic) trend: drift slope is concentrated out as a
         # regressor (PTSmodel.h:3246), so parLabels() does not push a
         # "Slope" entry and length(res$p) misses it.  Still an estimated
-        # DoF — add it back here.
+        # DoF -- add it back here.
         nParam     = length(res$p) +
                      as.integer(isTRUE(res$lambdaEstimated) ||
                                 lambdaWasScreened) +

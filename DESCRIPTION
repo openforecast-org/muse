@@ -1,8 +1,8 @@
 Package: muse
 Type: Package
 Title: Multiple Unobserved Sources of Error
-Version: 0.0.2.41001
-Date: 2026-06-15
+Version: 0.1.0
+Date: 2026-06-19
 Authors@R: c(person("Diego J.", "Pedregal", role = c("aut", "ctb"),
                      email = "Diego.Pedregal@uclm.es",
                      comment = c(ORCID = "0000-0003-4958-0969")),
@@ -16,10 +16,10 @@ Description: Functions implementing multiple source of error models for forecast
 License: LGPL-2.1
 Depends:
     R (>= 3.0.2),
-    Rcpp (>= 0.12.3),
     greybox,
     smooth
 Imports:
+    Rcpp (>= 0.12.3),
     generics (>= 0.1.2),
     zoo
 LinkingTo: Rcpp, RcppArmadillo (>= 0.8.100.0.0)
