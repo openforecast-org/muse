@@ -98,6 +98,24 @@ def test_arma_orders_reported(ar, ma):
     assert np.all(np.isfinite(np.asarray(m.residuals)))
 
 
+@pytest.mark.parametrize("ar,ma", [([1, 1], [0, 0]), ([0, 0], [1, 1]),
+                                    ([1, 0], [0, 1])])
+def test_sarma_orders(ar, ma):
+    # seasonal lag comes from the top-level `lags`, not from `orders`
+    m = PTS(model="1LT", lags=LAGS, orders={"ar": ar, "ma": ma}).fit(Y)
+    assert list(np.atleast_1d(m.orders["ar"])) == ar
+    assert list(np.atleast_1d(m.orders["ma"])) == ma
+    assert list(m.orders["lags"]) == [1, LAGS]
+    assert np.all(np.isfinite(np.asarray(m.residuals)))
+    assert np.all(np.isfinite(np.asarray(m.predict(LAGS, interval="none").mean)))
+
+
+def test_lags_not_allowed_in_orders():
+    with pytest.raises(ValueError):
+        PTS(model="1LT", lags=LAGS,
+            orders={"ar": 1, "ma": 0, "lags": [1, 12]}).fit(Y)
+
+
 def test_orders_select_within_caps():
     m = PTS(model="1LT", lags=LAGS, ic="AICc",
             orders={"ar": 2, "ma": 2, "select": True}).fit(Y)

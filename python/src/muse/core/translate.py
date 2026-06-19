@@ -104,6 +104,71 @@ def uc_to_arma(model: str) -> dict:
     return {"ar": 0, "ma": 0, "lags": [1]}
 
 
+def orders_to_uc(orders, seasonal_lag):
+    """Normalise the ARMA `orders` spec into per-lag (ar, ma, lags) vectors.
+
+    Port of R's .pts_orders_to_uc, with one deliberate difference: the
+    seasonal ARMA lag comes from the top-level `lags` (seasonal_lag), NOT from
+    `orders` -- `orders` carries only `ar`, `ma`, and `select`.
+
+    `ar` / `ma` may be scalars (non-seasonal ARMA(p, q)) or length-2 vectors
+    (SARMA(p, q)(P, Q)_s, where s = seasonal_lag).  Returns a dict with
+    integer-list `ar`, `ma`, `lags`, and a bool `select`.
+    """
+    orders = orders or {}
+    if "lags" in orders:
+        raise ValueError(
+            "`lags` does not belong in `orders`; it is the separate top-level "
+            "`lags` argument (the seasonal period)."
+        )
+    select = bool(orders.get("select", False))
+
+    def _ints(x):
+        if x is None:
+            return [0]
+        if isinstance(x, (list, tuple)):
+            return [int(v) for v in x] or [0]
+        return [int(x)]
+
+    ar, ma = _ints(orders.get("ar", 0)), _ints(orders.get("ma", 0))
+    L = max(len(ar), len(ma), 1)
+    ar += [0] * (L - len(ar))
+    ma += [0] * (L - len(ma))
+    if any(v < 0 for v in ar) or any(v < 0 for v in ma):
+        raise ValueError("`orders` ar/ma must be non-negative integers.")
+    if L == 1:
+        lags = [1]
+    elif L == 2:
+        lags = [1, int(seasonal_lag)]
+    else:
+        raise ValueError(
+            "PTS supports at most one seasonal ARMA lag: ar/ma may have "
+            f"length 1 (non-seasonal) or 2 (SARMA); got length {L}."
+        )
+
+    # Drop trailing zero blocks but always keep the non-seasonal (lag-1) block.
+    keep = [i for i in range(L) if ar[i] > 0 or ma[i] > 0]
+    if not keep:
+        return {"ar": [0], "ma": [0], "lags": [1], "select": select}
+    keep = sorted(set(keep) | {0})
+    return {
+        "ar": [ar[i] for i in keep],
+        "ma": [ma[i] for i in keep],
+        "lags": [lags[i] for i in keep],
+        "select": select,
+    }
+
+
+def arma_spec(ar, ma, lags):
+    """Build the (arma_orders tuple, irregular-option string) for a per-lag
+    (ar, ma, lags) triple -- 2-tuple/`arma(p,q)` for non-seasonal, 5-tuple/
+    `arma(p,q,P,Q,s)` for SARMA."""
+    if len(lags) == 1:
+        return (int(ar[0]), int(ma[0])), f"arma({int(ar[0])},{int(ma[0])})"
+    tup = (int(ar[0]), int(ma[0]), int(ar[1]), int(ma[1]), int(lags[1]))
+    return tup, f"arma({tup[0]},{tup[1]},{tup[2]},{tup[3]},{tup[4]})"
+
+
 def ic_to_engine(ic: str) -> str:
     """Map adam-style ic (AICc/AIC/BIC/BICc) to the engine's lowercase string."""
     table = {"AICc": "aicc", "AIC": "aic", "BIC": "bic", "BICc": "bicc"}

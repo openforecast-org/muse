@@ -1,1 +1,13 @@
-PKG_LIBS=$(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)
+PKG_LIBS = $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)
+
+# Strip debug symbols from the shared object on Linux to keep the installed
+# size down (the templated Armadillo engine is otherwise large).  Guarded so
+# it is a no-op on platforms without GNU strip / the --strip-debug flag.
+all: $(SHLIB) strippedLib
+
+strippedLib: $(SHLIB)
+	if test -e "/usr/bin/strip" && test "`uname`" = "Linux"; then \
+		/usr/bin/strip --strip-debug $(SHLIB); \
+	fi
+
+.PHONY: all strippedLib

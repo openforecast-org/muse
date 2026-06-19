@@ -6,37 +6,20 @@
 
 <img src="https://github.com/config-i1/muse/raw/main/man/figures/muse-purple-light-web.png" alt="muse logo" width="220" align="right" />
 
-Python implementation of the **muse** package — **PTS** (*Power / Trend / Seasonal*)
-**M**ultiple **U**nobserved **S**ources of **E**rror state-space models for time
-series analysis and forecasting.
+Python implementation of the **muse** package (**M**ultiple **U**nobserved **S**ources of **E**rror) for the MSOE state-space models for time series analysis and forecasting.
 
-PTS is a multiple-source-of-error (MSOE) structural state-space model: a Kalman
-filter / smoother runs over a level / trend / seasonal / irregular decomposition,
-with an optional Box-Cox power transform, and the components are selected
-analogously to the ETS taxonomy. The estimation engine is written in C++
-(Armadillo) and is **shared verbatim with the R package** — the Python front-end
-binds it through `pybind11`, so results match the R `muse::pts()` output to
-machine precision. The class-based API mirrors
-[`smooth.ADAM`](https://github.com/config-i1/smooth).
+Currently, the package only implements the PTS model, which is a multiple-source-of-error (MSOE) structural state-space model: a Kalman filter / smoother runs over a level / trend / seasonal / irregular decomposition, with an optional Box-Cox power transform, and the components are selected analogously to the ETS taxonomy, based on information criteria. The estimation engine is written in C++ (Armadillo), binding through `pybind11`.
 
 ## Features
 
-- **Single entry point** — the `PTS` class. Spec in the constructor, data into
-  `.fit()`, results via properties and `.predict()` (scikit-learn style).
-- **Compact model strings** — `"PTS"` = *Power / Trend / Seasonal*, e.g.
-  `"ZZZ"`, `"0LT"`, `"0.5GD"` (see [Model specification](#model-specification)).
-- **Automatic model selection** — `"Z"` in any position auto-selects the
-  Box-Cox power (variance-stabilisation screen), the trend, the seasonal type,
-  and (optionally) the ARMA orders of the irregular component, by information
-  criterion (AICc / AIC / BIC / **BICc**, the default).
-- **Box-Cox transform** — fixed (`"0"`, `"0.5"`, `"1"`, …) or estimated (`"Z"`),
-  with proper back-transformation of fitted values and forecasts.
-- **ARMA / SARMA irregular** — `orders={"ar": p, "ma": q}` or an automatic
-  `select=True` order search.
-- **Forecasts with intervals** — prediction, confidence, simulated, or none;
-  one- or two-sided; vector confidence levels; cumulative forecasts.
-- **Outlier detection** — `outliers="use"` detects AO / LS / SC events during
-  estimation and reports them.
+- **Single entry point** — the `PTS` class. Spec in the constructor, data into `.fit()`, results via properties and `.predict()` (scikit-learn style).
+- **Compact model strings** — `"PTS"` = *Power / Trend / Seasonal*, e.g. `"ZZZ"`, `"0LT"`, `"0.5GD"` (see [Model specification](#model-specification)).
+- **Automatic model selection** — `"Z"` in any position auto-selects the Box-Cox power (variance-stabilisation screen), the trend, the seasonal type, and (optionally) the ARMA orders of the irregular component, by information criterion (AICc / AIC / BIC / **BICc**, the default).
+- **Box-Cox transform** — fixed (`"0"`, `"0.5"`, `"1"`, …) or estimated (`"Z"`), with proper back-transformation of fitted values and forecasts.
+- **ARMA / SARMA irregular** — non-seasonal `orders={"ar": p, "ma": q}`, or seasonal `orders={"ar": [p, P], "ma": [q, Q]}` (the seasonal lag comes from the top-level `lags`, not from `orders`), or an automatic `select=True` order search.
+- **Forecasts with intervals** — prediction, confidence, simulated, or none; one- or two-sided; vector confidence levels; cumulative forecasts.
+- **Missing values treatment** — done automatically via the filtering and smoothing, embedded in the model.
+- **Outlier detection** — `outliers="use"` detects AO / LS / SC events during estimation and reports them."use"` detects AO / LS / SC events during estimation and reports them.
 - **Diagnostics & accuracy** — `summary()`, `rstandard()`, `rstudent()`,
   `point_lik()`, `confint()`, `accuracy()`, `simulate()`, `update()`.
 - **pandas-aware** — pass a `pandas.Series` with a `DatetimeIndex` and the
@@ -46,7 +29,18 @@ machine precision. The class-based API mirrors
 
 ## Installation
 
-> Not yet on PyPI. Install from source (the C++ extension is built on install).
+The distribution is named **`muse-py`** on PyPI (the name `muse` was taken), but
+it is imported as **`muse`**:
+
+```bash
+pip install muse-py
+```
+```python
+from muse import PTS
+```
+
+> Not yet released on PyPI. Until then, install from source (the C++ extension is
+> built on install):
 
 ```bash
 pip install "git+https://github.com/config-i1/muse.git@python#subdirectory=python"
@@ -114,6 +108,13 @@ m = PTS(model="1LT", lags=12, orders={"ar": 1, "ma": 0}).fit(y)
 m.predict(12)
 ```
 
+A seasonal SARMA(1,0)(1,0)_12 irregular — `ar`/`ma` are length-2 vectors and
+the seasonal lag (12) is read from the top-level `lags`:
+
+```python
+m = PTS(model="1LT", lags=12, orders={"ar": [1, 1], "ma": [0, 0]}).fit(y)
+```
+
 ## Model specification
 
 The three-character `model` string encodes **P**ower / **T**rend / **S**easonal:
@@ -177,6 +178,12 @@ forecasts and intervals, diagnostics, the summary table) matches the R
   (the Python API muse mirrors)
 - [greybox](https://github.com/config-i1/greybox) — distributions, information
   criteria, and error measures
+
+## Acknowledgements
+
+The Python translation of the package — and parts of the underlying C++ engine
+refactoring — were developed with the assistance of Anthropic's Claude.
+Responsibility for the code and its correctness rests with the package authors.
 
 ## License
 

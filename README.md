@@ -74,3 +74,9 @@ model_out$outliersDetected
 
 Bug reports and feature requests are welcome at the
 [issue tracker](https://github.com/config-i1/muse/issues).
+
+## Acknowledgements
+
+Parts of the C++ engine refactoring and the Python translation of the package
+were developed with the assistance of Anthropic's Claude. Responsibility for
+the code and its correctness rests with the package authors.

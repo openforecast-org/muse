@@ -18,6 +18,13 @@
 #' @param all logical; if \code{TRUE} the holdout sample is included in
 #'   the observation count.  Default \code{FALSE}.
 #' @param ... further arguments passed to underlying generics.
+#' @examples
+#' model <- pts(AirPassengers, model = "1LT", h = 12, holdout = TRUE)
+#' print(model)
+#' fitted(model)
+#' residuals(model)
+#' # forecast 12 steps ahead with 95% prediction intervals
+#' forecast(model, h = 12, interval = "prediction", level = 0.95)
 #' @references \itemize{
 #'   \item Granger, C. W. J., & Newbold, P. (1976).  Forecasting transformed
 #'     series.  \emph{Journal of the Royal Statistical Society: Series B
@@ -68,7 +75,7 @@ print.pts <- function(x, digits = 4, ...){
     }
 
     # --- Harmonic periods (only meaningful for the trigonometric "T"
-    #     seasonal — the engine's `equal` shape with a harmonic
+    #     seasonal -- the engine's `equal` shape with a harmonic
     #     expansion).  Discrete "D" and none "N" don't have a
     #     multi-period decomposition; skip the line there. ---
     seasLetter <- sub(".*,([A-Z])\\)$", "\\1", as.character(x$model))
@@ -384,7 +391,7 @@ forecast.pts <- function(object, h = 10, newdata = NULL,
     yForVconf <- pmax(0, .pts_wrap_oos(as.numeric(out$yForV) - sigma2BC,
                                        object$data))
 
-    # Simulated paths from the *terminal* state — these are forward
+    # Simulated paths from the *terminal* state -- these are forward
     # forecasts, not in-sample replays.  Bypasses simulate.pts (which
     # starts from the initial state) by calling .pts_forecast_paths
     # directly.  Cached for cumulative / scenarios reuse.

@@ -16,3 +16,11 @@ man-roxygen
 tools/
 ^python$
 ^src/python$
+^\.mypy_cache$
+^\.ruff_cache$
+^PYTHON_PORT\.md$
+^muse\.Rcheck$
+^.*\.tar\.gz$
+^\.RData$
+^\.Rhistory$
+^cran-comments\.md$

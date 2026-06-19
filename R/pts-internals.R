@@ -334,8 +334,8 @@
                      ar = 0L, ma = 0L, armaLags = 1L, outlier = 0,
                      lambdaLower = -Inf, B = NULL){
     # Flatten per-lag ar / ma vectors into the format pts_to_uc consumes:
-    #   length-1 lags → c(p, q)         (non-seasonal arma(p,q))
-    #   length-2 lags → c(p, q, P, Q, s) (sarma(p,q)(P,Q)_s)
+    #   length-1 lags -> c(p, q)         (non-seasonal arma(p,q))
+    #   length-2 lags -> c(p, q, P, Q, s) (sarma(p,q)(P,Q)_s)
     armaOrders <- if (length(armaLags) == 1L) c(ar[1L], ma[1L])
                   else c(ar[1L], ma[1L], ar[2L], ma[2L], armaLags[2L])
     modelU <- pts_to_uc(model, armaOrders = armaOrders,
@@ -434,8 +434,8 @@
     logLik <- if (length(crit) >= 1) unname(crit[1]) else NA_real_
     if (length(crit) == 4L) names(crit) <- c("logLik", "AIC", "BIC", "AICc")
 
-    # Outlier detection — engine emits a (nDetected x 2) matrix with
-    # columns (type, time) where type ∈ {0 = AO, 1 = LS, 2 = SC} and time
+    # Outlier detection -- engine emits a (nDetected x 2) matrix with
+    # columns (type, time) where type in {0 = AO, 1 = LS, 2 = SC} and time
     # is the 0-based index in y.  Convert to a user-friendly data frame.
     detected <- out$typeOutliers
     outliersDetected <- if (!is.null(detected) && length(detected) > 0L &&

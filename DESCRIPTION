@@ -1,8 +1,8 @@
 Package: muse
 Type: Package
-Title: Multiple Unobserved Sources of Error
-Version: 0.0.2.41001
-Date: 2026-06-15
+Title: muse: Multiple Unobserved Sources of Error state space models
+Version: 0.1.0
+Date: 2026-06-19
 Authors@R: c(person("Diego J.", "Pedregal", role = c("aut", "ctb"),
                      email = "Diego.Pedregal@uclm.es",
                      comment = c(ORCID = "0000-0003-4958-0969")),
@@ -12,14 +12,24 @@ Authors@R: c(person("Diego J.", "Pedregal", role = c("aut", "ctb"),
 URL: https://github.com/config-i1/muse
 BugReports: https://github.com/config-i1/muse/issues
 Language: en-GB
-Description: Functions implementing multiple source of error models for forecasting.
+Description: Implements the Power / Trend / Seasonal (PTS) model, a unified
+    state-space framework based on the Multiple Source of Error (MSOE) model. It brings
+    the trend, seasonal and irregular component models of Harvey (1989)
+    <doi:10.1017/CBO9781107049994>, Durbin and Koopman (2012)
+    <doi:10.1093/acprof:oso/9780199641178.001.0001>, Proietti (2000)
+    <doi:10.1016/S0169-2070(00)00037-6>, Sbrana and Silvestrini (2023)
+    <doi:10.1016/j.ijforecast.2022.03.003> and others together under a single
+    estimation, selection and forecasting interface, with an optional Box-Cox power
+    transformation. Models are estimated by maximum likelihood through the
+    Kalman filter and smoother, with automatic component selection by
+    information criteria.
 License: LGPL-2.1
 Depends:
     R (>= 3.0.2),
-    Rcpp (>= 0.12.3),
     greybox,
     smooth
 Imports:
+    Rcpp (>= 0.12.3),
     generics (>= 0.1.2),
     zoo
 LinkingTo: Rcpp, RcppArmadillo (>= 0.8.100.0.0)

@@ -3,8 +3,11 @@ requires = ["scikit-build-core>=0.3.3", "pybind11>=2.6", "numpy>=1.20"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "muse"
-version = "0.0.2"
+# Distribution name on PyPI ("muse" is already taken).  The import name
+# stays `muse` (pip install muse-py; import muse) -- the wheel.packages
+# setting below keeps the importable package as src/muse.
+name = "muse-py"
+version = "0.1.0"
 description = "Power / Trend / Seasonal (PTS) multiple-source-of-error state-space models"
 readme = "README.md"
 requires-python = ">=3.10"
