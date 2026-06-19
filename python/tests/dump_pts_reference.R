@@ -21,7 +21,11 @@ specs <- list(
     list(name = "ZLT",  model = "ZLT"),
     list(name = "ZZZ",  model = "ZZZ"),
     list(name = "1LT_sel", model = "1LT", ar = 2, ma = 2, select = TRUE),
-    list(name = "ZZZ_sel", model = "ZZZ", ar = 2, ma = 2, select = TRUE)
+    list(name = "ZZZ_sel", model = "ZZZ", ar = 2, ma = 2, select = TRUE),
+    # SARMA: ar/ma vectors, seasonal lag from the top-level lags (=12)
+    list(name = "1LT_sar10", model = "1LT", ar = c(1, 1), ma = c(0, 0)),
+    list(name = "1LT_sma01", model = "1LT", ar = c(0, 0), ma = c(1, 1)),
+    list(name = "1LT_smix",  model = "1LT", ar = c(1, 0), ma = c(0, 1))
 )
 
 y <- as.numeric(AirPassengers)

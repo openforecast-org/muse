@@ -67,9 +67,12 @@ class PTS:
         self._lags = lags
         self._lags_all = lags / np.arange(1, max(1, lags // 2) + 1)
 
-        ar = int(np.atleast_1d(self._orders_arg.get("ar", 0))[0])
-        ma = int(np.atleast_1d(self._orders_arg.get("ma", 0))[0])
-        user_select = bool(self._orders_arg.get("select", False))
+        # Normalise ARMA orders into per-lag vectors; the seasonal ARMA lag
+        # comes from the top-level `lags` (not from `orders`).  ar/ma may be
+        # scalars (non-seasonal) or length-2 (SARMA), matching R.
+        ords = translate.orders_to_uc(self._orders_arg, lags)
+        ar_v, ma_v, arma_lags = ords["ar"], ords["ma"], ords["lags"]
+        user_select = ords["select"]
 
         criterion = translate.ic_to_engine(self.ic)
 
@@ -99,11 +102,10 @@ class PTS:
             model_str = _fmt_lambda_str(best) + self.model[nm - 2 :]
             lambda_screened = True
 
-        arma_lags = [1]
         if user_select:
             from . import selector
             sel = selector.select_pts_arma(
-                y, model_str, lags, ar, ma, arma_lags, self.ic,
+                y, model_str, lags, ar_v, ma_v, arma_lags, self.ic,
                 fit_structural=lambda spec: self._fit_structural(
                     spec, y, lags, criterion
                 ),
@@ -111,9 +113,9 @@ class PTS:
             # model_spec already carries the screened lambda + the selected
             # trend/seasonal letters; use it verbatim (do not re-slice).
             model_str = sel["model_spec"]
-            ar = int(np.atleast_1d(sel["ar"])[0])
-            ma = int(np.atleast_1d(sel["ma"])[0])
-            arma_lags = sel["lags"]
+            ar_v = [int(v) for v in np.atleast_1d(sel["ar"])]
+            ma_v = [int(v) for v in np.atleast_1d(sel["ma"])]
+            arma_lags = [int(v) for v in np.atleast_1d(sel["lags"])]
 
         # outlier detection threshold (adam-style level -> two-sided z).
         # The lambda screen above already pins lambda to a number before the
@@ -123,14 +125,20 @@ class PTS:
             norm.ppf((1 + self.level) / 2)
         )
 
-        model_uc, lam = translate.pts_to_uc(model_str, arma_orders=(ar, ma))
-        out = self._engine(y, self._u, model_uc, lam, lags, criterion, ar, ma,
-                           arma_ident=False, outlier=outlier_z)
+        arma_tuple, irregular = translate.arma_spec(ar_v, ma_v, arma_lags)
+        model_uc, lam = translate.pts_to_uc(model_str, arma_orders=arma_tuple)
+        out = self._engine(y, self._u, model_uc, lam, lags, criterion,
+                           irregular, arma_ident=False, outlier=outlier_z)
         if out.get("model") == "error":
             raise RuntimeError("muse engine returned an error for this spec.")
 
         self._post_process(out, y, y_full, held, lam, lambda_screened)
-        self._orders = {"ar": ar, "ma": ma, "lags": arma_lags, "select": user_select}
+        # store $orders like R: scalar ar/ma for non-seasonal, vectors for SARMA
+        self._orders = {
+            "ar": ar_v[0] if len(arma_lags) == 1 else ar_v,
+            "ma": ma_v[0] if len(arma_lags) == 1 else ma_v,
+            "lags": arma_lags, "select": user_select,
+        }
         return self
 
     # ---- engine helpers -------------------------------------------------
@@ -145,8 +153,8 @@ class PTS:
             u = u.T
         return u
 
-    def _engine(self, y, u, model_uc, lam, lags, criterion, ar, ma, arma_ident,
-                outlier=0.0):
+    def _engine(self, y, u, model_uc, lam, lags, criterion, irregular,
+                arma_ident, outlier=0.0):
         periods = lags / np.arange(1, max(1, lags // 2) + 1)
         rhos = np.ones_like(periods)
         return _musecore.ucomp(
@@ -154,7 +162,7 @@ class PTS:
             False, criterion, periods, rhos, self.verbose, False,
             np.array([-9999.9]), bool(arma_ident), np.array([-9999.99]),
             float(lags), _TREND_OPTIONS, _SEASONAL_OPTIONS,
-            f"arma({ar},{ma})", 1, 0, -math.inf,
+            irregular, 1, 0, -math.inf,
         )
 
     def _arma_candidate(self):
@@ -378,8 +386,8 @@ class PTS:
     def _fit_structural(self, spec, y, lags, criterion):
         """Lightweight no-ARMA fit used by the order selector's Pass 1."""
         model_uc, lam = translate.pts_to_uc(spec, arma_orders=(0, 0))
-        out = self._engine(y, self._u, model_uc, lam, lags, criterion, 0, 0,
-                            arma_ident=False)
+        out = self._engine(y, self._u, model_uc, lam, lags, criterion,
+                            "arma(0,0)", arma_ident=False)
         if out.get("model") == "error":
             return None
         v = np.asarray(out["v"], dtype=float)

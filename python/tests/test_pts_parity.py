@@ -45,6 +45,9 @@ SPECS = {
     "ZZZ": dict(model="ZZZ"),
     "1LT_sel": dict(model="1LT", orders={"ar": 2, "ma": 2, "select": True}),
     "ZZZ_sel": dict(model="ZZZ", orders={"ar": 2, "ma": 2, "select": True}),
+    "1LT_sar10": dict(model="1LT", orders={"ar": [1, 1], "ma": [0, 0]}),
+    "1LT_sma01": dict(model="1LT", orders={"ar": [0, 0], "ma": [1, 1]}),
+    "1LT_smix": dict(model="1LT", orders={"ar": [1, 0], "ma": [0, 1]}),
 }
 
 TOL = 1e-6
@@ -89,8 +92,14 @@ def main():
         model_ok = m.model_label == r["model"]
         if "orders" in r:
             ro = r["orders"]
-            diffs["ar"] = abs(int(np.atleast_1d(m.orders["ar"])[0]) - int(ro["ar"]))
-            diffs["ma"] = abs(int(np.atleast_1d(m.orders["ma"])[0]) - int(ro["ma"]))
+            ar_py = np.atleast_1d(m.orders["ar"]).astype(float)
+            ma_py = np.atleast_1d(m.orders["ma"]).astype(float)
+            ar_r = np.atleast_1d(np.asarray(ro["ar"], dtype=float))
+            ma_r = np.atleast_1d(np.asarray(ro["ma"], dtype=float))
+            diffs["ar"] = (float(np.max(np.abs(ar_py - ar_r)))
+                           if ar_py.shape == ar_r.shape else np.inf)
+            diffs["ma"] = (float(np.max(np.abs(ma_py - ma_r)))
+                           if ma_py.shape == ma_r.shape else np.inf)
         cworst = max(diffs.values())
         worst = max(worst, cworst)
         ok = cworst <= TOL and model_ok
