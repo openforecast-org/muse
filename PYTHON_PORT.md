@@ -263,35 +263,108 @@ C++ binding source lives in `src/python/musecpp2py.cpp` (mirroring smooth's
 
 ## 6. Phased roadmap
 
-**Phase 0 — Engine binding spike (highest risk first).**
-Write a minimal `src/musecpp2py.cpp` exposing `UCompC("all", ...)` only.  Build
-with scikit-build-core + carma.  Goal: fit one fixed-spec model (`"1NN"` on
-AirPassengers) from Python and match R's `coef`/`logLik` to 1e-6.  This de-risks
-the entire project (toolchain, carma marshalling, LAPACK linking, RNG fallback).
+**Phase 0 — Engine binding spike (highest risk first). ✅ DONE.**
+`src/python/musecpp2py.cpp` exposes `runMuseCommand` via pybind11 (`_musecore.ucomp`),
+a field-for-field mirror of `musecpp2R.cpp`.  Outcome: **bit-exact** parity with R
+(worst abs diff 0.0e0) across 6 fixed-spec cases incl. damped trend and ARMA(1,0) —
+expected, since it is the same engine.  Findings that update the plan:
 
-**Phase 1 — Estimation path.**
-`PTS` class + `fit()` for fixed specs; `translate.py`; `io.py` index handling;
-core properties (`fitted`, `residuals`, `coef`, `vcov`, `scale`, `n_param`,
-`log_lik`, ICs).  Parity tests vs R on a CSV battery.
+- The engine's only R C-API dependency is `Rprintf` (71×, plus inside `myError`,
+  which "throws" via a deliberate Armadillo out-of-bounds access — no `Rf_error`).
+  A 7-line shim (`src/muse_compat.h`, gated on `-DMUSE_PYTHON_BUILD`) resolves it;
+  the R build is untouched.
+- One portability fix in `PTSmodel.h`: cast an arma integer-element product to
+  `int` in a `std::max` call (system Armadillo's `sword` is `long long`; the R
+  toolchain's matched `int`).  Numerically neutral.
+- carma was **not** needed for the spike — numpy↔Armadillo by copy is enough and
+  avoids a version-compat dependency (pybind11 3.0 / numpy 2.4 / Armadillo 15).
+  Revisit carma only if profiling shows the copy matters.
+- Built directly with `g++` (`python/build_spike.sh`); scikit-build-core + CMake
+  packaging is Phase 1 work.
+- Parity harness: `python/tests/dump_reference.R` emits byte-identical engine
+  inputs + R outputs to `reference.json`; `python/tests/test_engine_parity.py`
+  feeds them to the binding and asserts ≤1e-6.
 
-**Phase 2 — λ screen + selection.**
-Port `lambda_screen.py` (reuse `smooth.msdecompose`) and `selector.py`
-(PTS-then-ARMA).  Wire `model="ZZZ"` and `orders=...select=True`.  Bind
-`UCompARMAC`.  Verify λ and selected structure match R.
+**Phase 1 — Estimation path. ✅ DONE (fixed-lambda specs).**
+`PTS` class (`core/pts.py`) with `fit(y)`, `core/translate.py`
+(pts_to_uc / uc_to_pts / uc_to_arma / ic_to_engine), `core/boxcox.py`
+(inv_box_cox), and the `.pts_fit` post-processing replicated
+(`_build_comp`).  Properties: `coef`, `vcov`, `fitted`, `residuals`,
+`lambda_`, `model_label`, `nobs`, `n_param`, `log_lik`, `scale`, `sigma`,
+`comp`, and `aic`/`bic`/`aicc`/`bicc`.  Key correctness note discovered
+here: coefficients come from the engine's `out["coef"]` (natural-scale
+variances), **not** `out["p"]` (optimiser/log-ratio space) — R's `coef()`
+uses `out$coef`.
 
-**Phase 3 — Forecasting + intervals.**
-`forecaster.py` (`command="forecastOnly"`), `ForecastResult`, all interval types
-(prediction / confidence / simulated / none), `side`, `cumulative`, vector
-`level`, inverse-BC endpoint transform.  Bind greybox-Python bcnorm quantiles.
+Parity (`python/tests/test_pts_parity.py` vs `dump_pts_reference.R`, on a
+hard-coded AirPassengers shared by both sides): **12/12 specs match R to
+~1e-13** — fixed structural (1NN/1LT/1DT/1ND), lambdas 0/0.5/1, the G/td
+drift DoF (1GT), engine structural selection (1ZZ→L,T; 1ZN→N,N), and
+ARMA(1,0)/(0,1).
 
-**Phase 4 — Diagnostics, summary, accuracy, simulate, update.**
-`summary()` (coef table + variance proportions + delta-method SEs), `rstandard`,
-`rstudent`, `point_lik`, `outlierdummy`, `confint`, `accuracy` (greybox
-`measures`), `simulate`, `update`.
+Still open in this phase for later: pandas `DatetimeIndex` handling
+(`io.py`) — fit currently takes a plain array + explicit `lags`; auto-lambda
+`Z` raises `NotImplementedError` (Phase 2); `vcov` is passed through but
+not yet exercised against R.
 
-**Phase 5 — Outliers, plotting, polish.**
-`outliers="use"` path (incl. the λ-pinning workaround), `plotting.py`, docs,
-`NEWS.md`, packaging.
+**Phase 2 — λ screen + selection. ✅ DONE.**
+- `core/lambda_screen.py` (reuses Python `smooth.msdecompose`, smoother="ma").
+  Parity gotcha: block stats must be nan-aware to match R's
+  `tapply(..., na.rm=TRUE)` over the centred-MA boundary half-blocks.
+- `UCompARMAC` extracted into `musecore.h::runArmaScore` (shared core) and
+  bound as `_musecore.ucomp_arma`; the R `.UCompARMAC` now just marshals to
+  it (R golden master unchanged).
+- `core/selector.py` ports `.pts_select_pts_arma` / `.pts_select_arma_at_lag`.
+- `PTS.fit()` handles `model="ZZZ"` (screen) and `orders={...,"select":True}`.
+- Parity: **17/17 specs** match R within 1e-6 (worst 3.5e-9), incl.
+  auto-lambda (ZNN/ZLT/ZZZ) and ARMA-select (1LT_sel, ZZZ_sel).
+
+**Phase 3 — Forecasting + intervals. ✅ DONE.**
+`core/forecaster.py` + `PTS.predict()` + `ForecastResult`.  forecastOnly
+engine call (fitted natural-scale coef fed back via p0), inverse-BC mean,
+intervals by endpoint-transforming BC-scale +/- z*se (incl. the lambda<0
+truncated-normal renormalisation).  All interval types (none / prediction /
+confidence / simulated), side both/upper/lower, vector level, cumulative.
+**greybox not needed** -- R's forecast path uses base pnorm/qnorm, which
+scipy.stats.norm reproduces exactly.  Parity: 6/6 specs match R within 1e-6
+(worst 6.7e-9); simulated/cumulative smoke-tested (RNG, statistical only).
+
+**Phase 4 — Diagnostics, summary, accuracy, simulate, update. ✅ DONE.**
+`PTS.rstandard` / `rstudent` / `point_lik` / `confint` / `accuracy`
+(greybox.measures, `actual` = training series) / `simulate`
+(command="simulateInit") / `update` / `summary` (coef table + variance
+proportions).  Parity: 4/4 specs match R within 1e-6 (worst ~1e-7);
+proportions match; update == fresh fit.  Two documented non-port gaps:
+greybox-Python MPE/MAPE (percent vs fraction) + asymmetry differ from
+greybox-R (library convention, excluded from comparison); summary() does
+not yet replicate R's analytical SE patch for the concentrated variance.
+Still open: `outlierdummy`, and `outliers="use"` (Phase 5).
+
+**Phase 5 — Outliers + packaging. ✅ (plotting/pandas-io still open.)**
+- `outliers="use"` + `level` + `outlierdummy`: 3/3 parity cases match R
+  within 1e-6 (incl. auto-lambda + detection combined).  The R λ-pinning
+  workaround is unnecessary -- the screen already pins λ before the engine.
+- Packaging: `python/pyproject.toml` (scikit-build-core) +
+  `python/CMakeLists.txt` (pybind11_add_module on the shared
+  `../src/python/musecpp2py.cpp`).  `pip wheel` builds a working wheel;
+  installs + runs from site-packages with no source path.
+- pandas io (`io.py`): `PTS.fit()` accepts a pandas Series; seasonal period
+  inferred from a frequency-bearing DatetimeIndex; index carried through to
+  fitted/residuals/actuals (Series) and forecasts.  Plain arrays + explicit
+  `lags` unchanged.
+- plotting: **reuses** `smooth.adam_general.plot_adam` via a duck-typed
+  `_PlotAdapter` -- all plot types (1-7, 9, 12) render, default [1,2,4,6].
+  No reimplementation needed.
+- summary(): full parity -- concentrated-variance analytical SE
+  (|est|*sqrt(2/n)) + vcov patch + delta-method proportion SEs + G/td
+  Slope row.  5/5 specs match R to ~1e-10.
+
+### Parity coverage (all green)
+`test_engine_parity`, `test_pts_parity`, `test_forecast_parity`,
+`test_diag_parity`, `test_outlier_parity`, `test_summary_parity` -- every
+numeric output the Python front-end produces matches R within 1e-6 (most to
+machine precision).  The only intentional non-match is greybox-Python's
+MPE/MAPE/asymmetry (a greybox library convention, handled upstream).
 
 ---
 

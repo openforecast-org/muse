@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 #include <armadillo>
+#include "muse_compat.h"   // Rprintf shim under -DMUSE_PYTHON_BUILD (no-op under R)
 #include "PTSmodel.h"
 #include "bcnorm.h"   // C++ analogue of greybox::dbcnorm; not wired into
                       // estimation yet -- available for any code path that
@@ -83,20 +84,14 @@ struct MuseOutputs {
     arma::mat               covp;
     arma::vec               coef;
 
-    // filter / smooth / disturb / all
+    // innovations (part of "all").  Only `v` is consumed by the R/Python
+    // front-ends; the filtered states / smoothed disturbances the engine
+    // also computes (a, P, eps, eta, yFit, …) are not surfaced.
     bool                    hasFilter = false;
-    arma::mat               a;
-    arma::mat               P;
-    arma::mat               yFitV;   // SSinputs::F
-    arma::vec               yFit;
-    arma::vec               eps;
-    arma::mat               eta;
-    std::string             stateNamesStr;
 
     // components / all
     bool                    hasComponents = false;
     arma::mat               comp;
-    arma::mat               compV;
     int                     m = 0;
     std::string             compNames;
 
@@ -166,13 +161,11 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     inputsBSM.seasonalOptions  = in.seasonalOptions;
     inputsBSM.irregularOptions = in.irregularOptions;
 
-    // forecastOnly / simulate / lossAt: hide the user params from
-    // initParBsm (which would crash on zero / tiny variances), stash
-    // them, push them in via setEstimatedParams / lossAtRatio after
-    // construction.
-    const bool isLossAt  = (command == "lossAt");
+    // forecastOnly / simulate: hide the user params from initParBsm (which
+    // would crash on zero / tiny variances), stash them, push them in via
+    // setEstimatedParams after construction.
     const bool skipEstim = (command == "forecastOnly" || command == "simulate" ||
-                            command == "simulateInit" || isLossAt);
+                            command == "simulateInit");
     vec userParams;
     if (skipEstim){
         userParams   = in.p0;
@@ -214,9 +207,7 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     }
 
     BSMclass sysBSM(inputsSS, inputsBSM);
-    if (isLossAt){
-        sysBSM.lossAtRatio(userParams);
-    } else if (skipEstim){
+    if (skipEstim){
         sysBSM.setEstimatedParams(userParams);
     } else {
         sysBSM.estim(inputsSS.verbose);
@@ -238,18 +229,8 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     }
     inputs  = sysBSM.SSmodel::getInputs();
     inputs2 = sysBSM.getInputs();
-
-    // Cycle bookkeeping.
-    if (inputs2.cycle[0] != 'n' && inputs2.cycle != "?"){
-        string model1 = inputs2.model, cycle = inputs2.cycle, cycle0 = inputs2.cycle0;
-        vec periods = inputs2.periods, rhos = inputs2.rhos;
-        modelCorrect(in.model, cycle, inputsBSM.cycle0, periods, rhos);
-        inputs2.model = model1; inputs2.cycle = cycle; inputs2.cycle0 = cycle0;
-        inputs2.periods = periods; inputs2.rhos = rhos;
-        sysBSM.setInputs(inputs2);
-    }
-    inputs  = sysBSM.SSmodel::getInputs();
-    inputs2 = sysBSM.getInputs();
+    // (PTS never uses stochastic cycles: the cycle slot is always "none",
+    // so the old cycle-string correction step here was unreachable.)
     if (!inputs2.succeed){
         out.isError = true;
         return;
@@ -272,8 +253,8 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     out.ns       = static_cast<int>(sum(inputs2.ns));
     out.criteria = inputs.criteria;
 
-    // -- validate / all --
-    if (command == "validate" || command == "all"){
+    // -- validate (runs as part of "all") --
+    if (command == "all"){
         sysBSM.validate(false);
         inputs  = sysBSM.SSmodel::getInputs();
         inputs2 = sysBSM.getInputs();
@@ -287,57 +268,35 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         out.typeOutliers = inputs2.typeOutliers;
     }
 
-    // -- filter / smooth / disturb / all --
-    if (command == "filter" || command == "smooth" || command == "disturb" || command == "all"){
-        if (command != "all")
-            sysBSM.validate(false);
-        if      (command == "filter")  sysBSM.filter();
-        else if (command == "smooth")  sysBSM.smooth(false);
-        else if (command == "disturb") sysBSM.disturb();
-
+    // -- innovations (part of "all") --
+    // Only `v` is consumed downstream (R derives residuals from it); the
+    // missing-value masking below is the reason this block is kept separate
+    // from the components extraction.
+    if (command == "all"){
         inputs  = sysBSM.SSmodel::getInputs();
-        inputs2 = sysBSM.getInputs();
-        string statesN = stateNames(inputs2);
-        if (command == "disturb"){
-            uvec missing = find_nonfinite(inputs.y);
-            inputs.eta.cols(missing).fill(datum::nan);
-            inputs2.eps(missing).fill(datum::nan);
-        }
-        if (iniObs > 0 && command != "disturb"){
+        if (iniObs > 0){
             uvec missing = find_nonfinite(inputs.y.rows(0, iniObs));
             mat P = inputs.P.cols(0, iniObs);
             sysBSM.interpolate(iniObs);
-            if      (command == "filter") sysBSM.filter();
-            else if (command == "smooth") sysBSM.smooth(false);
             inputs = sysBSM.SSmodel::getInputs();
             inputs.P.cols(0, iniObs) = P;
             inputs.v(missing).fill(datum::nan);
         }
-        out.hasFilter     = true;
-        out.a             = inputs.a;
-        out.P             = inputs.P;
-        out.v             = inputs.v;
-        out.ns            = static_cast<int>(sum(inputs2.ns));
-        out.yFitV         = inputs.F;
-        out.yFit          = inputs.yFit;
-        out.eps           = inputs2.eps;
-        out.eta           = inputs.eta;
-        out.stateNamesStr = statesN;
+        out.hasFilter = true;
+        out.v         = inputs.v;
     }
 
-    // -- components / all --
-    if (command == "components" || command == "all"){
+    // -- components (part of "all") --
+    if (command == "all"){
         sysBSM.components();
         inputs2 = sysBSM.getInputs();
         string compNames = inputs2.compNames;
         if (iniObs > 0){
             inputs = sysBSM.SSmodel::getInputs();
             uvec missing = find_nonfinite(inputs.y.rows(0, iniObs));
-            mat P = inputs2.compV.cols(0, iniObs);
             sysBSM.interpolate(iniObs);
             sysBSM.components();
             inputs2 = sysBSM.getInputs();
-            inputs2.compV.cols(0, iniObs) = P;
             uvec rowI(1); rowI(0) = 0;
             if (compNames.find("Level")    != string::npos) rowI++;
             if (compNames.find("Slope")    != string::npos) rowI++;
@@ -348,7 +307,6 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         }
         out.hasComponents = true;
         out.comp      = inputs2.comp;
-        out.compV     = inputs2.compV;
         out.m         = static_cast<int>(inputs2.comp.n_rows);
         out.compNames = compNames;
     }
@@ -417,6 +375,157 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         out.simPaths = invBoxCoxMat(paths, inputs2.lambda);
         out.hasSimulate = true;
     }
+}
+
+// ---------------------------------------------------------------------------
+// runArmaScore: standalone ARMA / SARMA fitter on a residual vector, shared by
+// both front-ends (the R `.UCompARMAC` and the Python `ucomp_arma`).  Used by
+// the PTS-then-ARMA order selector to score each (p, q)(P, Q) candidate by IC.
+// Plain Armadillo I/O, no R / Python types -- the binding layers only marshal.
+struct ArmaScoreOutput {
+    bool        succeed = false;
+    double      logLik = arma::datum::nan;
+    double      AIC = arma::datum::nan, AICc = arma::datum::nan;
+    double      BIC = arma::datum::nan, BICc = arma::datum::nan;
+    double      sigma2 = arma::datum::nan;
+    arma::vec   coef;        // AR blocks concatenated, then MA blocks (natural)
+    arma::vec   residuals;   // one-step-ahead innovations
+};
+
+inline void runArmaScore(arma::vec y, arma::ivec arOrders, arma::ivec maOrders,
+                         arma::ivec armaLags, ArmaScoreOutput& out){
+    using namespace arma;
+
+    int arFree = (arOrders.n_elem > 0) ? (int)sum(arOrders) : 0;
+    int maFree = (maOrders.n_elem > 0) ? (int)sum(maOrders) : 0;
+    if (arFree < 0) arFree = 0;
+    if (maFree < 0) maFree = 0;
+
+    uvec ok = find_finite(y);
+    vec yClean = y(ok);
+    if (yClean.n_elem < (uword)std::max(4, arFree + maFree + 2)){
+        out.succeed = false;
+        return;
+    }
+    int n_finite = (int)yClean.n_elem;
+
+    SSinputs ssIn;
+    ssIn.y          = yClean;
+    ssIn.y_raw      = yClean;
+    ssIn.lambda     = 1.0;
+    ssIn.u          = mat(0, yClean.n_elem);
+    ssIn.cLlik      = true;
+    ssIn.augmented  = false;
+    ssIn.exact      = (arFree == 0);
+    ssIn.h          = 0;
+    ssIn.verbose    = false;
+    ssIn.userInputs = nullptr;
+    ssIn.estimateLambda = false;
+
+    if (arFree == 0 && maFree == 0){
+        double sigma2 = var(yClean, 1);
+        double LL = -0.5 * n_finite *
+                    (std::log(2.0 * datum::pi) + std::log(sigma2) + 1.0);
+        int k = 1;
+        out.logLik = LL;
+        out.AIC  = -2.0 * LL + 2.0 * k;
+        out.BIC  = -2.0 * LL + std::log((double)n_finite) * k;
+        out.AICc = out.AIC + (2.0 * k * (k + 1)) / std::max(1, n_finite - k - 1);
+        out.BICc = out.BIC + (std::log((double)n_finite) * k * (k + 1)) /
+                             std::max(1, n_finite - k - 1);
+        out.sigma2 = sigma2;
+        out.residuals = yClean - mean(yClean);
+        out.coef = vec();
+        out.succeed = true;
+        return;
+    }
+
+    int maxLag = 0;
+    for (uword b = 0; b < arOrders.n_elem; ++b)
+        maxLag = std::max(maxLag, static_cast<int>(arOrders(b) * armaLags(b)));
+    for (uword b = 0; b < maOrders.n_elem; ++b)
+        maxLag = std::max(maxLag, static_cast<int>(maOrders(b) * armaLags(b)));
+    vec pacf = (maxLag > 0) ? sampleYWpacf(yClean, maxLag) : vec();
+    vec acf  = (maxLag > 0) ? sampleACF (yClean, maxLag) : vec();
+    auto clampSeed = [](double v, double fb){
+        if (!std::isfinite(v)) return fb;
+        if (v >  0.85) return  0.85;
+        if (v < -0.85) return -0.85;
+        return v;
+    };
+
+    vec p0(arFree + maFree + 1, fill::zeros);
+    p0(0) = -1.0;
+    uword pos = 1;
+    for (uword b = 0; b < arOrders.n_elem; ++b){
+        int pi = arOrders(b), Li = armaLags(b);
+        for (int j = 0; j < pi; ++j){
+            int lagIdx = (j + 1) * Li;
+            double seed = (lagIdx <= (int)pacf.n_elem) ? pacf(lagIdx - 1) : 0.1;
+            p0(pos++) = clampSeed(seed, 0.1);
+        }
+    }
+    uword maStart = pos;
+    for (uword b = 0; b < maOrders.n_elem; ++b){
+        int qi = maOrders(b), Li = armaLags(b);
+        for (int j = 0; j < qi; ++j){
+            int lagIdx = (j + 1) * Li;
+            double seed = (lagIdx <= (int)acf.n_elem) ? acf(lagIdx - 1) : -0.1;
+            p0(pos++) = clampSeed(seed, -0.1);
+        }
+    }
+    if (arOrders.n_elem > 0 && maOrders.n_elem > 0 &&
+        arOrders(0) > 0 && maOrders(0) > 0){
+        double a = p0(1), m = p0(maStart);
+        if (std::abs(a - m) < 0.1){
+            double offset = (m > 0.0) ? -0.2 : 0.2;
+            p0(maStart) = clampSeed(m + offset, -0.1);
+        }
+    }
+
+    ARMAmodel sys(ssIn, arOrders, maOrders, armaLags);
+    SSinputs sysIn = sys.SSmodel::getInputs();
+    sysIn.llikFUN = llik;
+    sysIn.p0      = p0;
+    sys.SSmodel::setInputs(sysIn);
+    sys.SSmodel::estim();
+
+    SSinputs sysOut = sys.SSmodel::getInputs();
+    vec criteria = sysOut.criteria;   // {LLIK, AIC, BIC, AICc, BICc}
+    if (criteria.n_elem < 5){
+        out.succeed = false;
+        return;
+    }
+    out.logLik = criteria(0);
+    out.AIC    = criteria(1);
+    out.BIC    = criteria(2);
+    out.AICc   = criteria(3);
+    out.BICc   = criteria(4);
+
+    vec coef(arFree + maFree);
+    {
+        uword pIn = 1, pOut = 0;
+        for (uword b = 0; b < arOrders.n_elem; ++b){
+            int pi = arOrders(b);
+            if (pi == 0) continue;
+            vec block = sysOut.p.rows(pIn, pIn + pi - 1);
+            polyStationary(block);
+            for (int j = 0; j < pi; ++j) coef(pOut++) = -block(j);
+            pIn += pi;
+        }
+        for (uword b = 0; b < maOrders.n_elem; ++b){
+            int qi = maOrders(b);
+            if (qi == 0) continue;
+            vec block = sysOut.p.rows(pIn, pIn + qi - 1);
+            polyStationary(block);
+            for (int j = 0; j < qi; ++j) coef(pOut++) = block(j);
+            pIn += qi;
+        }
+    }
+    out.coef      = coef;
+    out.sigma2    = sysOut.innVariance;
+    out.residuals = sysOut.v;
+    out.succeed   = std::isfinite(out.logLik);
 }
 
 #endif // MUSE_CORE_H

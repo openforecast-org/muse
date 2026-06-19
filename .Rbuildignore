@@ -13,3 +13,6 @@ man-roxygen
 ^LICENSE$
 ^.*\.txt$
 ^\.claude-docker$
+tools/
+^python$
+^src/python$

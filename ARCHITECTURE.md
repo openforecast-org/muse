@@ -37,7 +37,6 @@ muse/
 │   ├── PTSmodel.h                 # BSMclass (the PTS engine): ~3700 lines
 │   ├── SSpace.h                   # SSmodel base: Kalman filter / smoother
 │   ├── ARMAmodel.h                # ARMA irregular component
-│   ├── ARIMASSmodel.h             # Included but unused (dead code)
 │   ├── boxcox.h                   # BoxCox / invBoxCox / testBoxCox
 │   ├── bcnorm.h                   # bcnormBoxCox / bcnormLogJac (BC-normal density)
 │   ├── optim.h                    # Quasi-Newton optimiser (BFGS-style)
