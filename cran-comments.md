@@ -1,3 +1,10 @@
+---
+title: "Cran Comments"
+author: "Ivan Svetunkov"
+date: "21 June 2026"
+output: html_document
+---
+
 ## Submission
 
 This is the initial CRAN submission of `muse` (version 0.1.0).
@@ -26,6 +33,21 @@ Remaining NOTEs:
   size is the compiled engine itself.
 
 All examples, tests, and vignettes run successfully.
+
+## Github actions
+Successful checks for:
+
+- Windows latest release with latest R
+- MacOS 15.7.3 with latest R
+- Ubuntu 24.04.4 LTS with latest R
+
+## R-hub
+Successful checks for:
+
+- Windows Server 2022 x64 (build 26100), R 4.5.0
+- MacOS macOS Sequoia 15.7.7, R 4.5.0
+- Ubuntu 24.04.4 LTS, R 4.5.0
+
 
 ## Downstream dependencies
 
