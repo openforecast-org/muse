@@ -71,7 +71,9 @@ inline double bcnormLogJac(double y, double lambda){
 // -----------------------------------------------------------------------
 inline double bcnormLogDensityScalar(double y_raw, double mu,
                                       double sigma, double lambda){
-    static const double LN_SQRT_2PI = 0.5 * std::log(2.0 * M_PI);
+    // arma::datum::pi rather than M_PI: the latter is not defined by MSVC's
+    // <cmath> unless _USE_MATH_DEFINES is set before the include.
+    static const double LN_SQRT_2PI = 0.5 * std::log(2.0 * arma::datum::pi);
 
     if (y_raw <= 0.0 || !std::isfinite(y_raw) ||
         !std::isfinite(mu) || sigma <= 0.0)
