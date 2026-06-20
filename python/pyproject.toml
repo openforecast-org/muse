@@ -10,7 +10,7 @@ name = "py-muse"
 version = "0.1.0"
 description = "Power / Trend / Seasonal (PTS) multiple-source-of-error state-space models"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Ivan Svetunkov", email = "ivan@svetunkov.com" }]
 license = { text = "LGPL-2.1" }
 keywords = ["forecasting", "time-series", "state-space", "box-cox", "PTS"]
@@ -64,6 +64,6 @@ select = ["E", "F", "W", "I", "B", "UP"]
 "tests/*" = ["E501"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 ignore_missing_imports = true
 files = ["src/muse"]
