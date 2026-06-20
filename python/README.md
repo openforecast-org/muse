@@ -1,6 +1,6 @@
 # muse
 
-[![Python versions](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Python versions](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Python CI](https://github.com/config-i1/muse/actions/workflows/python-check.yaml/badge.svg)](https://github.com/config-i1/muse/actions/workflows/python-check.yaml)
 [![License: LGPL-2.1](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html)
 

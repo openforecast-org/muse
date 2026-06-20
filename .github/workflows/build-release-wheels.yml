@@ -34,18 +34,18 @@ jobs:
         # (GitHub expressions have no replace(), so the `*` glob cannot
         # appear in artifact names).
         include:
-          - { os: ubuntu-latest,  cibw-build: 'cp310-manylinux*', tag: 'cp310-linux' }
           - { os: ubuntu-latest,  cibw-build: 'cp311-manylinux*', tag: 'cp311-linux' }
           - { os: ubuntu-latest,  cibw-build: 'cp312-manylinux*', tag: 'cp312-linux' }
           - { os: ubuntu-latest,  cibw-build: 'cp313-manylinux*', tag: 'cp313-linux' }
-          - { os: macos-latest,   cibw-build: 'cp310-macosx*',    tag: 'cp310-macos' }
+          - { os: ubuntu-latest,  cibw-build: 'cp314-manylinux*', tag: 'cp314-linux' }
           - { os: macos-latest,   cibw-build: 'cp311-macosx*',    tag: 'cp311-macos' }
           - { os: macos-latest,   cibw-build: 'cp312-macosx*',    tag: 'cp312-macos' }
           - { os: macos-latest,   cibw-build: 'cp313-macosx*',    tag: 'cp313-macos' }
-          - { os: windows-latest, cibw-build: 'cp310-win_amd64',  tag: 'cp310-win' }
+          - { os: macos-latest,   cibw-build: 'cp314-macosx*',    tag: 'cp314-macos' }
           - { os: windows-latest, cibw-build: 'cp311-win_amd64',  tag: 'cp311-win' }
           - { os: windows-latest, cibw-build: 'cp312-win_amd64',  tag: 'cp312-win' }
           - { os: windows-latest, cibw-build: 'cp313-win_amd64',  tag: 'cp313-win' }
+          - { os: windows-latest, cibw-build: 'cp314-win_amd64',  tag: 'cp314-win' }
 
     steps:
       - uses: actions/checkout@v5
