@@ -25,7 +25,10 @@ specs <- list(
     # SARMA: ar/ma vectors, seasonal lag from the top-level lags (=12)
     list(name = "1LT_sar10", model = "1LT", ar = c(1, 1), ma = c(0, 0)),
     list(name = "1LT_sma01", model = "1LT", ar = c(0, 0), ma = c(1, 1)),
-    list(name = "1LT_smix",  model = "1LT", ar = c(1, 0), ma = c(0, 1))
+    list(name = "1LT_smix",  model = "1LT", ar = c(1, 0), ma = c(0, 1)),
+    # missing values: the screen + engine must handle gaps; positions
+    # (1-based) match NA_POS in test_pts_parity.py (0-based 40,41,42).
+    list(name = "ZZZ_na", model = "ZZZ", na = c(41, 42, 43))
 )
 
 y <- as.numeric(AirPassengers)
@@ -34,7 +37,11 @@ for (sp in specs) {
     ord <- list(ar = if (is.null(sp$ar)) 0 else sp$ar,
                 ma = if (is.null(sp$ma)) 0 else sp$ma,
                 select = isTRUE(sp$select))
-    m <- pts(y, model = sp$model, lags = 12, h = 0, orders = ord)
+    yi <- y
+    # NB: use [["na"]] (exact), not $na -- $ partial-matches "name" for specs
+    # with no na field, which would index yi by the model string and append.
+    if (!is.null(sp[["na"]])) yi[sp[["na"]]] <- NA
+    m <- pts(yi, model = sp$model, lags = 12, h = 0, orders = ord)
     out[[sp$name]] <- list(
         model    = m$model,
         lambda   = m$lambda,
@@ -54,5 +61,5 @@ for (sp in specs) {
     )
 }
 jsonlite::write_json(out, "pts_reference.json", auto_unbox = TRUE,
-                     digits = 16, null = "null")
+                     digits = 16, null = "null", na = "null")
 cat("Wrote pts_reference.json with", length(out), "cases\n")

@@ -1,6 +1,6 @@
 name: Build release wheels
 
-# Builds release-quality Python wheels (muse-py) and stages them on a
+# Builds release-quality Python wheels (py-muse) and stages them on a
 # **draft** GitHub release.  Run manually; this workflow does NOT publish to
 # PyPI and does NOT create a git tag.  The draft release is the staging area:
 # re-running with the same `tag` replaces the draft's assets in place, so a
@@ -176,7 +176,7 @@ jobs:
             ## Installation
 
             ```bash
-            pip install muse-py     # imported as `muse`
+            pip install py-muse     # imported as `muse`
             ```
 
             ## Verification

@@ -9,9 +9,9 @@ name: Publish release to PyPI
 #   3. That creates the git tag and fires the `release: published` event
 #      that runs this workflow.
 #   4. This workflow downloads the just-attached assets and uploads them to
-#      PyPI (muse-py) with PEP 740 attestations.
+#      PyPI (py-muse) with PEP 740 attestations.
 #
-# Publishing uses PyPI Trusted Publishing -- configure the `muse-py` project
+# Publishing uses PyPI Trusted Publishing -- configure the `py-muse` project
 # on PyPI to trust this repo + the `pypi` environment (no API token needed).
 on:
   release:
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/muse-py
+      url: https://pypi.org/p/py-muse
     permissions:
       id-token: write       # trusted publishing
       attestations: write   # PEP 740 / Sigstore attestations

@@ -2,16 +2,10 @@ name: python-check
 
 on:
   pull_request:
-    branches: [main, master, python]
+    branches: [main, master]
     # Only run when Python-relevant code changes.  The Python build compiles
     # the shared C++ engine in src/ (plus src/python/musecpp2py.cpp), so any
     # src/ change triggers this check too.
-    paths:
-      - 'python/**'
-      - 'src/**'
-      - '.github/workflows/python-check.yaml'
-  push:
-    branches: [python]
     paths:
       - 'python/**'
       - 'src/**'
@@ -33,6 +27,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          # Cache the pip download/wheel cache (numpy/scipy/pandas etc.),
+          # keyed on the dependency declarations in pyproject.toml.
+          cache: pip
+          cache-dependency-path: python/pyproject.toml
 
       # The pybind11 binding compiles the shared C++ engine (../src), which
       # uses Armadillo header-only + LAPACK/BLAS at link time.
@@ -41,14 +39,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libarmadillo-dev liblapack-dev libblas-dev
 
+      # Compiler cache for the Armadillo-heavy engine.  scikit-build-core uses
+      # a fresh build dir each run, so CMake's incremental build can't persist;
+      # ccache caches at the object level (keyed on preprocessed source) and
+      # survives across runs, turning the rebuild into near-instant cache hits.
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-py-ccache
+
       # Builds _musecore via scikit-build-core + CMake and installs muse.
+      # CMAKE_CXX_COMPILER_LAUNCHER=ccache routes every compile through ccache.
       # smooth / greybox are NOT installed: the auto-lambda + accuracy tests
       # skip cleanly, so engine-only functionality is exercised without the
       # sibling (non-PyPI) packages.
-      - name: Install muse + tooling
+      - name: Install muse (ccache-accelerated C++ build)
         run: |
           python -m pip install --upgrade pip
-          pip install . pytest ruff mypy
+          pip install . --config-settings=cmake.define.CMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Install test tooling
+        run: pip install pytest ruff mypy
 
       - name: Lint (ruff)
         run: ruff check .

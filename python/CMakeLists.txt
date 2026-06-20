@@ -16,6 +16,27 @@ pybind11_add_module(_musecore "${MUSE_SRC}/python/musecpp2py.cpp")
 target_include_directories(_musecore PRIVATE "${MUSE_SRC}")
 target_compile_definitions(_musecore PRIVATE MUSE_PYTHON_BUILD ARMA_DONT_USE_WRAPPER)
 
+# Homebrew installs Armadillo's headers outside the compiler's default search
+# path (/opt/homebrew on Apple Silicon, /usr/local on Intel), so <armadillo>
+# is not found out of the box on macOS.  Add Homebrew's prefix.  (On Linux the
+# Debian/EPEL packages land in /usr/include, already on the default path.)
+if(APPLE)
+  find_program(BREW_EXECUTABLE brew)
+  if(BREW_EXECUTABLE)
+    execute_process(COMMAND ${BREW_EXECUTABLE} --prefix
+                    OUTPUT_VARIABLE HOMEBREW_PREFIX
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_QUIET)
+  endif()
+  foreach(prefix "${HOMEBREW_PREFIX}" "/opt/homebrew" "/usr/local")
+    if(EXISTS "${prefix}/include/armadillo")
+      message(STATUS "Found Armadillo headers under ${prefix}/include")
+      target_include_directories(_musecore PRIVATE "${prefix}/include")
+      break()
+    endif()
+  endforeach()
+endif()
+
 # Armadillo is used header-only (system <armadillo>); it needs LAPACK + BLAS
 # at link time (same as the R package's src/Makevars).
 find_package(BLAS)

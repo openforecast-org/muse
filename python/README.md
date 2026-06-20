@@ -29,11 +29,11 @@ Currently, the package only implements the PTS model, which is a multiple-source
 
 ## Installation
 
-The distribution is named **`muse-py`** on PyPI (the name `muse` was taken), but
+The distribution is named **`py-muse`** on PyPI (the name `muse` was taken), but
 it is imported as **`muse`**:
 
 ```bash
-pip install muse-py
+pip install py-muse
 ```
 ```python
 from muse import PTS

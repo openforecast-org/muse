@@ -20,7 +20,12 @@ def _nansd1(x):
 
 def guerrero_decomp_lambda(y, lags, lower: float = 0.0, upper: float = 2.0) -> float:
     y = np.asarray(y, dtype=float).ravel()
-    if not np.all(np.isfinite(y)) or np.any(y <= 0):
+    # Disqualify only on a Box-Cox domain violation (non-positive values).
+    # NaN / NA are missing data, not a domain problem: msdecompose imputes
+    # them and the block stats below are nan-aware, so the screen runs
+    # normally on series with gaps.
+    fin = y[np.isfinite(y)]
+    if fin.size < 4 or np.any(fin <= 0):
         return 1.0
     m = int(np.atleast_1d(lags)[-1])
     if m < 2:

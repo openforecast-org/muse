@@ -48,29 +48,52 @@ SPECS = {
     "1LT_sar10": dict(model="1LT", orders={"ar": [1, 1], "ma": [0, 0]}),
     "1LT_sma01": dict(model="1LT", orders={"ar": [0, 0], "ma": [1, 1]}),
     "1LT_smix": dict(model="1LT", orders={"ar": [1, 0], "ma": [0, 1]}),
+    "ZZZ_na": dict(model="ZZZ"),
 }
 
+# Specs whose data carries missing values (0-based positions); must match the
+# 1-based `na` positions in dump_pts_reference.R.
+NA_POS = {"ZZZ_na": [40, 41, 42]}
+
 TOL = 1e-6
+
+
+def _to_float_array(x):
+    # R/jsonlite encodes NA as JSON null -> Python None; map to nan.
+    return np.array([np.nan if (v is None or v == "NA") else float(v)
+                     for v in np.atleast_1d(x)], dtype=float)
+
+
+def vdiff(a, b):
+    """Max abs diff over aligned positions; NaN positions must agree on both
+    sides (else inf).  Handles fitted/residuals on missing-value series."""
+    a = np.atleast_1d(np.asarray(a, dtype=float))
+    b = _to_float_array(b)
+    if a.size != b.size:
+        return np.inf
+    if np.any(np.isfinite(a) != np.isfinite(b)):
+        return np.inf
+    mask = np.isfinite(a) & np.isfinite(b)
+    return float(np.max(np.abs(a[mask] - b[mask]))) if mask.any() else 0.0
 
 
 def main():
     with open(os.path.join(HERE, "pts_reference.json")) as fh:
         ref = json.load(fh)
 
-    y = np.array(AIR, dtype=float)
+    y0 = np.array(AIR, dtype=float)
     worst = 0.0
     n_ok = 0
     for name, kw in SPECS.items():
         r = ref[name]
+        y = y0.copy()
+        if name in NA_POS:
+            y[NA_POS[name]] = np.nan
         m = PTS(lags=12, **kw).fit(y)
 
         diffs = {}
         diffs["lambda"] = abs(m.lambda_ - float(r["lambda"]))
-        cp = m.coef_values
-        cr = np.atleast_1d(np.asarray(r["coef"], dtype=float))
-        diffs["coef"] = (
-            float(np.max(np.abs(cp - cr))) if cp.shape == cr.shape else np.inf
-        )
+        diffs["coef"] = vdiff(m.coef_values, r["coef"])
         for key, val in [
             ("logLik", m.log_lik), ("AIC", m.aic), ("BIC", m.bic),
             ("AICc", m.aicc), ("BICc", m.bicc), ("sigma", m.sigma),
@@ -78,16 +101,8 @@ def main():
             diffs[key] = abs(val - float(r[key]))
         diffs["nParam"] = abs(m.n_param - int(r["nParam"]))
         diffs["nobs"] = abs(m.nobs - int(r["nobs"]))
-        fp = np.asarray(m.fitted, dtype=float)
-        fr = np.atleast_1d(np.asarray(r["fitted"], dtype=float))
-        diffs["fitted"] = (
-            float(np.max(np.abs(fp - fr))) if fp.shape == fr.shape else np.inf
-        )
-        rp = np.asarray(m.residuals, dtype=float)
-        rr = np.atleast_1d(np.asarray(r["residuals"], dtype=float))
-        diffs["residuals"] = (
-            float(np.max(np.abs(rp - rr))) if rp.shape == rr.shape else np.inf
-        )
+        diffs["fitted"] = vdiff(m.fitted, r["fitted"])
+        diffs["residuals"] = vdiff(m.residuals, r["residuals"])
 
         model_ok = m.model_label == r["model"]
         if "orders" in r:
