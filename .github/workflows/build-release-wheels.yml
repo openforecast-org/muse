@@ -50,12 +50,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Cache vcpkg installed ports (Windows)
+      # Cache the pre-built OpenBLAS install tree on Windows.  The download +
+      # extract in CIBW_BEFORE_ALL_WINDOWS is ~30-60s; a cache hit makes it a
+      # no-op.  Keyed on the OpenBLAS version so a bump invalidates the cache.
+      - name: Cache OpenBLAS (Windows)
         if: runner.os == 'Windows'
         uses: actions/cache@v4
         with:
-          path: C:/vcpkg/installed
-          key: vcpkg-armadillo-openblas-lapack-x64-windows-release-v1
+          path: C:\openblas
+          key: openblas-windows-0.3.33
 
       - name: Cache cibuildwheel
         uses: actions/cache@v4
@@ -89,12 +92,29 @@ jobs:
           # macOS: brew's armadillo pulls in OpenBLAS (which ships LAPACK).
           CIBW_BEFORE_ALL_MACOS: brew install armadillo openblas
 
-          # Windows: vcpkg ports.  Armadillo + OpenBLAS + LAPACK reference;
-          # delvewheel bundles the DLLs into the wheel.
-          CIBW_BEFORE_ALL_WINDOWS: vcpkg install armadillo:x64-windows-release openblas:x64-windows-release lapack:x64-windows-release
+          # Windows: download the OpenMathLib pre-built OpenBLAS zip (LAPACK is
+          # bundled in libopenblas.dll, no Fortran compiler needed at build
+          # time).  This replaces the vcpkg openblas + lapack-reference chain,
+          # which fails to build under vcpkg-gfortran / LLVMFlang.  Armadillo
+          # headers are fetched by CMakeLists (no system Armadillo on Windows).
+          # The cache step above restores C:\openblas, so BEFORE_ALL is
+          # idempotent: re-running mkdir on a restored cache would error, hence
+          # the `if exist ... else (download)` guard (cmd.exe resolves it on a
+          # single line, joined by the `>` folded scalar).  CMakeLists picks up
+          # the tree via OPENBLAS_HOME; delvewheel bundles libopenblas.dll and
+          # its MinGW runtime DLLs into the wheel.
+          CIBW_BEFORE_ALL_WINDOWS: >
+            if exist C:\openblas\lib\libopenblas.dll.a
+            (echo OpenBLAS cache hit) else
+            (curl -L -o C:/openblas.zip
+            https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.33/OpenBLAS-0.3.33-x64.zip
+            && mkdir C:\openblas
+            && tar -xf C:/openblas.zip -C C:/openblas)
           CIBW_BEFORE_BUILD_WINDOWS: pip install delvewheel
-          CIBW_ENVIRONMENT_WINDOWS: CMAKE_ARGS="-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-release"
-          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: delvewheel repair -w {dest_dir} {wheel} --add-path C:/vcpkg/installed/x64-windows-release/bin
+          CIBW_ENVIRONMENT_WINDOWS: >
+            CMAKE_ARGS="-DOPENBLAS_HOME=C:/openblas"
+            OPENBLAS_HOME=C:/openblas
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: delvewheel repair -w {dest_dir} {wheel} --add-path C:/openblas/bin
 
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
 
