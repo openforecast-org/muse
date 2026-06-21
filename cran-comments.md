@@ -1,9 +1,13 @@
 ---
 title: "Cran Comments"
 author: "Ivan Svetunkov"
-date: "21 June 2026"
+date: "22 June 2026"
 output: html_document
 ---
+
+## Update
+
+The title is updated as asked.
 
 ## Submission
 
