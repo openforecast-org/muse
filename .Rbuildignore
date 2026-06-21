@@ -24,3 +24,4 @@ tools/
 ^\.RData$
 ^\.Rhistory$
 ^cran-comments\.md$
+^CRAN-SUBMISSION$
