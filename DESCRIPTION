@@ -1,7 +1,7 @@
 Package: muse
 Type: Package
 Title: Multiple Unobserved Sources of Error State Space Models
-Version: 0.1.1.41001
+Version: 0.1.0
 Date: 2026-06-22
 Authors@R: c(person("Diego J.", "Pedregal", role = c("aut", "ctb"),
                      email = "Diego.Pedregal@uclm.es",

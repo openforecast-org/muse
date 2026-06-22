@@ -139,6 +139,19 @@ class PTS:
             "ma": ma_v[0] if len(arma_lags) == 1 else ma_v,
             "lags": arma_lags, "select": user_select,
         }
+
+        # Decoupled forecast cache: one forecastOnly pass populates the
+        # absolute-scale terminal state (final state, covariance, innovation
+        # variance, and the augmented-KF state for xreg) so predict() reuses it
+        # without re-filtering the whole series.  Mirrors the R orchestration.
+        self._aEnd = self._PEnd = self._betaAug = None
+        self._innVar = -1.0
+        fc = self._forecast_engine(int(self.h))
+        if "aEnd" in fc:
+            self._aEnd = np.asarray(fc["aEnd"], dtype=float)
+            self._PEnd = np.asarray(fc["PEnd"], dtype=float)
+            self._innVar = float(fc["innVar"])
+            self._betaAug = np.asarray(fc["betaAug"], dtype=float)
         return self
 
     # ---- engine helpers -------------------------------------------------
@@ -176,16 +189,28 @@ class PTS:
 
     def _forecast_engine(self, h):
         """forecastOnly: feed the fitted natural-scale coef back in and
-        propagate h steps.  Mirrors .pts_forecast_inputs + forecastOnly."""
+        propagate h steps.  Mirrors .pts_forecast_inputs + forecastOnly.
+
+        When the terminal-state cache (populated at fit time) is available,
+        it is passed back so the engine reuses it instead of re-filtering the
+        whole series -- O(h) instead of O(n*m^3)."""
         periods = np.asarray(self._lags_all, dtype=float)
         rhos = np.ones_like(periods)
         u = np.zeros((1, 2), dtype=float)
+        aEnd = getattr(self, "_aEnd", None)
+        cached = aEnd is not None and np.asarray(aEnd).size > 0
         return _musecore.ucomp(
             "forecastOnly", self._y_train, u, self._model_uc, int(h),
             float(self._lambda), 0.0, False, "aic", periods, rhos, False,
             False, np.asarray(self._p, dtype=float), False,
             np.array([-9999.99]), float(self._lags), _TREND_OPTIONS,
             _SEASONAL_OPTIONS, self._arma_candidate(), 1, 0, -math.inf,
+            np.asarray(aEnd, dtype=float) if cached else np.zeros(0),
+            np.asarray(getattr(self, "_PEnd", None), dtype=float)
+                if cached else np.zeros((0, 0)),
+            float(getattr(self, "_innVar", -1.0)) if cached else -1.0,
+            np.asarray(getattr(self, "_betaAug", None), dtype=float)
+                if cached else np.zeros(0),
         )
 
     def _forecast_paths(self, h, nsim, seed):

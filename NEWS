@@ -1,6 +1,19 @@
 muse v0.1.0
 =======
 
+* Decoupled fit and forecast.  A fitted `pts` object now caches the
+  terminal state (final state, its covariance, the innovation variance,
+  and the augmented-KF state for regressor models), so `forecast()` /
+  `predict()` reuse it instead of re-filtering the whole series on every
+  call -- O(h) instead of O(n*m^3).  Forecasting a high-lag model is now
+  effectively instant after the fit (~9x faster even at modest lags, more
+  at high lags), and works the same way with explanatory variables.
+  This also fixes a latent inconsistency: `pts()$forecast` and
+  `forecast(pts(...))` previously disagreed slightly (the in-fit forecast
+  used the estimation-device concentrated state; the forecast method
+  re-filtered in absolute scale).  They are now identical, and holdout
+  accuracy uses the same canonical forecast.
+
 * `pts()` auto-lambda screen replaced.  The previous Brent-on-LT-AIC
   search (which fitted ~20 proxy state-space models per series) is
   now a single classical decomposition + Guerrero coefficient-of-
