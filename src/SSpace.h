@@ -3,6 +3,14 @@
  Needs Armadillo and many others
 ***************************************/
 #include "bcnorm.h"
+// === TEMP Phase-1 profiling accumulators (remove after diagnosis) ===
+static double g_tLlik=0, g_tGrad=0, g_tStat=0, g_tDlyap=0, g_tKFinit=0;
+static long   g_nLlik=0, g_nGrad=0, g_nKFinit=0;
+struct ScopeTimer {
+  arma::wall_clock w; double& acc; long* cnt;
+  ScopeTimer(double& a, long* c=nullptr): acc(a), cnt(c){ w.tic(); }
+  ~ScopeTimer(){ acc += w.toc(); if(cnt) (*cnt)++; }
+};
 /***************************************************
   * Data structures
 ****************************************************/
@@ -407,6 +415,7 @@ void SSmodel::validate(bool estimateHess, double nPar){
  ************************************************************/
 // Initializing Kalman Filter
 void KFinit(mat& T, mat& RQRt, uword ns, vec& at, mat& Pt, mat& Pinft){
+  ScopeTimer _t(g_tKFinit, &g_nKFinit);
   at.zeros(ns);
   Pt.zeros(ns, ns);
   vec Pinfdiag; Pinfdiag.ones(ns);
@@ -426,6 +435,7 @@ void KFinit(mat& T, mat& RQRt, uword ns, vec& at, mat& Pt, mat& Pinft){
 }
 // Check stationarity of transition matrix (Kfinit)
 void isStationary(mat& T, uvec& stat){
+  ScopeTimer _t(g_tStat);
   int n = T.n_rows;
   cx_vec eigval(n);
   vec nons, nonstat;
@@ -513,8 +523,28 @@ void KFprediction(bool steadyState, bool colapsed, mat& T, mat& RQRt, vec& at, m
     Pinft = T * Pinft * T.t();
   }
 }
+// Sparse-T overload (Phase 1 of the sparse-matrix refactor).  T is the
+// transition matrix, which is ~98% zeros at high lags (block-diagonal 2x2
+// rotation blocks / companion sub-diagonals).  With T as a sp_mat, T*Pt and
+// Pt*T.t() are sp*dense / dense*sp -> dense, O(nnz(T)*m) = O(m^2) instead of
+// the dense O(m^3).  Pt/Pinft stay DENSE (they fill in during filtering);
+// triple products are split into explicit binary products to guarantee the
+// dense-result path.  RQRt stays dense in this phase.
+void KFprediction(bool steadyState, bool colapsed, const arma::sp_mat& T, mat& RQRt, vec& at, mat& Pt, mat& Pinft){
+  at = T * at;
+  if (!steadyState){
+    mat TPt = T * Pt;
+    Pt = TPt * T.t();
+    Pt += RQRt;
+  }
+  if (!colapsed){
+    mat TPinf = T * Pinft;
+    Pinft = TPinf * T.t();
+  }
+}
 // Compute log-likelihood
 double llik(vec& p, void* opt_data){
+  ScopeTimer _t(g_tLlik, &g_nLlik);
   // Converting void* to SSinputs*
   SSinputs* data = (SSinputs*)opt_data;
   // Running user function model (builds Q, H from structural params).
@@ -580,6 +610,11 @@ double llik(vec& p, void* opt_data){
   bool TVP = false;
   if (data->system.Z.n_rows > 1)
       TVP = true;
+  // Phase-1 sparse PoC: build a sparse view of the (dense-stored) transition
+  // matrix once per likelihood evaluation; the per-timestep prediction below
+  // then uses the O(m^2) sparse path.  KFinit above keeps the dense T (its
+  // eig_gen/schur stationarity machinery is sparse-hostile).
+  arma::sp_mat Tsp(data->system.T);
   // KF loop
   for (uword t = 0; t < n; t++){
     // Data missing
@@ -600,8 +635,8 @@ double llik(vec& p, void* opt_data){
     // llik calculation
     if (!miss && t < n)
       llikCompute(colapsed, Finft, vt, Ft, iFt, v2F, logF, llikValue);
-    // Prediction
-    KFprediction(steadyState, colapsed, data->system.T, RQRt, at, Pt, Pinft);
+    // Prediction (sparse-T path)
+    KFprediction(steadyState, colapsed, Tsp, RQRt, at, Pt, Pinft);
     // Storing final state and covariance for forecasting
    if (t == n - 1){
      data->PEnd = Pt;
@@ -833,6 +868,7 @@ vec differential(vec p){
 }
 // Analytic and numeric gradient of log-likelihood
 vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
+  ScopeTimer _t(g_tGrad, &g_nGrad);
   int nPar = p.n_elem;
   vec grad(nPar),
       p0 = p,
@@ -1453,6 +1489,7 @@ vec KFinnovations(SSinputs& data) {
 }
 // solution to lyapunov equation P = Phi * P * Phi' + Q
 mat dlyap(mat T, mat Q){
+    ScopeTimer _t(g_tDlyap);
     uword n = T.n_cols;
     mat Ur, Phir;
     schur(Ur, Phir, T);  // U * S * U' = T

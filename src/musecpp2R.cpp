@@ -99,6 +99,15 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
     if (out.hasSimulate){
         output("simPaths") = out.simPaths;   // h x nsim, original-scale
     }
+    // === TEMP profiling report, env-gated (set MUSE_PROF=1).  Scaffolding
+    // for the sparse-matrix refactor; stripped before final merge. ===
+    if (std::getenv("MUSE_PROF")) {
+        Rprintf("[PROF] llik(fwd incl KFinit) %.1fs/%ld | grad %.1fs/%ld | "
+                "KFinit %.1fs/%ld (isStat %.1fs + dlyap %.1fs)\n",
+                g_tLlik, g_nLlik, g_tGrad, g_nGrad, g_tKFinit, g_nKFinit,
+                g_tStat, g_tDlyap);
+        g_tLlik=g_tGrad=g_tStat=g_tDlyap=g_tKFinit=0; g_nLlik=g_nGrad=g_nKFinit=0;
+    }
     return output;
 }
 
