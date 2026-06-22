@@ -86,6 +86,14 @@ class PTS:
         self._index_train = (self._index[: len(y)]
                              if self._index is not None else None)
         self._u = self._prepare_u(X)
+        # Split off the held-out future regressors (adam-style: the auto-forecast
+        # takes those rows of the data).  _u is k x N -> train k x n + fut k x h.
+        self._has_x = X is not None
+        self._u_future = None
+        if self._has_x and self.holdout and self.h > 0:
+            n_tr = len(y)            # y is already the training portion
+            self._u_future = self._u[:, n_tr:]
+            self._u = self._u[:, :n_tr]
 
         # Box-Cox lambda screen for auto-lambda (power == "Z").  Mirrors
         # pts(): decomposition + Guerrero CV over [0, 2], then rewrite the
@@ -146,7 +154,17 @@ class PTS:
         # without re-filtering the whole series.  Mirrors the R orchestration.
         self._aEnd = self._PEnd = self._betaAug = None
         self._innVar = -1.0
-        fc = self._forecast_engine(int(self.h))
+        try:
+            fc = self._forecast_engine(int(self.h))
+        except Exception:
+            fc = {}
+        # xreg with no future regressors: the h-step forecast can't be formed,
+        # but the terminal-state cache is horizon-independent -- fetch it at h=0.
+        if "aEnd" not in fc:
+            try:
+                fc = self._forecast_engine(0)
+            except Exception:
+                fc = {}
         if "aEnd" in fc:
             self._aEnd = np.asarray(fc["aEnd"], dtype=float)
             self._PEnd = np.asarray(fc["PEnd"], dtype=float)
@@ -196,7 +214,14 @@ class PTS:
         whole series -- O(h) instead of O(n*m^3)."""
         periods = np.asarray(self._lags_all, dtype=float)
         rhos = np.ones_like(periods)
+        # xreg, adam-style: filter on the training regressors and append the
+        # held-out future rows so the engine forecasts with the right covariates.
         u = np.zeros((1, 2), dtype=float)
+        if getattr(self, "_has_x", False):
+            u = self._u
+            fut = getattr(self, "_u_future", None)
+            if fut is not None and fut.shape[1] >= h:
+                u = np.hstack([self._u, fut[:, :h]])
         aEnd = getattr(self, "_aEnd", None)
         cached = aEnd is not None and np.asarray(aEnd).size > 0
         return _musecore.ucomp(

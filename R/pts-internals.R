@@ -343,7 +343,7 @@
 # (now retired) PTSsetup + MSOEsetup + MSOE chain.
 .pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose,
                      ar = 0L, ma = 0L, armaLags = 1L, outlier = 0,
-                     lambdaLower = -Inf, B = NULL){
+                     lambdaLower = -Inf, B = NULL, uFuture = NULL){
     # Flatten per-lag ar / ma vectors into the format pts_to_uc consumes:
     #   length-1 lags -> c(p, q)         (non-seasonal arma(p,q))
     #   length-2 lags -> c(p, q, P, Q, s) (sarma(p,q)(P,Q)_s)
@@ -397,10 +397,25 @@
     fcArgs$model  <- out$model
     fcArgs$p      <- as.numeric(p)        # coefficients == object$B
     fcArgs$lambda <- out$lambda
+    # xreg auto-forecast, adam-style: the future regressors come from the
+    # held-out rows of the data (`uFuture`).  Append them so forecastOnly can
+    # forecast h steps with the right covariates (engine reads u[, n + i]).
+    if (!is.null(u) && !is.null(uFuture) && ncol(uFuture) > 0L)
+        fcArgs$u <- cbind(args$u, uFuture)
     fcOut <- tryCatch(.pts_call_uc("forecastOnly", fcArgs), error = function(e) NULL)
-    if (!is.null(fcOut) && !identical(fcOut$model, "error")){
-        out$yFor     <- fcOut$yFor
-        out$yForV    <- fcOut$yForV
+    # xreg model with no future regressors available: the h-step forecast can't
+    # be formed, but the terminal-state cache is horizon-independent -- fetch it
+    # at h = 0 so predict(newdata = ...) still skips the re-filter.
+    if (is.null(fcOut) && !is.null(u)){
+        cArgs <- fcArgs; cArgs$h <- 0L; cArgs$u <- args$u
+        fcOut <- tryCatch(.pts_call_uc("forecastOnly", cArgs), error = function(e) NULL)
+    }
+    if (!is.null(fcOut) && !identical(fcOut$model, "error") &&
+        !is.null(fcOut$aEnd)){
+        if (length(fcOut$yFor) > 0){
+            out$yFor  <- fcOut$yFor
+            out$yForV <- fcOut$yForV
+        }
         cacheAEnd    <- as.numeric(fcOut$aEnd)
         cachePEnd    <- fcOut$PEnd
         cacheInnVar  <- fcOut$innVar

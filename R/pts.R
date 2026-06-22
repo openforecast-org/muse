@@ -213,6 +213,7 @@ pts <- function(data,
     }
 
     held <- NULL
+    u_held <- NULL          # future xreg (held-out rows) for the auto-forecast
     if (holdout && h > 0){
         if (length(y) <= h)
             stop("`holdout = TRUE` requires `length(data) > h`.", call. = FALSE)
@@ -352,6 +353,7 @@ pts <- function(data,
                     outlier   = outlier_z,
                     lambdaLower = lambdaLower,
                     B         = B,
+                    uFuture   = u_held,   # future xreg for the auto-forecast
                     verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).
     # When h == 0 we still populate $forecast with a 1-period NA placeholder
