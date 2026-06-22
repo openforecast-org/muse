@@ -205,21 +205,26 @@ class PTS:
             return f"arma({int(ar[0])},{int(ma[0])})"
         return f"arma({int(ar[0])},{int(ma[0])},{int(ar[1])},{int(ma[1])},{int(lg[1])})"
 
-    def _forecast_engine(self, h):
+    def _forecast_engine(self, h, X=None):
         """forecastOnly: feed the fitted natural-scale coef back in and
         propagate h steps.  Mirrors .pts_forecast_inputs + forecastOnly.
 
         When the terminal-state cache (populated at fit time) is available,
         it is passed back so the engine reuses it instead of re-filtering the
-        whole series -- O(h) instead of O(n*m^3)."""
+        whole series -- O(h) instead of O(n*m^3).  For xreg models the future
+        regressors come from `X` (predict(X=...)) or, failing that, the
+        held-out rows captured at fit time (the auto-forecast)."""
         periods = np.asarray(self._lags_all, dtype=float)
         rhos = np.ones_like(periods)
         # xreg, adam-style: filter on the training regressors and append the
-        # held-out future rows so the engine forecasts with the right covariates.
+        # future rows so the engine forecasts with the right covariates.
         u = np.zeros((1, 2), dtype=float)
         if getattr(self, "_has_x", False):
             u = self._u
-            fut = getattr(self, "_u_future", None)
+            if X is not None:
+                fut = self._prepare_u(X)
+            else:
+                fut = getattr(self, "_u_future", None)
             if fut is not None and fut.shape[1] >= h:
                 u = np.hstack([self._u, fut[:, :h]])
         aEnd = getattr(self, "_aEnd", None)
@@ -253,10 +258,10 @@ class PTS:
         )
         return np.asarray(out["simPaths"], dtype=float)
 
-    def predict(self, h, interval="prediction", level=0.95, side="both",
+    def predict(self, h, X=None, interval="prediction", level=0.95, side="both",
                 cumulative=False, nsim=10000, seed=0, scenarios=False):
         from .forecaster import forecast
-        return forecast(self, h, interval=interval, level=level, side=side,
+        return forecast(self, h, X=X, interval=interval, level=level, side=side,
                         cumulative=cumulative, nsim=nsim, seed=seed,
                         scenarios=scenarios)
 
