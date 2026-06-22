@@ -146,7 +146,12 @@
            args$irregularOptions,
            if (is.null(args$nsim)) 1L else as.integer(args$nsim),
            if (is.null(args$seed)) 0L else as.integer(args$seed),
-           if (is.null(args$lambdaLower)) -Inf else as.numeric(args$lambdaLower))
+           if (is.null(args$lambdaLower)) -Inf else as.numeric(args$lambdaLower),
+           # Terminal-state cache: empty aEnd => engine re-filters (no cache).
+           if (is.null(args$aEnd)) numeric(0) else as.numeric(args$aEnd),
+           if (is.null(args$PEnd)) matrix(0, 0, 0) else as.matrix(args$PEnd),
+           if (is.null(args$innVar)) -1 else as.numeric(args$innVar),
+           if (is.null(args$betaAug)) numeric(0) else as.numeric(args$betaAug))
 }
 
 # .pts_resolve_class: mirror adam's input-class resolution at
@@ -338,7 +343,7 @@
 # (now retired) PTSsetup + MSOEsetup + MSOE chain.
 .pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose,
                      ar = 0L, ma = 0L, armaLags = 1L, outlier = 0,
-                     lambdaLower = -Inf, B = NULL){
+                     lambdaLower = -Inf, B = NULL, uFuture = NULL){
     # Flatten per-lag ar / ma vectors into the format pts_to_uc consumes:
     #   length-1 lags -> c(p, q)         (non-seasonal arma(p,q))
     #   length-2 lags -> c(p, q, P, Q, s) (sarma(p,q)(P,Q)_s)
@@ -380,6 +385,41 @@
     if (!is.null(dim(covp))){
         rownames(covp) <- out$parNames[seq_len(nrow(covp))]
         colnames(covp) <- out$parNames[seq_len(ncol(covp))]
+    }
+
+    # Decoupled forecast + terminal-state cache.  Recompute the forecast via
+    # the forecastOnly path (absolute-scale terminal state at the converged
+    # coefficients -- exactly what forecast.pts does) so the in-fit forecast and
+    # forecast.pts agree, and cache the terminal state (aEnd / PEnd / innVar) so
+    # later forecasts reuse it and skip the full-series re-filter.
+    cacheAEnd <- cachePEnd <- cacheInnVar <- cacheBetaAug <- NULL
+    fcArgs        <- args
+    fcArgs$model  <- out$model
+    fcArgs$p      <- as.numeric(p)        # coefficients == object$B
+    fcArgs$lambda <- out$lambda
+    # xreg auto-forecast, adam-style: the future regressors come from the
+    # held-out rows of the data (`uFuture`).  Append them so forecastOnly can
+    # forecast h steps with the right covariates (engine reads u[, n + i]).
+    if (!is.null(u) && !is.null(uFuture) && ncol(uFuture) > 0L)
+        fcArgs$u <- cbind(args$u, uFuture)
+    fcOut <- tryCatch(.pts_call_uc("forecastOnly", fcArgs), error = function(e) NULL)
+    # xreg model with no future regressors available: the h-step forecast can't
+    # be formed, but the terminal-state cache is horizon-independent -- fetch it
+    # at h = 0 so predict(newdata = ...) still skips the re-filter.
+    if (is.null(fcOut) && !is.null(u)){
+        cArgs <- fcArgs; cArgs$h <- 0L; cArgs$u <- args$u
+        fcOut <- tryCatch(.pts_call_uc("forecastOnly", cArgs), error = function(e) NULL)
+    }
+    if (!is.null(fcOut) && !identical(fcOut$model, "error") &&
+        !is.null(fcOut$aEnd)){
+        if (length(fcOut$yFor) > 0){
+            out$yFor  <- fcOut$yFor
+            out$yForV <- fcOut$yForV
+        }
+        cacheAEnd    <- as.numeric(fcOut$aEnd)
+        cachePEnd    <- fcOut$PEnd
+        cacheInnVar  <- fcOut$innVar
+        cacheBetaAug <- as.numeric(fcOut$betaAug)
     }
 
     # Time-series wrappers.  yFor and yForV come out of the engine on the
@@ -476,7 +516,12 @@
         logLik       = logLik,
         lambdaEstimated = lambdaEstimated,
         IC           = if (length(crit) >= 4) crit[2:4]       else NA_real_,
-        outliersDetected = outliersDetected
+        outliersDetected = outliersDetected,
+        # Terminal-state cache for decoupled forecasting (NULL if unavailable).
+        aEnd         = cacheAEnd,
+        PEnd         = cachePEnd,
+        innVar       = cacheInnVar,
+        betaAug      = cacheBetaAug
     )
 }
 
@@ -541,6 +586,11 @@
             if (is.null(object$orders$ar))   0L else object$orders$ar,
             if (is.null(object$orders$ma))   0L else object$orders$ma,
             if (is.null(object$orders$lags)) 1L else object$orders$lags,
-            FALSE)
+            FALSE),
+        # Terminal-state cache populated at fit time (NULL => engine re-filters).
+        aEnd             = object$aEnd,
+        PEnd             = object$PEnd,
+        innVar           = object$innVar,
+        betaAug          = object$betaAug
     )
 }

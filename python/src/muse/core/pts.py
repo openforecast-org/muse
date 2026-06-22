@@ -86,6 +86,14 @@ class PTS:
         self._index_train = (self._index[: len(y)]
                              if self._index is not None else None)
         self._u = self._prepare_u(X)
+        # Split off the held-out future regressors (adam-style: the auto-forecast
+        # takes those rows of the data).  _u is k x N -> train k x n + fut k x h.
+        self._has_x = X is not None
+        self._u_future = None
+        if self._has_x and self.holdout and self.h > 0:
+            n_tr = len(y)            # y is already the training portion
+            self._u_future = self._u[:, n_tr:]
+            self._u = self._u[:, :n_tr]
 
         # Box-Cox lambda screen for auto-lambda (power == "Z").  Mirrors
         # pts(): decomposition + Guerrero CV over [0, 2], then rewrite the
@@ -139,6 +147,29 @@ class PTS:
             "ma": ma_v[0] if len(arma_lags) == 1 else ma_v,
             "lags": arma_lags, "select": user_select,
         }
+
+        # Decoupled forecast cache: one forecastOnly pass populates the
+        # absolute-scale terminal state (final state, covariance, innovation
+        # variance, and the augmented-KF state for xreg) so predict() reuses it
+        # without re-filtering the whole series.  Mirrors the R orchestration.
+        self._aEnd = self._PEnd = self._betaAug = None
+        self._innVar = -1.0
+        try:
+            fc = self._forecast_engine(int(self.h))
+        except Exception:
+            fc = {}
+        # xreg with no future regressors: the h-step forecast can't be formed,
+        # but the terminal-state cache is horizon-independent -- fetch it at h=0.
+        if "aEnd" not in fc:
+            try:
+                fc = self._forecast_engine(0)
+            except Exception:
+                fc = {}
+        if "aEnd" in fc:
+            self._aEnd = np.asarray(fc["aEnd"], dtype=float)
+            self._PEnd = np.asarray(fc["PEnd"], dtype=float)
+            self._innVar = float(fc["innVar"])
+            self._betaAug = np.asarray(fc["betaAug"], dtype=float)
         return self
 
     # ---- engine helpers -------------------------------------------------
@@ -174,18 +205,42 @@ class PTS:
             return f"arma({int(ar[0])},{int(ma[0])})"
         return f"arma({int(ar[0])},{int(ma[0])},{int(ar[1])},{int(ma[1])},{int(lg[1])})"
 
-    def _forecast_engine(self, h):
+    def _forecast_engine(self, h, X=None):
         """forecastOnly: feed the fitted natural-scale coef back in and
-        propagate h steps.  Mirrors .pts_forecast_inputs + forecastOnly."""
+        propagate h steps.  Mirrors .pts_forecast_inputs + forecastOnly.
+
+        When the terminal-state cache (populated at fit time) is available,
+        it is passed back so the engine reuses it instead of re-filtering the
+        whole series -- O(h) instead of O(n*m^3).  For xreg models the future
+        regressors come from `X` (predict(X=...)) or, failing that, the
+        held-out rows captured at fit time (the auto-forecast)."""
         periods = np.asarray(self._lags_all, dtype=float)
         rhos = np.ones_like(periods)
+        # xreg, adam-style: filter on the training regressors and append the
+        # future rows so the engine forecasts with the right covariates.
         u = np.zeros((1, 2), dtype=float)
+        if getattr(self, "_has_x", False):
+            u = self._u
+            if X is not None:
+                fut = self._prepare_u(X)
+            else:
+                fut = getattr(self, "_u_future", None)
+            if fut is not None and fut.shape[1] >= h:
+                u = np.hstack([self._u, fut[:, :h]])
+        aEnd = getattr(self, "_aEnd", None)
+        cached = aEnd is not None and np.asarray(aEnd).size > 0
         return _musecore.ucomp(
             "forecastOnly", self._y_train, u, self._model_uc, int(h),
             float(self._lambda), 0.0, False, "aic", periods, rhos, False,
             False, np.asarray(self._p, dtype=float), False,
             np.array([-9999.99]), float(self._lags), _TREND_OPTIONS,
             _SEASONAL_OPTIONS, self._arma_candidate(), 1, 0, -math.inf,
+            np.asarray(aEnd, dtype=float) if cached else np.zeros(0),
+            np.asarray(getattr(self, "_PEnd", None), dtype=float)
+                if cached else np.zeros((0, 0)),
+            float(getattr(self, "_innVar", -1.0)) if cached else -1.0,
+            np.asarray(getattr(self, "_betaAug", None), dtype=float)
+                if cached else np.zeros(0),
         )
 
     def _forecast_paths(self, h, nsim, seed):
@@ -203,10 +258,10 @@ class PTS:
         )
         return np.asarray(out["simPaths"], dtype=float)
 
-    def predict(self, h, interval="prediction", level=0.95, side="both",
+    def predict(self, h, X=None, interval="prediction", level=0.95, side="both",
                 cumulative=False, nsim=10000, seed=0, scenarios=False):
         from .forecaster import forecast
-        return forecast(self, h, interval=interval, level=level, side=side,
+        return forecast(self, h, X=X, interval=interval, level=level, side=side,
                         cumulative=cumulative, nsim=nsim, seed=seed,
                         scenarios=scenarios)
 

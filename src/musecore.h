@@ -54,6 +54,16 @@ struct MuseInputs {
     // R-side guard (set to 1e-10 when y has zeros).  Plumbed straight
     // into SSinputs::lambdaLower.
     double       lambdaLower = -arma::datum::inf;
+    // Terminal-state cache (forecastOnly): when aEndIn is non-empty, the
+    // engine reuses it (and PEndIn / innVarIn / betaAugIn) instead of
+    // re-filtering the whole series -- so forecast.pts / predict() are O(h)
+    // not O(n*m^3).  betaAugIn carries the augmented-KF state (initial states
+    // + regressor coefficients) so xreg models can be forecast from the cache
+    // too (adam-style: the fitted object stores everything forecasting needs).
+    arma::vec    aEndIn;
+    arma::mat    PEndIn;
+    double       innVarIn = -1.0;
+    arma::vec    betaAugIn;
 };
 
 struct MuseOutputs {
@@ -76,6 +86,15 @@ struct MuseOutputs {
     std::vector<std::string> parNames;
     int                     ns = 0;
     arma::vec               criteria;
+
+    // Terminal-state cache (forecastOnly): the absolute-scale terminal state
+    // at the converged params, so a fitted object can store it and later
+    // forecasts skip the full-series re-filter.
+    bool                    hasInitCache = false;
+    arma::vec               aEndOut;
+    arma::mat               PEndOut;
+    double                  innVarOut = 1.0;
+    arma::vec               betaAugOut;
 
     // validate / all
     bool                    hasValidate = false;
@@ -170,6 +189,14 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     if (skipEstim){
         userParams   = in.p0;
         inputsSS.p0  = vec({-9999.9});
+        // Terminal-state cache: when supplied, setEstimatedParams() reuses it
+        // and skips the full-series re-filter.
+        if (in.aEndIn.n_elem > 0){
+            inputsSS.aEnd        = in.aEndIn;
+            inputsSS.PEnd        = in.PEndIn;
+            inputsSS.innVariance = in.innVarIn;
+            inputsSS.betaAug     = in.betaAugIn;   // xreg coefs + initial states
+        }
     } else {
         inputsSS.p0  = in.p0;
     }
@@ -252,6 +279,21 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     out.parNames = inputs2.parNames;
     out.ns       = static_cast<int>(sum(inputs2.ns));
     out.criteria = inputs.criteria;
+
+    // -- terminal-state cache (forecastOnly) --
+    // After forecast(), inputs.{aEnd,PEnd,innVariance} hold the absolute-scale
+    // terminal state at the converged params.  Surface it so the R/Python
+    // front-ends can store it on the fitted object and have later forecasts
+    // reuse it (skipping the full-series re-filter).  Only meaningful for the
+    // forecastOnly command (the "all" path's state is on the concentrated
+    // scale and is not surfaced as a cache).
+    if (command == "forecastOnly"){
+        out.hasInitCache = true;
+        out.aEndOut    = inputs.aEnd;
+        out.PEndOut    = inputs.PEnd;
+        out.innVarOut  = inputs.innVariance;
+        out.betaAugOut = inputs.betaAug;
+    }
 
     // -- validate (runs as part of "all") --
     if (command == "all"){

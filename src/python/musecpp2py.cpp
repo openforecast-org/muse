@@ -36,6 +36,8 @@ static arma::vec np_to_vec(const py::array_t<double>& a) {
 // u arrives as (k rows x n cols), matching the engine's orientation.
 static arma::mat np_to_mat(const py::array_t<double>& a) {
     auto buf = a.request();
+    if (buf.size == 0)
+        return arma::mat();   // empty (e.g. the no-cache PEnd default)
     if (buf.ndim != 2)
         throw std::runtime_error("u must be a 2-D array (k x n)");
     arma::uword nr = static_cast<arma::uword>(buf.shape[0]);
@@ -88,7 +90,11 @@ static py::dict ucomp(std::string command,
                       std::string irregularOptions,
                       int nsim,
                       unsigned seed,
-                      double lambdaLower) {
+                      double lambdaLower,
+                      py::array_t<double> aEndIn,
+                      py::array_t<double> PEndIn,
+                      double innVarIn,
+                      py::array_t<double> betaAugIn) {
     MuseInputs in;
     in.command          = command;
     in.y                = np_to_vec(y);
@@ -113,6 +119,11 @@ static py::dict ucomp(std::string command,
     in.nsim             = nsim;
     in.seed             = seed;
     in.lambdaLower      = lambdaLower;
+    // Terminal-state cache (empty aEnd => engine re-filters; no cache).
+    in.aEndIn           = np_to_vec(aEndIn);
+    in.PEndIn           = np_to_mat(PEndIn);
+    in.innVarIn         = innVarIn;
+    in.betaAugIn        = np_to_vec(betaAugIn);
 
     MuseOutputs out;
     runMuseCommand(in, out);
@@ -154,6 +165,12 @@ static py::dict ucomp(std::string command,
     }
     if (out.hasSimulate) {
         d["simPaths"] = mat_to_np(out.simPaths);
+    }
+    if (out.hasInitCache) {
+        d["aEnd"]    = vec_to_np(out.aEndOut);
+        d["PEnd"]    = mat_to_np(out.PEndOut);
+        d["innVar"]  = out.innVarOut;
+        d["betaAug"] = vec_to_np(out.betaAugOut);
     }
     return d;
 }
@@ -206,5 +223,9 @@ PYBIND11_MODULE(_musecore, mod) {
             py::arg("p0"), py::arg("armaFlag"), py::arg("TVP"),
             py::arg("seas"), py::arg("trendOptions"),
             py::arg("seasonalOptions"), py::arg("irregularOptions"),
-            py::arg("nsim"), py::arg("seed"), py::arg("lambdaLower"));
+            py::arg("nsim"), py::arg("seed"), py::arg("lambdaLower"),
+            py::arg("aEndIn")    = py::array_t<double>(),
+            py::arg("PEndIn")    = py::array_t<double>(),
+            py::arg("innVarIn")  = -1.0,
+            py::arg("betaAugIn") = py::array_t<double>());
 }

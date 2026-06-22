@@ -55,7 +55,7 @@ def _bands(fn, probs, h):
     return out
 
 
-def forecast(model, h, interval="prediction", level=0.95, side="both",
+def forecast(model, h, X=None, interval="prediction", level=0.95, side="both",
              cumulative=False, nsim=10000, seed=0, scenarios=False):
     if h < 1:
         raise ValueError("h must be a positive integer.")
@@ -64,7 +64,7 @@ def forecast(model, h, interval="prediction", level=0.95, side="both",
         raise ValueError("level must be in (0, 1).")
     qLow, qUp = _tail_probs(level, side)
 
-    eng = model._forecast_engine(h)
+    eng = model._forecast_engine(h, X=X)
     yfor_bc = np.asarray(eng["yFor"], dtype=float)
     yforv = np.asarray(eng["yForV"], dtype=float)
     lam = model._lambda

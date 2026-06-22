@@ -17,6 +17,7 @@ muse v0.1.0
   used the estimation-device concentrated state; the forecast method
   re-filtered in absolute scale).  They are now identical, and holdout
   accuracy uses the same canonical forecast.
+
 * Performance: high-lag models (e.g. `lags = 336`) are dramatically
   faster.  The state-space engine now exploits the sparsity of the
   transition matrix (block-diagonal rotation / companion blocks, ~98%
