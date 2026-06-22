@@ -25,12 +25,15 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
             SEXP p0s, SEXP armas, SEXP TVPs, SEXP seass,
             SEXP trendOptionss, SEXP seasonalOptionss,
             SEXP irregularOptionss,
-            SEXP nsims, SEXP seeds, SEXP lambdaLowers){
+            SEXP nsims, SEXP seeds, SEXP lambdaLowers,
+            SEXP aEndIns, SEXP PEndIns, SEXP innVarIns, SEXP betaAugIns){
 
     // --- Marshall SEXP -> MuseInputs (no engine logic in this file) ---
     MuseInputs in;
     NumericVector yr(ys), periodsr(periodss), rhosr(rhoss), p0r(p0s), TVPr(TVPs);
     NumericMatrix ur(us);
+    NumericVector aEndr(aEndIns), betaAugr(betaAugIns);
+    NumericMatrix PEndr(PEndIns);
 
     in.command          = CHAR(STRING_ELT(commands, 0));
     in.y                = vec(yr.begin(),       yr.size(),      false);
@@ -55,6 +58,11 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
     in.nsim             = as<int>(nsims);
     in.seed             = static_cast<unsigned>(as<int>(seeds));
     in.lambdaLower      = as<double>(lambdaLowers);   // -Inf sentinel = no bound
+    // Terminal-state cache (empty aEnd => no cache => full re-filter).
+    in.aEndIn           = vec(aEndr.begin(), aEndr.size(), false);
+    in.PEndIn           = mat(PEndr.begin(), PEndr.nrow(), PEndr.ncol(), false);
+    in.innVarIn         = as<double>(innVarIns);
+    in.betaAugIn        = vec(betaAugr.begin(), betaAugr.size(), false);
 
     // --- Run the engine ---
     MuseOutputs out;
@@ -98,6 +106,12 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
     }
     if (out.hasSimulate){
         output("simPaths") = out.simPaths;   // h x nsim, original-scale
+    }
+    if (out.hasInitCache){
+        output("aEnd")    = out.aEndOut;
+        output("PEnd")    = out.PEndOut;
+        output("innVar")  = out.innVarOut;
+        output("betaAug") = out.betaAugOut;
     }
     return output;
 }

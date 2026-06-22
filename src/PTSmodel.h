@@ -1072,9 +1072,19 @@ void BSMclass::setEstimatedParams(vec userParams){
         } else {
                 SSmodel::inputs.llikFUN = llik;
         }
-        // One llik call: bsmMatricesTrue builds the system from p in
-        // absolute scale, KF populates aEnd / PEnd as a side effect.
-        SSmodel::inputs.llikFUN(SSmodel::inputs.p, &(SSmodel::inputs));
+        if (SSmodel::inputs.aEnd.n_elem > 0){
+                // Fast path: a cached terminal state (aEnd / PEnd / innVariance
+                // and betaAug) was supplied for a fitted object.  Just build the
+                // system matrices from p and reuse the cached state -- skipping
+                // the O(n * m^2) full-series re-filter.  betaAug carries the
+                // augmented-KF state (xreg coefs + initial states), so xreg
+                // models forecast from the cache too (adam-style).
+                SSmodel::setSystemMatrices();
+        } else {
+                // One llik call: bsmMatricesTrue builds the system from p in
+                // absolute scale, KF populates aEnd / PEnd as a side effect.
+                SSmodel::inputs.llikFUN(SSmodel::inputs.p, &(SSmodel::inputs));
+        }
         SSmodel::inputs.estimOk = "Q-Newton: Skipped (forecast-only).\n";
 }
 // Estimation of a family of UC models

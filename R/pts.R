@@ -418,6 +418,14 @@ pts <- function(data,
         lambda     = res$lambda,        # pts-specific Box-Cox parameter
         ## --- parameters ---
         B          = res$p,
+        # Terminal-state cache: forecast()/predict() reuse it to skip the
+        # full-series re-filter (decoupled fit/forecast).  betaAug carries the
+        # augmented-KF state (xreg coefs + initial states) so xreg models
+        # forecast from the cache too.
+        aEnd       = res$aEnd,
+        PEnd       = res$PEnd,
+        innVar     = res$innVar,
+        betaAug    = res$betaAug,
         vcov       = res$covp,          # parameter covariance, computed by the
                                         # C++ "all" command at no extra cost
         # Count the Box-Cox lambda as one additional DoF when the user

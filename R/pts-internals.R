@@ -146,7 +146,12 @@
            args$irregularOptions,
            if (is.null(args$nsim)) 1L else as.integer(args$nsim),
            if (is.null(args$seed)) 0L else as.integer(args$seed),
-           if (is.null(args$lambdaLower)) -Inf else as.numeric(args$lambdaLower))
+           if (is.null(args$lambdaLower)) -Inf else as.numeric(args$lambdaLower),
+           # Terminal-state cache: empty aEnd => engine re-filters (no cache).
+           if (is.null(args$aEnd)) numeric(0) else as.numeric(args$aEnd),
+           if (is.null(args$PEnd)) matrix(0, 0, 0) else as.matrix(args$PEnd),
+           if (is.null(args$innVar)) -1 else as.numeric(args$innVar),
+           if (is.null(args$betaAug)) numeric(0) else as.numeric(args$betaAug))
 }
 
 # .pts_resolve_class: mirror adam's input-class resolution at
@@ -382,6 +387,26 @@
         colnames(covp) <- out$parNames[seq_len(ncol(covp))]
     }
 
+    # Decoupled forecast + terminal-state cache.  Recompute the forecast via
+    # the forecastOnly path (absolute-scale terminal state at the converged
+    # coefficients -- exactly what forecast.pts does) so the in-fit forecast and
+    # forecast.pts agree, and cache the terminal state (aEnd / PEnd / innVar) so
+    # later forecasts reuse it and skip the full-series re-filter.
+    cacheAEnd <- cachePEnd <- cacheInnVar <- cacheBetaAug <- NULL
+    fcArgs        <- args
+    fcArgs$model  <- out$model
+    fcArgs$p      <- as.numeric(p)        # coefficients == object$B
+    fcArgs$lambda <- out$lambda
+    fcOut <- tryCatch(.pts_call_uc("forecastOnly", fcArgs), error = function(e) NULL)
+    if (!is.null(fcOut) && !identical(fcOut$model, "error")){
+        out$yFor     <- fcOut$yFor
+        out$yForV    <- fcOut$yForV
+        cacheAEnd    <- as.numeric(fcOut$aEnd)
+        cachePEnd    <- fcOut$PEnd
+        cacheInnVar  <- fcOut$innVar
+        cacheBetaAug <- as.numeric(fcOut$betaAug)
+    }
+
     # Time-series wrappers.  yFor and yForV come out of the engine on the
     # Box-Cox scale; back-transform yFor for the user, keep yForV on the
     # BC scale so forecast.pts can compute intervals by endpoint transform.
@@ -476,7 +501,12 @@
         logLik       = logLik,
         lambdaEstimated = lambdaEstimated,
         IC           = if (length(crit) >= 4) crit[2:4]       else NA_real_,
-        outliersDetected = outliersDetected
+        outliersDetected = outliersDetected,
+        # Terminal-state cache for decoupled forecasting (NULL if unavailable).
+        aEnd         = cacheAEnd,
+        PEnd         = cachePEnd,
+        innVar       = cacheInnVar,
+        betaAug      = cacheBetaAug
     )
 }
 
@@ -541,6 +571,11 @@
             if (is.null(object$orders$ar))   0L else object$orders$ar,
             if (is.null(object$orders$ma))   0L else object$orders$ma,
             if (is.null(object$orders$lags)) 1L else object$orders$lags,
-            FALSE)
+            FALSE),
+        # Terminal-state cache populated at fit time (NULL => engine re-filters).
+        aEnd             = object$aEnd,
+        PEnd             = object$PEnd,
+        innVar           = object$innVar,
+        betaAug          = object$betaAug
     )
 }
