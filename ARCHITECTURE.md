@@ -711,6 +711,35 @@ Covariance:   Cov(eta_t, eps_t) = S
 every time the optimiser proposes a new candidate.  Z and T are structurally fixed
 by the model type; only the variance entries of Q (and H) are free parameters.
 
+### Sparsity exploitation (high-lag performance)
+
+T is stored as a dense `arma::mat` but is **~98% zeros by design**: block-diagonal
+2×2 rotation blocks per trig harmonic (`[[c,s],[-s,c]]`), companion sub-diagonals
+for dummy-seasonal / ARMA.  At high seasonal lags (`m ≈ s`, e.g. 336) the dense
+`T·P·Tᵀ` Kalman products are the dominant O(m³) cost.  The hot loops therefore
+build a **local sparse view** `arma::sp_mat Tsp(system.T)` once per pass (the O(m²)
+conversion is negligible) and use it for every per-timestep product, turning
+`T·P·Tᵀ` into O(m²) (`sp_mat · mat → mat`):
+
+- **Forward filter** (`KFprediction`, `llik`/`auxFilter`/`forecast`/`KFinnovations`):
+  sparse-`T` overload; `P` stays dense (it fills in during filtering).  Triple
+  products are split into explicit binary products to stay on the dense-result path.
+- **Analytic gradient** (`gradLlik`): sparse `Tᵀ·Nt·T`, plus a **rank-1** expansion
+  of `Lt = I − K·Z` (`Lt'·Nt·Lt = Nt − w z' − z w' + (k'w) z z'`, `w = Nt·k`),
+  collapsing the O(m³) backward recursion to O(m²).
+- **State smoother** (`auxFilter` under `inputs.stateOnly`, set by `components()`):
+  the entire backward `Nt` recursion and the O(m³) `P·Nt·P` smoothed-variance update
+  are **skipped** — those outputs (`data.P` → dead `compV`; outlier-mode
+  `rNrOut`/`rOut`/`NOut`) are never surfaced.  Smoothed *states* depend only on the
+  `rt` recursion, so they are unchanged.  The disturbance/outlier-detection path
+  (`smooth == 2/3`, `outliers = "use"`) keeps the full `Nt` recursion.
+
+Sparse-hostile setup ops (`eig_gen` stationarity, `schur`/`dlyap` diffuse init) keep
+a dense `T`; they run once per likelihood eval (~2% of cost), not per timestep.
+All of this is **numerically transparent**: point estimates are bit-identical; only
+the finite-difference Hessian (and hence `vcov`/`confint`) shifts negligibly for
+ill-conditioned models because sparse matmul reorders the summation.
+
 ---
 
 ## Key invariants

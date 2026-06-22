@@ -3,15 +3,6 @@
  Needs Armadillo and many others
 ***************************************/
 #include "bcnorm.h"
-// === TEMP Phase-1 profiling accumulators (remove after diagnosis) ===
-static double g_tLlik=0, g_tGrad=0, g_tStat=0, g_tDlyap=0, g_tKFinit=0,
-              g_tAux=0, g_tHess=0;
-static long   g_nLlik=0, g_nGrad=0, g_nKFinit=0, g_nAux=0, g_nHess=0;
-struct ScopeTimer {
-  arma::wall_clock w; double& acc; long* cnt;
-  ScopeTimer(double& a, long* c=nullptr): acc(a), cnt(c){ w.tic(); }
-  ~ScopeTimer(){ acc += w.toc(); if(cnt) (*cnt)++; }
-};
 /***************************************************
   * Data structures
 ****************************************************/
@@ -422,7 +413,6 @@ void SSmodel::validate(bool estimateHess, double nPar){
  ************************************************************/
 // Initializing Kalman Filter
 void KFinit(mat& T, mat& RQRt, uword ns, vec& at, mat& Pt, mat& Pinft){
-  ScopeTimer _t(g_tKFinit, &g_nKFinit);
   at.zeros(ns);
   Pt.zeros(ns, ns);
   vec Pinfdiag; Pinfdiag.ones(ns);
@@ -442,7 +432,6 @@ void KFinit(mat& T, mat& RQRt, uword ns, vec& at, mat& Pt, mat& Pinft){
 }
 // Check stationarity of transition matrix (Kfinit)
 void isStationary(mat& T, uvec& stat){
-  ScopeTimer _t(g_tStat);
   int n = T.n_rows;
   cx_vec eigval(n);
   vec nons, nonstat;
@@ -551,7 +540,6 @@ void KFprediction(bool steadyState, bool colapsed, const arma::sp_mat& T, mat& R
 }
 // Compute log-likelihood
 double llik(vec& p, void* opt_data){
-  ScopeTimer _t(g_tLlik, &g_nLlik);
   // Converting void* to SSinputs*
   SSinputs* data = (SSinputs*)opt_data;
   // Running user function model (builds Q, H from structural params).
@@ -875,7 +863,6 @@ vec differential(vec p){
 }
 // Analytic and numeric gradient of log-likelihood
 vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
-  ScopeTimer _t(g_tGrad, &g_nGrad);
   int nPar = p.n_elem;
   vec grad(nPar),
       p0 = p,
@@ -1026,7 +1013,6 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
 }
 // Llik hessian (for parameter covariances)
 mat hessLlik(void* optData){
-  ScopeTimer _t(g_tHess, &g_nHess);
   SSinputs* inputs = (SSinputs*)optData;
   uword nPar = inputs->p.n_elem;
   vec grad(nPar), p0 = inputs->p, inc(nPar);
@@ -1071,7 +1057,6 @@ mat hessLlik(void* optData){
 }
 // True filter/smooth/disturb function
 void auxFilter(unsigned int smooth, SSinputs& data){
-  ScopeTimer _t(g_tAux, &g_nAux);
   // smooth (0: filter, 1: smooth, 2: disturb)
   // double tolsta = 0; //1e-7;
   uword n,
@@ -1528,7 +1513,6 @@ vec KFinnovations(SSinputs& data) {
 }
 // solution to lyapunov equation P = Phi * P * Phi' + Q
 mat dlyap(mat T, mat Q){
-    ScopeTimer _t(g_tDlyap);
     uword n = T.n_cols;
     mat Ur, Phir;
     schur(Ur, Phir, T);  // U * S * U' = T

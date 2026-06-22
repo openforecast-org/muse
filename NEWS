@@ -1,6 +1,20 @@
 muse v0.1.0
 =======
 
+* Performance: high-lag models (e.g. `lags = 336`) are dramatically
+  faster.  The state-space engine now exploits the sparsity of the
+  transition matrix (block-diagonal rotation / companion blocks, ~98%
+  zeros) in the Kalman filter, the analytic gradient, and the smoother:
+    - forward filter `T P T'` uses sparse `T` (O(m^2) vs O(m^3));
+    - the analytic-gradient backward recursion uses sparse `T` plus a
+      rank-1 expansion of the `Lt = I - K Z` term (O(m^2));
+    - the state smoother (`components()`) skips the O(m^3) backward
+      covariance recursion entirely, since its smoothed-variance output
+      was never surfaced (fast state smoother).
+  Point forecasts, fitted values, components, coefficients and ICs are
+  unchanged; only parameter standard errors / Wald intervals may differ
+  negligibly for ill-conditioned models (floating-point reordering).
+
 * `pts()` auto-lambda screen replaced.  The previous Brent-on-LT-AIC
   search (which fitted ~20 proxy state-space models per series) is
   now a single classical decomposition + Guerrero coefficient-of-
