@@ -4,8 +4,9 @@
 ***************************************/
 #include "bcnorm.h"
 // === TEMP Phase-1 profiling accumulators (remove after diagnosis) ===
-static double g_tLlik=0, g_tGrad=0, g_tStat=0, g_tDlyap=0, g_tKFinit=0;
-static long   g_nLlik=0, g_nGrad=0, g_nKFinit=0;
+static double g_tLlik=0, g_tGrad=0, g_tStat=0, g_tDlyap=0, g_tKFinit=0,
+              g_tAux=0, g_tHess=0;
+static long   g_nLlik=0, g_nGrad=0, g_nKFinit=0, g_nAux=0, g_nHess=0;
 struct ScopeTimer {
   arma::wall_clock w; double& acc; long* cnt;
   ScopeTimer(double& a, long* c=nullptr): acc(a), cnt(c){ w.tic(); }
@@ -155,6 +156,7 @@ void KFcorrection(bool, bool, bool, bool, SSinputs*, mat, mat&, vec&,
 void llikCompute(bool, mat, mat, mat, mat, mat&, mat&, mat&);
 // Prediction stage in KF (llik)
 void KFprediction(bool steadyState, bool colapsed, mat& T, mat& RQRt, vec& at, mat& Pt, mat& Pinft);
+void KFprediction(bool steadyState, bool colapsed, const arma::sp_mat& T, mat& RQRt, vec& at, mat& Pt, mat& Pinft);
 // Compute log-likelihood
 double llik(vec&, void*);
 // Compute log-likelihood with eXogenous inputs
@@ -263,6 +265,7 @@ void SSmodel::forecast(){
     // }
     mat P0 = Pt;
     mat Z = inputs.system.Z.row(0);
+    arma::sp_mat Tsp(inputs.system.T);   // sparse view for the h-step recursion
     uword t = inputs.y.n_elem;
     bool TVP = (inputs.system.Z.n_rows > 1);
     if (k > 0 && inputs.system.Z.n_rows == 1){
@@ -282,7 +285,7 @@ void SSmodel::forecast(){
           inputs.yFor.row(i) += inputs.system.D * SSmodel::inputs.u.col(n + i);
       }
       inputs.FFor.row(i) = Z * Pt * Z.t() + CHCt;
-      KFprediction(false, true, inputs.system.T, RQRt, at, Pt, P0);
+      KFprediction(false, true, Tsp, RQRt, at, Pt, P0);
     }
     // if (abs(inputs.innVariance - 1) < 1e-4){
     //   inputs.FFor *= inputs.innVariance;
@@ -922,6 +925,9 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     Nt = GammaQ;
     rt.fill(0);
     Inew.eye();
+    // Sparse view of T for the backward recursion (T'*rt, T'*Nt*T).
+    arma::sp_mat Tsp(data->system.T);
+    arma::sp_mat TspT = Tsp.t();
     // Main Loop
     for (int t = n - 1; t >= 0; t--){
       if (t <= data->d_t){
@@ -958,8 +964,9 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
       GammaD += e * e - D;
       RR = rt * rt.t() - Nt;
       GammaQ += RR;
-      rt = data->system.T.t() * rt;
-      Nt = data->system.T.t() * Nt * data->system.T;
+      rt = TspT * rt;
+      mat NtT = TspT * Nt;   // sp*dense -> dense
+      Nt = NtT * Tsp;        // dense*sp -> dense
     }
     // Derivatives of RQRt and CHCt
     sysmatQ.submat(0, 0, cQ - 1, cQ - 1) = data->system.Q;
@@ -1006,6 +1013,7 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
 }
 // Llik hessian (for parameter covariances)
 mat hessLlik(void* optData){
+  ScopeTimer _t(g_tHess, &g_nHess);
   SSinputs* inputs = (SSinputs*)optData;
   uword nPar = inputs->p.n_elem;
   vec grad(nPar), p0 = inputs->p, inc(nPar);
@@ -1050,6 +1058,7 @@ mat hessLlik(void* optData){
 }
 // True filter/smooth/disturb function
 void auxFilter(unsigned int smooth, SSinputs& data){
+  ScopeTimer _t(g_tAux, &g_nAux);
   // smooth (0: filter, 1: smooth, 2: disturb)
   // double tolsta = 0; //1e-7;
   uword n,
@@ -1109,6 +1118,7 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   bool TVP = false;
   if (data.system.Z.n_rows > 1)
       TVP = true;
+  arma::sp_mat Tsp(data.system.T);   // sparse view for the forward recursion
   // KF loop
   for (uword t = 0; t < n; t++){
     if (TVP)
@@ -1170,8 +1180,8 @@ void auxFilter(unsigned int smooth, SSinputs& data){
       data.a.col(t) = at;
       data.P.col(t) = Pt.diag();
     }
-    // Prediction
-    KFprediction(steadyState, colapsed, data.system.T, RQRt, at, Pt, Pinft);
+    // Prediction (sparse-T path)
+    KFprediction(steadyState, colapsed, Tsp, RQRt, at, Pt, Pinft);
     // Checking colapsed
     if (!colapsed && all(all(abs(Pinft) < 1e-6))){
         colapsed = true;
@@ -1407,6 +1417,7 @@ vec KFinnovations(SSinputs& data) {
 
     mat Z = data.system.Z.row(0);
     bool TVP = (data.system.Z.n_rows > 1);
+    arma::sp_mat Tsp(data.system.T);   // sparse view for the forward recursion
 
     // Inputs exógenos
     int k = data.u.n_rows;
@@ -1463,7 +1474,7 @@ vec KFinnovations(SSinputs& data) {
         // ----- PREDICCIÓN -----
         KFprediction(steadyState,
                      colapsed,
-                     data.system.T,
+                     Tsp,
                      RQRt,
                      at,
                      Pt,
