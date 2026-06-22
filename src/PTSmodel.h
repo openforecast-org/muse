@@ -1777,7 +1777,12 @@ void BSMclass::estimOutlier(vec p0, bool VERBOSE){
 }
 // Components
 void BSMclass::components(){
+        // components consumes only smoothed states (inputs.a); inputs.P feeds
+        // the dead compV.  Request the fast state smoother (skips the O(m^3)
+        // backward Nt recursion + smoothed-variance work).
+        SSmodel::inputs.stateOnly = true;
         SSmodel::smooth(true);
+        SSmodel::inputs.stateOnly = false;
         int nCycles = sum(inputs.rhos < 0), k = SSmodel::inputs.u.n_rows;
         inputs.comp.set_size(4 + nCycles + k, SSmodel::inputs.yFit.n_rows);
         inputs.comp.fill(datum::nan);

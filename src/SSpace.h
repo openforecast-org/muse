@@ -77,7 +77,11 @@ struct SSinputs{
         verbose,          // intermediate output verbose on / off
         cleanInnovations = false, // cleaning innovations on/off
         augmented = false, // Augmented KF estimation on / off
-        estimateLambda = false; // true when lambda is last element of p
+        estimateLambda = false, // true when lambda is last element of p
+        stateOnly = false; // fast state smoother: skip the O(m^3) backward Nt
+                           // recursion + smoothed-variance work (data.P/F,
+                           // disturbance, outlier) when only smoothed STATES
+                           // (data.a) are consumed -- e.g. components().
    // Lower bound on Box-Cox lambda during joint-BFGS estimation.  In
    // llik() the value pulled from p.back() is clamped to >= lambdaLower
    // before computing BoxCox(y_raw, lam); the clamp creates a flat
@@ -1242,6 +1246,12 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     rt.fill(0);
     rinft = rt;
     Inew.eye();
+    // Fast state smoother: when only smoothed STATES (data.a) are consumed
+    // (e.g. components()), skip the entire backward Nt recursion and the
+    // O(m^3) smoothed-variance work (data.P/F, disturbance, outlier) -- those
+    // outputs are not surfaced.  The state recursion (rt/rinft) is independent
+    // of Nt, so smoothed states stay identical.
+    bool needNt = !data.stateOnly;
     // Main Loop
     int intN = n;
     for (int t = n - 1; t >= 0; t--){
@@ -1265,11 +1275,13 @@ void auxFilter(unsigned int smooth, SSinputs& data){
           Lt = data.system.T - data.system.T * Kt * Z;
           Z_Ft = Z.t() * iFt(0);
           rt = Z_Ft * vt + Lt.t() * rt;
-          Nt = Z_Ft * Z + Lt.t() * Nt * Lt;
+          if (needNt) Nt = Z_Ft * Z + Lt.t() * Nt * Lt;
           if (!colapsed){
               rinft = data.system.T.t() * rinft;
-              N2t = data.system.T.t() * N2t * data.system.T;
-              Ninft = data.system.T.t() * Ninft * Lt;
+              if (needNt){
+                N2t = data.system.T.t() * N2t * data.system.T;
+                Ninft = data.system.T.t() * Ninft * Lt;
+              }
           }
         } else if (Finft(0, 0) >= 1e-8) {
             Lt = data.system.T - data.system.T * Kinft * Z;
@@ -1277,11 +1289,13 @@ void auxFilter(unsigned int smooth, SSinputs& data){
             Z_Finft = Z.t() * iFt(0, 0);  //  / Finft(0, 0);
             rinft = Z_Finft * vt + Lt.t() * rinft + Linft.t() * rt;
             rt = Lt.t() * rt;
-            LinftNt = Lt.t() * Ninft * Linft;
-            N2t = -Z_Finft * Z_Finft.t() * Ft(0, 0) + Linft.t() * Nt * Linft +
-                LinftNt + LinftNt.t() + Lt.t() * N2t * Lt;
-            Ninft = Z_Finft * Z + Lt.t() * Ninft * Lt + Linft.t() * Nt * Lt;
-            Nt = Lt.t() * Nt * Lt;
+            if (needNt){
+              LinftNt = Lt.t() * Ninft * Linft;
+              N2t = -Z_Finft * Z_Finft.t() * Ft(0, 0) + Linft.t() * Nt * Linft +
+                  LinftNt + LinftNt.t() + Lt.t() * N2t * Lt;
+              Ninft = Z_Finft * Z + Lt.t() * Ninft * Lt + Linft.t() * Nt * Lt;
+              Nt = Lt.t() * Nt * Lt;
+            }
         }
       } else {
         miss = true;
@@ -1290,11 +1304,14 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         // data.a.col(t) is computed below, so the smoothed state at this
         // missing observation uses r_{t-1} rather than the stale r_t.
         rt = data.system.T.t() * rt;
-        Nt = data.system.T.t() * Nt * data.system.T;
-        if (!colapsed){
+        if (!colapsed)
           rinft = data.system.T.t() * rinft;
-          Ninft = data.system.T.t() * Ninft * data.system.T;
-          N2t = data.system.T.t() * N2t * data.system.T;
+        if (needNt){
+          Nt = data.system.T.t() * Nt * data.system.T;
+          if (!colapsed){
+            Ninft = data.system.T.t() * Ninft * data.system.T;
+            N2t = data.system.T.t() * N2t * data.system.T;
+          }
         }
       }
       Pt = cP.slice(t);
@@ -1304,23 +1321,25 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         data.a.col(t) += Pinft * rinft;
       }
       data.yFit.row(t) = Z * data.a.col(t) + Dt(t); // + data.system.D;
-      Pt -= Pt * Nt * Pt;
-      if (!colapsed){
-        PPinf = Pinft * Ninft * Pt;
-        Pt = Pt - PPinf - PPinf.t() - Pinft * N2t * Pinft;
-      }
-      data.F.row(t) = Z * Pt * Z.t() + CHCt;
-      data.P.col(t) = Pt.diag();
-      //Disturbance smoother
-      if (smooth == 2 && t < intN - data.h){
-        Veta = data.system.Q - QRt * Nt * QRt.t();
-        data.eta.col(t) = QRt * rt / sqrt(Veta.diag());
-      }
-      // Storing for outlier detection
-      if (smooth == 3){
-        data.rNrOut.row(t) = rt.t() * pinv(Nt) * rt;
-        data.rOut.col(t) = rt;
-        data.NOut.slice(t) = Nt;
+      if (needNt){
+        Pt -= Pt * Nt * Pt;
+        if (!colapsed){
+          PPinf = Pinft * Ninft * Pt;
+          Pt = Pt - PPinf - PPinf.t() - Pinft * N2t * Pinft;
+        }
+        data.F.row(t) = Z * Pt * Z.t() + CHCt;
+        data.P.col(t) = Pt.diag();
+        //Disturbance smoother
+        if (smooth == 2 && t < intN - data.h){
+          Veta = data.system.Q - QRt * Nt * QRt.t();
+          data.eta.col(t) = QRt * rt / sqrt(Veta.diag());
+        }
+        // Storing for outlier detection
+        if (smooth == 3){
+          data.rNrOut.row(t) = rt.t() * pinv(Nt) * rt;
+          data.rOut.col(t) = rt;
+          data.NOut.slice(t) = Nt;
+        }
       }
     }
   }
