@@ -946,19 +946,28 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
         D.fill(0);
         nMiss += 1;
       } else if (colapsed || Finft< 1e-8) {
-        e = vt * iFt - Kt.t() * rt;
-        D = 1 * iFt + Kt.t() * Nt * Kt;
-        Lt = Inew - Kt * Z;
-        Z_Ft = Z.t() * iFt(0, 0);
-        rt = Z_Ft * vt + Lt.t() * rt;
-        Nt = Z_Ft * Z + Lt.t() * Nt * Lt;
+        // Lt = I - Kt*Z is identity minus rank-1, so Lt'*Nt*Lt and Lt'*rt
+        // collapse to O(m^2)/O(m) rank updates (no dense triple product):
+        //   Lt'*Nt*Lt = Nt - w z' - z w' + (k'w) z z'   with w = Nt*Kt
+        //   Lt'*rt    = rt - z (Kt'*rt)
+        vec w = Nt * Kt;                       // O(m^2)
+        double kw  = dot(Kt, w);
+        double ktr = dot(Kt, rt);
+        double if0 = iFt(0, 0);
+        vec zc = Z.t();
+        e(0) = if0 * vt(0) - ktr;
+        D(0) = if0 + kw;
+        rt += zc * e(0);                       // = z*(iFt*vt) + (rt - z*Kt'rt)
+        Nt += (if0 + kw) * (zc * zc.t()) - w * zc.t() - zc * w.t();
       } else {
-        e = -Kinft.t() * rt;
-        D = Kinft.t() * Nt * Kinft;
+        vec w = Nt * Kinft;
+        double kr = dot(Kinft, rt);
+        e(0) = -kr;
+        D(0) = dot(Kinft, w);
         if (Finft >= 1e-8){   // Finf not singular
-          Lt = Inew - Kinft * Z;
-          rt = Lt.t() * rt;
-          Nt = Lt.t() * Nt * Lt;
+          vec zc = Z.t();
+          rt -= zc * kr;
+          Nt += D(0) * (zc * zc.t()) - w * zc.t() - zc * w.t();
         }
       }
       GammaD += e * e - D;
