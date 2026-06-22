@@ -7,9 +7,16 @@
   the augmented-KF state for regressor models), so `predict()` / `forecast()`
   reuse it instead of re-filtering the whole series on every call — O(h)
   instead of O(n·m²). Forecasting a high-lag model is effectively instant
-  after the fit (≈9× faster even at modest lags, more at high lags), and works
-  the same way with explanatory variables. Mirrors the R `pts()` behaviour, so
-  `predict()` stays bit-for-bit consistent with R `forecast(pts(...))`.
+  after the fit (≈9× faster even at modest lags, more at high lags). Mirrors
+  the R `pts()` behaviour, so `predict()` stays bit-for-bit consistent with R
+  `forecast(pts(...))`.
+
+* **Explanatory variables in forecasting (adam-style).** `fit()` now splits
+  the regressor matrix into the in-sample and held-out parts; a fit with
+  `h > 0, holdout=True` auto-forecasts using the held-out regressor rows.
+  `predict(h, X=...)` accepts future regressor values for horizons beyond the
+  holdout — the analogue of R's `forecast(model, h, newdata=...)`, and
+  numerically identical to it.
 
 * Initial public release: the Power / Trend / Seasonal (PTS) multiple-source-
   of-error state-space model, ported from the R `muse` package and sharing the

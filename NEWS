@@ -7,7 +7,11 @@ muse v0.1.0
   `predict()` reuse it instead of re-filtering the whole series on every
   call -- O(h) instead of O(n*m^3).  Forecasting a high-lag model is now
   effectively instant after the fit (~9x faster even at modest lags, more
-  at high lags), and works the same way with explanatory variables.
+  at high lags).  Explanatory variables are handled adam-style: the
+  auto-forecast produced when `pts(..., h > 0, holdout = TRUE)` now uses
+  the held-out regressor rows (previously it was dropped and the forecast
+  came back empty), and `forecast(model, h, newdata = ...)` supplies future
+  regressors for horizons beyond the holdout.
   This also fixes a latent inconsistency: `pts()$forecast` and
   `forecast(pts(...))` previously disagreed slightly (the in-fit forecast
   used the estimation-device concentrated state; the forecast method
