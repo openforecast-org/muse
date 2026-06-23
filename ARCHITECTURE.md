@@ -549,6 +549,23 @@ rows in `coef(m)` get `NA` standard errors.  Information criteria
 (`AIC`, `BIC`, …) count the dummies correctly via `length(B) +
 lambdaEstimated`.
 
+**Covariance estimator (`BSMclass::parCov`, `PTSmodel.h`).**  The parameter
+covariance is built from the observed-information Hessian, evaluated on the
+*absolute* (non-concentrated, `bsmMatricesTrue`) scale at the optimum.  The
+Hessian (`hessLlik`, `SSpace.h`) uses **central second differences** with a
+per-parameter step `eps^(1/4)·max(|p|,1)` (not one-sided forward differences
+with a fixed step — that was biased and cancelled catastrophically in flat
+directions).  If the resulting Hessian submatrix is indefinite or numerically
+singular (`min eig ≤ 1e-8·max eig` — a boundary / weakly-identified variance,
+or an ARMA φ≈θ near-cancellation), `parCov` falls back to the **OPG / BHHH**
+estimator `Σ_t s_t s_tᵀ`, where `s_t = ∂/∂θ [0.5(log F_t + v_t²/F_t) −
+logJac_t]` are per-observation scores (central-differenced from the stored
+`inputs.v`/`inputs.F`).  OPG is PSD by construction, so the returned `vcov` is
+always a valid covariance.  **Caveat:** the augmented (xreg) path concentrates
+its regression coefficients in the augmented filter and stores no
+per-observation innovations, so OPG is unavailable there — augmented models
+keep the (improved) Hessian.
+
 ---
 
 ## The C++ boundary in detail
@@ -736,9 +753,12 @@ conversion is negligible) and use it for every per-timestep product, turning
 
 Sparse-hostile setup ops (`eig_gen` stationarity, `schur`/`dlyap` diffuse init) keep
 a dense `T`; they run once per likelihood eval (~2% of cost), not per timestep.
-All of this is **numerically transparent**: point estimates are bit-identical; only
-the finite-difference Hessian (and hence `vcov`/`confint`) shifts negligibly for
-ill-conditioned models because sparse matmul reorders the summation.
+All of this is **numerically transparent**: point estimates are bit-identical, and
+`vcov`/`confint` now agree across the dense and sparse paths to floating-point
+tolerance.  (Earlier the finite-difference Hessian diverged by tens of percent on
+ill-conditioned models, because the one-sided forward differences amplified the
+~1e-10 sparse-reordering noise through a near-singular inverse; the central-
+difference + OPG covariance — see `parCov` below — removed that sensitivity.)
 
 ---
 

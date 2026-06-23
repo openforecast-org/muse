@@ -1011,48 +1011,56 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
   }
   return grad;
 }
-// Llik hessian (for parameter covariances)
+// Llik hessian (for parameter covariances).
+//
+// Central second differences with a per-parameter, magnitude-scaled step.
+// The previous scheme used ONE-SIDED forward differences with a fixed
+// absolute step (1e-5) for every parameter: truncation error O(h) (biased),
+// and for weakly-identified directions the tiny fixed step caused
+// catastrophic cancellation (rounding floor ~eps*|llik|/h^2 ~ 1e-2 per
+// entry), which on a near-singular Hessian flipped small eigenvalues and
+// produced indefinite, non-reproducible covariances.
+//
+// Central differences are unbiased to O(h^2); the step h_i = eps^(1/4) *
+// max(|p_i|, 1) (~1.22e-4 at unit scale) is the standard near-optimal choice
+// for 3-/4-point second derivatives, balancing truncation against rounding
+// and scaling with the parameter so flat directions are differenced cleanly.
 mat hessLlik(void* optData){
   SSinputs* inputs = (SSinputs*)optData;
   uword nPar = inputs->p.n_elem;
-  vec grad(nPar), p0 = inputs->p, inc(nPar);
-  mat Hess(nPar, nPar);
-  vec grad0 = inputs->grad;
-  inc.fill(1e-5);
-  double llikValue2 = 0, llikValue0;  // = inputs->objFunValue;
-  if (inputs->augmented){
-    llikValue0 = llikAug(p0, inputs);
-  } else {
-    llikValue0 = llik(p0, inputs);
-  }
-  Hess.fill(0);
+  vec p0 = inputs->p;
+  mat Hess(nPar, nPar, fill::zeros);
+  // Per-parameter step, scaled by magnitude (relative for |p|>1, absolute floor 1).
+  const double h0 = std::pow(datum::eps, 0.25);   // ~1.22e-4
+  vec h(nPar);
+  for (uword i = 0; i < nPar; i++)
+    h(i) = h0 * std::max(std::abs(p0(i)), 1.0);
+  // Evaluate the (negative, averaged) log-likelihood at an arbitrary point.
+  auto f = [&](vec pp)->double {
+    return inputs->augmented ? llikAug(pp, inputs) : llik(pp, inputs);
+  };
+  double f0 = f(p0);
+  // Diagonal: [f(p+h) - 2 f(p) + f(p-h)] / h^2
   for (uword i = 0; i < nPar; i++){
-    p0 = inputs->p;
-    p0.row(i) += inc(i);
-    // grad0(i) = inputs->llikFUN(p0, inputs);
-    if (inputs->augmented){
-      grad0(i) = llikAug(p0, inputs);
-    } else {
-      grad0(i) = llik(p0, inputs);
+    vec pp = p0; pp(i) += h(i);
+    vec pm = p0; pm(i) -= h(i);
+    Hess(i, i) = (f(pp) - 2.0 * f0 + f(pm)) / (h(i) * h(i));
+  }
+  // Off-diagonal: [f(++) - f(+-) - f(-+) + f(--)] / (4 h_i h_j)
+  for (uword i = 0; i < nPar; i++){
+    for (uword j = i + 1; j < nPar; j++){
+      vec ppp = p0; ppp(i) += h(i); ppp(j) += h(j);
+      vec ppm = p0; ppm(i) += h(i); ppm(j) -= h(j);
+      vec pmp = p0; pmp(i) -= h(i); pmp(j) += h(j);
+      vec pmm = p0; pmm(i) -= h(i); pmm(j) -= h(j);
+      double val = (f(ppp) - f(ppm) - f(pmp) + f(pmm)) / (4.0 * h(i) * h(j));
+      Hess(i, j) = val;
+      Hess(j, i) = val;
     }
   }
-  for (uword i = 0; i < nPar; i++){
-    for (uword j = i; j < nPar; j++){
-      p0 = inputs->p;
-      p0.row(i) += inc(i);
-      p0.row(j) += inc(j);
-      if (inputs->augmented){
-        llikValue2 = llikAug(p0, inputs);
-      } else {
-        llikValue2 = llik(p0, inputs);
-      }
-      Hess(i, j) = as_scalar((llikValue2 - grad0.row(i) - grad0.row(j) + llikValue0)
-                               / inc(i) / inc(j));
-    }
-  }
-  if (nPar > 1){
-    Hess = Hess + trimatu(Hess, 1).t();
-  }
+  // Leave inputs->v / inputs->F at the solution for downstream consumers
+  // (OPG fallback in parCov reads them).
+  f(p0);
   return Hess;
 }
 // True filter/smooth/disturb function

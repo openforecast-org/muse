@@ -2,6 +2,20 @@
 
 ## 0.1.0
 
+* **Reliable parameter covariance for ill-conditioned models.** The
+  observed-information Hessian behind the standard errors is now computed
+  with central second differences and a per-parameter, magnitude-scaled
+  step (was one-sided forward differences with a fixed step), and when that
+  Hessian is indefinite or numerically singular at the optimum (a boundary /
+  weakly-identified variance, or an ARMA φ≈θ near-cancellation) the
+  covariance falls back to the OPG / BHHH estimator `Σ_t s_t s_tᵀ`, which is
+  positive semidefinite by construction. Previously such models could return
+  a non-PSD covariance and standard errors that swung by tens of percent
+  under negligible numerical reordering. Point estimates, log-likelihood and
+  information criteria are unchanged. Shares the R engine, so results match R
+  `vcov(pts(...))`. (The OPG fallback is not yet available for models with
+  external regressors, which keep the improved Hessian.)
+
 * **Decoupled fit and forecast.** A fitted `PTS` object now caches the
   terminal state (final state, its covariance, the innovation variance, and
   the augmented-KF state for regressor models), so `predict()` / `forecast()`

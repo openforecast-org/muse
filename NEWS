@@ -1,6 +1,29 @@
 muse v0.1.0
 =======
 
+* Parameter covariance (`vcov`, and hence `confint` / printed standard
+  errors) is now reliable for weakly-identified and ill-conditioned
+  models.  Two changes:
+    - the observed-information Hessian is computed with central second
+      differences and a per-parameter, magnitude-scaled step (was
+      one-sided forward differences with a fixed 1e-5 step for every
+      parameter).  This removes a first-order truncation bias and the
+      catastrophic cancellation that made the Hessian noisy and
+      irreproducible in flat directions.
+    - when the observed Hessian is indefinite or numerically singular at
+      the optimum -- typically a boundary / weakly-identified variance
+      (e.g. a near-zero local-linear-trend variance) or an ARMA phi~theta
+      near-cancellation -- the covariance falls back to the OPG / BHHH
+      estimator (sum_t s_t s_t', the per-observation outer product of
+      scores), which is positive semidefinite by construction.
+  Previously such models could return a non-PSD "covariance" (implied
+  correlations outside +/-1) and standard errors that swung by tens of
+  percent under negligible floating-point reordering.  Point estimates,
+  logLik, and information criteria are unchanged.  The OPG fallback is not
+  yet available for models with external regressors (the augmented filter
+  concentrates the regression coefficients and stores no per-observation
+  innovations); those keep the improved Hessian.
+
 * Decoupled fit and forecast.  A fitted `pts` object now caches the
   terminal state (final state, its covariance, the innovation variance,
   and the augmented-KF state for regressor models), so `forecast()` /
@@ -28,9 +51,11 @@ muse v0.1.0
     - the state smoother (`components()`) skips the O(m^3) backward
       covariance recursion entirely, since its smoothed-variance output
       was never surfaced (fast state smoother).
-  Point forecasts, fitted values, components, coefficients and ICs are
-  unchanged; only parameter standard errors / Wald intervals may differ
-  negligibly for ill-conditioned models (floating-point reordering).
+  Point forecasts, fitted values, components, coefficients, ICs and
+  parameter standard errors are unchanged to floating-point tolerance.
+  (The dense/sparse Hessian now agrees because the covariance uses
+  central differences with an OPG fallback -- see the `vcov` entry above;
+  previously the cruder Hessian could diverge on ill-conditioned models.)
 
 * `pts()` auto-lambda screen replaced.  The previous Brent-on-LT-AIC
   search (which fitted ~20 proxy state-space models per series) is

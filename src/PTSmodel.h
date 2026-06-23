@@ -1985,20 +1985,86 @@ mat BSMclass::parCov(vec& returnP){
         returnP = SSmodel::inputs.p;
         mat hess = hessLlik(&(SSmodel::inputs));
         hess *= 0.5 * (nn.n_elem);   // - SSmodel::inputs.nonStationaryTerms - reserveP.n_elem + 1);
-        SSmodel::inputs.cLlik = reserveCLLIK;
-        SSmodel::inputs.p = reserveP;
-        SSmodel::inputs.userModel = bsmMatrices;
+        // Index set that actually gets inverted: the concentrated-likelihood
+        // path inverts the unconstrained submatrix, the crude path the whole
+        // matrix.  (Mirrors the original cLlik branch.)
         mat iHess(k, k);
         iHess.fill(datum::nan);
         uvec indHess = find(inputs.constPar < 1);
-        if (hess.is_finite()){
-                if (SSmodel::inputs.cLlik){
-                        iHess.submat(indHess, indHess) = pinv(hess.submat(indHess, indHess));
+        uvec ind = reserveCLLIK ? indHess : regspace<uvec>(0, k - 1);
+        if (hess.is_finite() && ind.n_elem > 0){
+                mat H = hess.submat(ind, ind);
+                H = 0.5 * (H + H.t());           // symmetrise
+                // Is the observed Hessian a usable information matrix?  It must
+                // be positive definite and not numerically singular.  When it is
+                // indefinite (a negative curvature at the optimum -- typically a
+                // boundary / weakly-identified variance) or ill-conditioned to
+                // the point of being numerically singular, inverting it gives a
+                // non-PSD, unreliable covariance.  In that case fall back to the
+                // OPG / BHHH estimator  I = sum_t s_t s_t'  (per-observation
+                // outer product of scores), which is PSD by construction.
+                vec eval;
+                bool eigok = eig_sym(eval, H);
+                double emax = eval.n_elem ? eval.max() : 0.0;
+                double emin = eval.n_elem ? eval.min() : 0.0;
+                const double condTol = 1e-8;     // trigger if emin <= condTol*emax (covers emin<=0)
+                bool hessUsable = eigok && (emin > condTol * std::max(emax, 1e-300));
+                mat covSub;
+                if (hessUsable || SSmodel::inputs.augmented){
+                        // augmented (xreg) path stores no per-obs v/F, so OPG is
+                        // unavailable there; use the (improved) Hessian.
+                        covSub = pinv(H);
                 } else {
-                        iHess = pinv(hess);
+                        // --- OPG / BHHH over the same parameter indices ---
+                        // Per-observation negative log-likelihood contribution
+                        //   nll_t = 0.5 (log F_t + v_t^2 / F_t) - logJac_t
+                        // (absolute scale: cLlik is off and bsmMatricesTrue is
+                        // active here).  Scores via central differences.
+                        uword n = SSmodel::inputs.y.n_rows;
+                        vec p0 = SSmodel::inputs.p;
+                        auto perObsNLL = [&](vec pp)->vec {
+                                llik(pp, &(SSmodel::inputs));
+                                vec vv = SSmodel::inputs.v, FF = SSmodel::inputs.F;
+                                double lam = SSmodel::inputs.lambda;
+                                bool haveRaw = (SSmodel::inputs.y_raw.n_elem == n);
+                                vec c(n); c.fill(datum::nan);
+                                for (uword t = 0; t < n; t++){
+                                        if (!std::isfinite(vv(t)) || !std::isfinite(FF(t)) || FF(t) <= 0)
+                                                continue;
+                                        double val = 0.5 * (std::log(FF(t)) + vv(t) * vv(t) / FF(t));
+                                        if (haveRaw)
+                                                val -= bcnormLogJac(SSmodel::inputs.y_raw(t), lam);
+                                        c(t) = val;
+                                }
+                                return c;
+                        };
+                        mat S(n, ind.n_elem, fill::zeros);
+                        for (uword c = 0; c < ind.n_elem; c++){
+                                uword idx = ind(c);
+                                double hh = std::pow(datum::eps, 1.0 / 3.0)
+                                            * std::max(std::abs(p0(idx)), 1.0);
+                                vec pp = p0; pp(idx) += hh;
+                                vec pm = p0; pm(idx) -= hh;
+                                S.col(c) = (perObsNLL(pp) - perObsNLL(pm)) / (2.0 * hh);
+                        }
+                        SSmodel::inputs.p = p0;
+                        llik(p0, &(SSmodel::inputs));        // restore v/F at the solution
+                        uvec good = find_finite(sum(S, 1));  // drop diffuse/missing obs
+                        if (good.n_elem >= ind.n_elem){
+                                mat Sg = S.rows(good);
+                                mat opg = Sg.t() * Sg;
+                                covSub = opg.is_finite() ? pinv(opg) : pinv(H);
+                        } else {
+                                covSub = pinv(H);            // not enough info for OPG
+                        }
                 }
+                iHess.submat(ind, ind) = covSub;
                 iHess.diag() = abs(iHess.diag());
         }
+        // Restore the estimation-scale configuration.
+        SSmodel::inputs.cLlik = reserveCLLIK;
+        SSmodel::inputs.p = reserveP;
+        SSmodel::inputs.userModel = bsmMatrices;
         return iHess;
 }
 // Finding true parameter values out of transformed parameters
