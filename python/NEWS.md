@@ -2,6 +2,18 @@
 
 ## 0.1.0
 
+* **Estimation gradient corrected; better convergence.** The analytic
+  log-likelihood gradient used by the optimiser was wrong for structural
+  models (it mixed ratio- and absolute-scale `Q`/`H` when building the
+  finite-difference `dQ`, blowing up by ~1/innVariance for small
+  concentrated variances, plus a normalisation error on seasonal models),
+  and the optimiser could stall at a non-stationary point when its BFGS
+  direction stopped being a descent direction. Both are fixed (shared C++
+  engine, so identical to R): structural models now converge to materially
+  higher likelihoods and the old "degenerate" fits (optimiser quitting
+  after ~2 iterations with near-zero variances) are resolved. Matches R
+  `pts()` exactly.
+
 * **Reliable parameter covariance for ill-conditioned models.** The
   observed-information Hessian behind the standard errors is now computed
   with central second differences and a per-parameter, magnitude-scaled

@@ -1,6 +1,29 @@
 muse v0.1.0
 =======
 
+* Estimation gradient corrected; models converge to better optima.  The
+  analytic log-likelihood gradient (`gradLlik`) used by the quasi-Newton
+  optimiser was wrong for structural models: it left the baseline `Q`/`H`
+  on the stale ratio scale from the previous objective call while building
+  the perturbed `Q`/`H` on the absolute scale, so the finite-difference
+  `dQ` mixed units and exploded by ~1/innVariance whenever the
+  concentrated variance was small (e.g. log / near-deterministic data).
+  It also normalised by `n - nMiss - d_t - 1` instead of the `nFinite`
+  the objective averages over (a few-percent error on seasonal models).
+  Both are fixed; the analytic gradient now matches a central-difference
+  reference to ~6 digits across structural specs.
+  Separately, the optimiser gained a **descent-direction safeguard**: when
+  the BFGS inverse-Hessian loses positive-definiteness and yields a
+  non-descent direction, it resets to steepest descent instead of stalling
+  at a non-stationary point.  Together these make estimation converge to
+  materially higher likelihoods (e.g. on AirPassengers: PTS(0,N,T) +129,
+  PTS(1,N,T) +94, PTS(1,L,T) +15 log-lik; every structural spec improved,
+  none regressed).  Models that previously appeared "degenerate" (the
+  optimiser quitting after ~2 iterations with `Q-Newton: Unable to decrease`
+  and near-zero variances) now fit properly.  ARMA / damped / regressor /
+  cycle models already used the numerical gradient and are unaffected by
+  the analytic fix; they also benefit from the descent safeguard.
+
 * Parameter covariance (`vcov`, and hence `confint` / printed standard
   errors) is now reliable for weakly-identified and ill-conditioned
   models.  Two changes:

@@ -2660,6 +2660,18 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                 // Search direction
                 d = -iHess * gradNew;
                 d(find(inputs.constPar > 0)).fill(0);
+                // Descent-direction safeguard: a BFGS inverse-Hessian that has
+                // lost positive-definiteness (ill-conditioned / non-convex
+                // region) can yield d with d'grad >= 0, i.e. NOT a descent
+                // direction -- the line search then backtracks to its floor
+                // without decreasing and the optimiser stalls at a
+                // non-stationary point.  Reset to steepest descent so progress
+                // is guaranteed whenever the curvature estimate goes bad.
+                if (as_scalar(dot(d, gradNew)) >= 0){
+                        iHess.eye(nx, nx);
+                        d = -gradNew;
+                        d(find(inputs.constPar > 0)).fill(0);
+                }
                 if (counter < 6 && as_scalar(abs(d.t() * gradNew)) > 0.01)
                         diagHess = true;
                 // Line Search

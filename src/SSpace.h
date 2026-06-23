@@ -968,14 +968,24 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
       mat NtT = TspT * Nt;   // sp*dense -> dense
       Nt = NtT * Tsp;        // dense*sp -> dense
     }
-    // Derivatives of RQRt and CHCt
+    // Derivatives of RQRt and CHCt.  The smoother accumulants (Gamma) are in
+    // ABSOLUTE units (iFt was divided by innVariance above), so the baseline
+    // system matrices must also be built at the point p where the gradient is
+    // evaluated -- NOT left at the stale ratio-scale Q/H from the last objFun()
+    // call.  Otherwise dQt = (Qt - sysmatQ)/inc mixes absolute and ratio units
+    // and blows up by ~1/innVariance when the concentrated variance is small.
+    data->userModel(p, &data->system, data->userInputs);
     sysmatQ.submat(0, 0, cQ - 1, cQ - 1) = data->system.Q;
     sysmatQ.submat(cQ, cQ, cQ, cQ) = data->system.H;
     sysmatR.submat(0, 0, ns - 1, cQ - 1) = data->system.R;
     sysmatR.submat(ns, cQ, ns, cQ) = data->system.C;
     Gamma.submat(0, 0, ns - 1, ns - 1) = GammaQ;
     Gamma.submat(ns, ns, ns, ns) = GammaD;
-    int nn = n - nMiss - data->d_t - 1;
+    // Normalise by the same sample size objFun()/llik() averages over
+    // (nFinite = n - nMiss); the old "- d_t - 1" diffuse subtraction made the
+    // gradient ~2-3% too large on seasonal models (large d_t) and broke the
+    // match with the finite-difference reference.
+    int nn = n - nMiss;
     for (int i = 0; i < nPar; i++){
       // Lambda is the last element when jointly estimated.  It affects y
       // via BoxCox, not Q/H, so the analytic disturbance-smoother formula

@@ -744,6 +744,24 @@ conversion is negligible) and use it for every per-timestep product, turning
 - **Analytic gradient** (`gradLlik`): sparse `Tᵀ·Nt·T`, plus a **rank-1** expansion
   of `Lt = I − K·Z` (`Lt'·Nt·Lt = Nt − w z' − z w' + (k'w) z z'`, `w = Nt·k`),
   collapsing the O(m³) backward recursion to O(m²).
+
+**Gradient method & optimiser robustness.**  The model-setup logic
+(`PTSmodel.h`, ~`SSmodel::inputs.exact = …`) chooses the gradient method per
+model: the **analytic** disturbance-smoother gradient (`exact = true`) for pure
+structural models, and the **numerical** gradient (`exact = false`) for ARMA
+(AR coefs enter `T`, which the disturbance-smoother formula cannot
+differentiate), damped trend, cycle, and regressor (augmented-KF) models.  The
+analytic gradient must build its baseline `Q`/`H` at the **same point** the
+gradient is evaluated (`gradLlik` calls `userModel(p)` before `sysmatQ`) — the
+smoother accumulants are on the **absolute** scale (`iFt` is divided by
+`innVariance`), so leaving `Q`/`H` on the stale ratio scale makes `dQ` mix units
+and blow up by ~`1/innVariance`.  It also normalises by `nFinite = n − nMiss`
+(the same divisor `llik()` averages over), **not** `n − nMiss − d_t − 1`.
+Validate any change against a central-difference reference (the two must agree to
+~6 digits).  `quasiNewtonBSM` carries a **descent-direction safeguard**: if the
+BFGS inverse-Hessian yields `d` with `d·grad ≥ 0` it resets `iHess = I`
+(steepest descent) so the line search can always make progress instead of
+stalling at a non-stationary point.
 - **State smoother** (`auxFilter` under `inputs.stateOnly`, set by `components()`):
   the entire backward `Nt` recursion and the O(m³) `P·Nt·P` smoothed-variance update
   are **skipped** — those outputs (`data.P` → dead `compV`; outlier-mode
