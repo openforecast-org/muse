@@ -503,6 +503,24 @@ engine's original relative stiffness (LS = z × 2.5/2.3, SC = z ×
 3.0/2.3).  After detection the engine writes the (type, time) rows into
 `BSMmodel::typeOutliers` (engine codes: 0 = AO, 1 = LS, 2 = SC).
 
+**Auxiliary residuals (`auxFilter`, `smooth == 2`).**  The AO statistic is the
+standardised smoothed *observation* disturbance; LS / SC use the level / slope
+disturbances.  Each component's residual is standardised by its **own empirical
+SD** (per column), NOT via a single matrix `pinv()` across all components — a
+shared `pinv()` tolerance would treat any component whose variance is far below
+the largest (e.g. a near-zero observation variance) as singular and zero it,
+destroying the outlier signal exactly where it matters.  The per-step
+disturbance is left raw (`Q R' r_t`, no division by the smoothed-disturbance
+variance `Veta`, which is singular when an estimated variance collapses).
+
+**Acceptance.**  `estimOutlier` keeps an outlier through backward deletion only
+if its augmented-KF coefficient t-stat clears the `level` z-threshold, and then
+keeps the whole outlier model unless it failed to converge.  It does **not**
+revert on "IC worse than the no-outlier baseline": an over-fit baseline (the
+unbounded variance→0 likelihood singularity on short, flexible models) has an
+artificially good IC that no genuine outlier model can beat, which used to drop
+real, highly-significant outliers.
+
 ### Joint-λ + outlier-injection workaround
 
 The engine's outlier-injection refit path has a parameter-vector

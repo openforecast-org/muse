@@ -1,6 +1,24 @@
 muse v0.1.0
 =======
 
+* Outlier detection (`outliers = "use"`) fixed.  Two bugs are addressed:
+    - The disturbance smoother standardised the auxiliary residuals with a
+      single matrix `pinv()` across all components; its tolerance treated any
+      component whose variance was far below the largest (e.g. a near-zero
+      observation variance) as singular and ZEROED it -- destroying the
+      outlier signal there, so spikes went undetected.  The smoother now emits
+      the raw smoothed disturbance and standardises each component by its own
+      empirical SD, which is scale-robust.
+    - The forward/backward outlier search dropped a detected outlier whenever
+      the no-outlier baseline had a "better" information criterion.  When the
+      baseline overfits a short series (the unbounded variance->0 likelihood
+      singularity), its IC is artificially good and no genuine outlier model
+      can beat it, so real, highly-significant outliers were silently removed.
+      Acceptance now relies on the per-outlier significance test (the
+      backward-deletion step already keeps only outliers whose augmented-KF
+      coefficient t-stat clears the `level` z-threshold); the model with
+      outliers is kept unless it fails to converge.
+
 * Estimation gradient corrected; models converge to better optima.  The
   analytic log-likelihood gradient (`gradLlik`) used by the quasi-Newton
   optimiser was wrong for structural models: it left the baseline `Q`/`H`

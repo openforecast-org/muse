@@ -1768,8 +1768,18 @@ void BSMclass::estimOutlier(vec p0, bool VERBOSE){
                         obj(0) = SSmodel::inputs.criteria(1);
                         best(0) = bestSS.criteria(1);
                 }
-                if ((!obj.is_finite()) || (obj(0) > best(0))){
-                        // Model with outliers did not converge or is worse than initial
+                // Keep the outlier model unless it failed to converge.  The
+                // forward/backward step already retained only outliers whose
+                // augmented-KF coefficient is statistically significant (t >
+                // z-threshold), so the surviving set is justified on its own
+                // terms.  The earlier "IC worse than baseline -> revert" gate is
+                // unreliable: when the structural baseline overfits into the
+                // unbounded variance->0 likelihood singularity (flexible model
+                // on a short series), its IC is artificially good and no genuine
+                // outlier model can beat it, so real, highly-significant
+                // outliers were silently dropped.
+                if (!obj.is_finite()){
+                        // Model with outliers did not converge
                         SSmodel::inputs = bestSS;
                         inputs = bestBSM;
                 }
@@ -2696,12 +2706,21 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                 if (cLlik){
                         xUncon(isVar) = log(exp(2 * xNew(isVar)) * SSmodel::inputs.innVariance) / 2;
                 }
-                // Checking for zero variances.
-                // Both conditions must be satisfied simultaneously: the variance
-                // must be negligibly small (xUncon < -15, i.e. var < exp(-30) ≈ 9e-14)
-                // AND its gradient must be essentially zero (|grad| < 1e-6).
-                // The old thresholds (-10 / 1e-4) were too loose and prematurely
-                // pinned variances still in motion, producing a worse optimum.
+                // Checking for zero variances.  Pin a variance to zero (mark it
+                // deterministic, constPar = 2) when EITHER:
+                //   (a) it is negligibly small (xUncon < -15, var < exp(-30) ~
+                //       9e-14) AND its gradient is essentially flat (|grad| <
+                //       1e-6) -- a genuine boundary optimum; OR
+                //   (b) it has underflowed to an absurd value (xUncon < -25,
+                //       var < exp(-50) ~ 2e-22) REGARDLESS of the gradient.
+                // Without (b), a collapsing variance whose gradient never quite
+                // reaches the 1e-6 flat threshold keeps drifting to ~1e-117; an
+                // active component at that extreme corrupts the concentrated
+                // log-likelihood (the sum-log-F / diffuse terms blow up, giving
+                // a bogus +logLik while sigma stays sane).  Pinning it makes the
+                // component properly deterministic and keeps the likelihood
+                // well-conditioned.  Healthy variances (xUncon ~ -1..1) are far
+                // from both thresholds and unaffected.
                 zeroVar = find((((xUncon % (inputs.constPar == 0) % (inputs.typePar == 0)) < -15) +
                         ((abs(gradNew) % (inputs.constPar == 0)) % (inputs.typePar == 0) < 0.000001)) == 2);
                 if (zeroVar.n_elem > 0){

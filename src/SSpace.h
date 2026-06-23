@@ -1334,8 +1334,17 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         data.P.col(t) = Pt.diag();
         //Disturbance smoother
         if (smooth == 2 && t < intN - data.h){
-          Veta = data.system.Q - QRt * Nt * QRt.t();
-          data.eta.col(t) = QRt * rt / sqrt(Veta.diag());
+          // Raw smoothed disturbance E[eta_t | y] = Q R' r_t.  The
+          // theoretical per-step standardisation by sqrt(diag(Veta)) with
+          // Veta = Q - Q R' N_t R Q is SINGULAR when a disturbance variance
+          // collapses (Veta.diag -> 0, e.g. an estimated variance near zero):
+          // it produces inf/nan that the empirical re-standardisation below
+          // then discards, ZEROING the very component carrying an outlier.
+          // Leave the disturbance raw here; the cov/pinv block after the loop
+          // standardises each component to a finite, unit-variance auxiliary
+          // residual, so a spike survives as a large t-stat regardless of the
+          // variance regime.
+          data.eta.col(t) = QRt * rt;
         }
         // Storing for outlier detection
         if (smooth == 3){
@@ -1398,13 +1407,19 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   //   data.v = data.v.rows(min(ind), max(ind));
   //   data.v = data.v / sqrt(data.F);
   // }
-  // Disturbances
+  // Disturbances: standardise each component to a unit-variance auxiliary
+  // residual (Harvey-Koopman diagnostic).  Do it PER COLUMN, dividing by the
+  // component's own empirical SD -- a single matrix pinv() applies one
+  // tolerance across all components and silently zeroes any whose variance is
+  // far below the largest (e.g. a near-zero observation/level variance when
+  // another component dominates), which destroys the outlier signal there.
   if (smooth == 2){
-    data.eta = data.eta.t();
-    mat covEta = diagmat(cov(data.eta, 1));
-    uvec ind = find_finite(covEta.diag());
-    mat icovEta = pinv(sqrt(covEta(ind, ind)));
-    data.eta.cols(ind) = (data.eta.cols(ind) * icovEta);
+    data.eta = data.eta.t();   // n x rQ
+    for (uword j = 0; j < data.eta.n_cols; j++){
+      double s = stddev(data.eta.col(j));
+      if (s > 0 && std::isfinite(s)) data.eta.col(j) /= s;
+      else                           data.eta.col(j).zeros();
+    }
     data.eta = data.eta.t();
     data.eta.replace(datum::nan, 0);
     data.eta.replace(datum::inf, 0);

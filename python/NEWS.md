@@ -2,6 +2,14 @@
 
 ## 0.1.0
 
+* **Outlier detection (`outliers="use"`) fixed.** The disturbance smoother
+  no longer zeroes the auxiliary residual of any component whose variance is
+  far below the largest (a single matrix `pinv()` tolerance was discarding it),
+  so injected spikes are detected; and a detected, highly-significant outlier
+  is no longer dropped merely because an over-fit baseline has a "better"
+  information criterion (acceptance now follows the per-outlier significance
+  test). Shared C++ engine, so identical to R.
+
 * **Estimation gradient corrected; better convergence.** The analytic
   log-likelihood gradient used by the optimiser was wrong for structural
   models (it mixed ratio- and absolute-scale `Q`/`H` when building the
