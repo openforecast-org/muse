@@ -3551,6 +3551,20 @@ void BSMclass::initParBsm(){
  // Variance matrices in standard BSM on top of fixed structure
  void bsmMatrices(vec p, SSmatrix* model, void* userInputs){
          BSMmodel* inp = (BSMmodel*)userInputs;
+         // Floor the variance log-parameters so exp(2*p) cannot underflow to
+         // EXACTLY zero.  A zero disturbance variance collapses the Kalman
+         // innovation variance F_t = Z P Z' + H to 0, so the gain K = P Z'/F_t
+         // becomes 0/0 = NaN and the filtered states -- and any forecast built
+         // from the terminal state -- blow up (observed as 1e12-scale forecasts
+         // when a flexible model's variances are driven to ~0).  typePar == 0
+         // marks the variance log-params; clamp to var >= exp(-23) ~ 1e-10,
+         // numerically "zero" for the model but keeping the filter well-defined.
+         // Structural zeros (companion states) are not touched.
+         if (inp->typePar.n_elem > 0){
+                 uword nv = std::min(inp->typePar.n_elem, p.n_elem);
+                 uvec vpos = find(inp->typePar.head(nv) == 0);
+                 if (vpos.n_elem > 0) p(vpos) = arma::clamp(p(vpos), -11.5, arma::datum::inf);
+         }
          // Lambda is no longer in p; no trailing element to shed.
          vec nsCum = cumsum(inp->ns);
          vec nparCum = cumsum(inp->nPar);
@@ -3669,6 +3683,13 @@ void BSMclass::initParBsm(){
 // Variance matrices in standard BSM on top of fixed structure for true parameters
 void bsmMatricesTrue(vec p, SSmatrix* model, void* userInputs){
         BSMmodel* inp = (BSMmodel*)userInputs;
+        // Floor variance log-params (see bsmMatrices) so a collapsed variance
+        // can't make the (absolute-scale) filter's innovation variance zero.
+        if (inp->typePar.n_elem > 0){
+                uword nv = std::min(inp->typePar.n_elem, p.n_elem);
+                uvec vpos = find(inp->typePar.head(nv) == 0);
+                if (vpos.n_elem > 0) p(vpos) = arma::clamp(p(vpos), -11.5, arma::datum::inf);
+        }
         vec nsCum = cumsum(inp->ns);
         vec nparCum = cumsum(inp->nPar);
         // Trend

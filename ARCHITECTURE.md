@@ -800,6 +800,15 @@ difference + OPG covariance — see `parCov` below — removed that sensitivity.
 
 ## Key invariants
 
+- **Variance floor.** `bsmMatrices` / `bsmMatricesTrue` clamp the variance
+  log-parameters (`typePar == 0`) so `exp(2*p) >= exp(-23) ≈ 1e-10` before
+  filling `Q`/`H`.  A variance that underflows to *exactly* 0 (a collapsed /
+  near-deterministic component) makes the Kalman innovation variance
+  `F_t = Z P Zᵀ + H` zero, the gain `K = P Zᵀ/F_t` becomes `0/0 = NaN`, and the
+  filtered/terminal state — hence any forecast — is `NaN`/explosive.  The floor
+  is applied only to genuine variance parameters; **structural zeros** (e.g.
+  seasonal/ARMA companion-state rows of `Q`) are set after and stay 0.
+
 - **BC scale vs original scale.** Residuals, innovations, and the `comp` matrix are
   all on the Box-Cox scale.  `fitted`, `forecast$mean`, and holdout comparisons are
   on the original scale (back-transformed by `.inv_box_cox()`).  Prediction intervals

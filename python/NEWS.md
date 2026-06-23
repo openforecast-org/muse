@@ -2,6 +2,13 @@
 
 ## 0.1.0
 
+* **Forecasts no longer blow up on a collapsed variance.** When a
+  disturbance variance is driven to ~0, `exp(2*p)` underflowed to exactly 0
+  in the state-space matrices, zeroing the Kalman innovation variance and
+  producing `NaN` terminal states and explosive (~1e12) forecasts. Variance
+  log-parameters are now floored at `var >= ~1e-10` in the matrix build.
+  Shared C++ engine, so identical to R.
+
 * **Outlier detection (`outliers="use"`) fixed.** The disturbance smoother
   no longer zeroes the auxiliary residual of any component whose variance is
   far below the largest (a single matrix `pinv()` tolerance was discarding it),

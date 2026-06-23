@@ -1,6 +1,19 @@
 muse v0.1.0
 =======
 
+* Forecasts no longer blow up when a disturbance variance collapses to
+  zero.  With the corrected optimiser, a flexible model on some series
+  drives a variance log-parameter very negative, so `exp(2*p)` underflows
+  to EXACTLY 0 in the system matrices.  A zero disturbance variance makes
+  the Kalman innovation variance `F_t = Z P Z' + H` zero, the gain `K = P
+  Z'/F_t` becomes `0/0 = NaN`, the terminal state is `NaN`, and the
+  forecast explodes (e.g. ~1e12 on a series whose data maxes near 1e6).
+  The variance log-parameters (`typePar == 0`) are now floored at
+  `var >= exp(-23) ~ 1e-10` inside `bsmMatrices` / `bsmMatricesTrue` --
+  numerically "zero" for the model but keeping the filter well-defined.
+  Structural zeros (companion states) are untouched; well-identified
+  models (variances far above the floor) are unaffected.
+
 * Outlier detection (`outliers = "use"`) fixed.  Two bugs are addressed:
     - The disturbance smoother standardised the auxiliary residuals with a
       single matrix `pinv()` across all components; its tolerance treated any
