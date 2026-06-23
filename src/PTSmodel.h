@@ -3683,12 +3683,17 @@ void BSMclass::initParBsm(){
 // Variance matrices in standard BSM on top of fixed structure for true parameters
 void bsmMatricesTrue(vec p, SSmatrix* model, void* userInputs){
         BSMmodel* inp = (BSMmodel*)userInputs;
-        // Floor variance log-params (see bsmMatrices) so a collapsed variance
-        // can't make the (absolute-scale) filter's innovation variance zero.
+        // Floor the variance parameters at a small POSITIVE value.  NOTE: unlike
+        // bsmMatrices (where p holds log-params and Q = exp(2*p)), here p holds
+        // the absolute variances directly (Q(i,i) = p(i)), so the floor must be
+        // a variance, not a log-param.  This both (a) keeps a collapsed variance
+        // from making F_t = Z P Z' + H exactly zero, and (b) guards against a
+        // negative variance leaking in (it can, when the concentrated scale
+        // innVariance is corrupted by a non-PSD filter state upstream).
         if (inp->typePar.n_elem > 0){
                 uword nv = std::min(inp->typePar.n_elem, p.n_elem);
                 uvec vpos = find(inp->typePar.head(nv) == 0);
-                if (vpos.n_elem > 0) p(vpos) = arma::clamp(p(vpos), -11.5, arma::datum::inf);
+                if (vpos.n_elem > 0) p(vpos) = arma::clamp(p(vpos), std::exp(2.0 * -11.5), arma::datum::inf);
         }
         vec nsCum = cumsum(inp->ns);
         vec nparCum = cumsum(inp->nPar);
