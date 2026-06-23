@@ -844,7 +844,23 @@ double llikAug(vec& p, void* opt_data){
     }
     data->logJac = logJac;
     snBeta = sn.t() * beta;
-    data->innVariance = (v2F(0, 0) - snBeta(0)) / nFinite;
+    // Concentrated variance = residual sum of squares / n, where the RSS is
+    //   v2F - snBeta  =  Sum v_t^2/F_t  -  sn' Sn^{-1} sn
+    // i.e. total weighted sum of squares minus the part explained by the
+    // augmented states (initial states + regressors).  This is a SUM OF SQUARES
+    // and is mathematically >= 0.  But when the augmented states nearly
+    // interpolate the data (a degenerate near-perfect fit), v2F and snBeta are
+    // huge and nearly equal, so the subtraction loses all significant digits
+    // (catastrophic cancellation) and can come out NEGATIVE -- which would make
+    // innVariance, the displayed variances (= ratio * innVariance) and the
+    // parameter covariance non-positive.  Clamp the cancellation artifact to a
+    // tiny non-negative value (eps-scaled so it only ever bites in the
+    // cancellation regime; well-identified fits, where RSS >> eps*v2F, are
+    // untouched and keep their exact value).
+    double rss = v2F(0, 0) - snBeta(0);
+    double rssFloor = arma::datum::eps * std::fabs(v2F(0, 0));
+    if (rss < rssFloor) rss = rssFloor;
+    data->innVariance = rss / nFinite;
     llikValue = log(data->innVariance) + 1
                 + (log(det(Sn)) + logF) / nFinite
                 - 2.0 * logJac / nFinite;

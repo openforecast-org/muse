@@ -1,6 +1,24 @@
 muse v0.1.0
 =======
 
+* Concentrated variance can no longer come out negative (NaN standard
+  errors / negative displayed variances).  In the augmented Kalman
+  likelihood (`llikAug`) the concentrated innovation variance is
+  `(v2F - snBeta)/n`, the residual sum of squares after projecting out the
+  augmented states (diffuse initial states + regressors) divided by `n`.
+  That RSS is mathematically a sum of squares, hence `>= 0`, but when the
+  augmented states nearly interpolate the data (a degenerate near-perfect
+  fit, which the corrected optimiser can now reach) `v2F` and `snBeta` are
+  both huge and nearly equal, so the subtraction loses every significant
+  digit (catastrophic cancellation) and can flip NEGATIVE -- making
+  `innVariance`, the displayed variances (`ratio * innVariance`) and the
+  parameter covariance non-positive.  The RSS is now clamped to a tiny
+  eps-scaled non-negative value, which only bites in the cancellation
+  regime; well-identified fits (RSS far above `eps * v2F`) are untouched
+  and keep their exact value.  `main` (no sparse refactor) produced sane
+  positive variances on the same data, so this is a regression exposed by
+  the corrected optimiser reaching the degenerate corner.
+
 * Forecasts no longer blow up when a disturbance variance collapses to
   zero.  With the corrected optimiser, a flexible model on some series
   drives a variance log-parameter very negative, so `exp(2*p)` underflows

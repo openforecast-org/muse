@@ -2,6 +2,17 @@
 
 ## 0.1.0
 
+* **Concentrated variance can no longer come out negative.** In the
+  augmented Kalman likelihood the concentrated innovation variance is the
+  post-projection residual sum of squares `(v2F - snBeta)` divided by `n` --
+  a sum of squares, so `>= 0`. When the augmented states (diffuse initial
+  states + regressors) nearly interpolate the data, `v2F` and `snBeta` are
+  huge and nearly equal, the subtraction loses all precision (catastrophic
+  cancellation) and can flip negative, giving negative variances and NaN
+  standard errors. The RSS is now clamped to a tiny eps-scaled non-negative
+  value; well-identified fits are untouched. Shared C++ engine, so identical
+  to R.
+
 * **Forecasts no longer blow up on a collapsed variance.** When a
   disturbance variance is driven to ~0, `exp(2*p)` underflowed to exactly 0
   in the state-space matrices, zeroing the Kalman innovation variance and
