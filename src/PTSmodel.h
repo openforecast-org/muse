@@ -1992,34 +1992,17 @@ mat BSMclass::parCov(vec& returnP){
         iHess.fill(datum::nan);
         uvec indHess = find(inputs.constPar < 1);
         uvec ind = reserveCLLIK ? indHess : regspace<uvec>(0, k - 1);
-        if (hess.is_finite() && ind.n_elem > 0){
-                mat H = hess.submat(ind, ind);
-                H = 0.5 * (H + H.t());           // symmetrise
-                // Is the observed Hessian a usable information matrix?  It must
-                // be positive definite and not numerically singular.  When it is
-                // indefinite (a negative curvature at the optimum -- typically a
-                // boundary / weakly-identified variance) or ill-conditioned to
-                // the point of being numerically singular, inverting it gives a
-                // non-PSD, unreliable covariance.  In that case fall back to the
-                // OPG / BHHH estimator  I = sum_t s_t s_t'  (per-observation
-                // outer product of scores), which is PSD by construction.
-                vec eval;
-                bool eigok = eig_sym(eval, H);
-                double emax = eval.n_elem ? eval.max() : 0.0;
-                double emin = eval.n_elem ? eval.min() : 0.0;
-                const double condTol = 1e-8;     // trigger if emin <= condTol*emax (covers emin<=0)
-                bool hessUsable = eigok && (emin > condTol * std::max(emax, 1e-300));
-                mat covSub;
-                if (hessUsable || SSmodel::inputs.augmented){
-                        // augmented (xreg) path stores no per-obs v/F, so OPG is
-                        // unavailable there; use the (improved) Hessian.
-                        covSub = pinv(H);
-                } else {
-                        // --- OPG / BHHH over the same parameter indices ---
-                        // Per-observation negative log-likelihood contribution
-                        //   nll_t = 0.5 (log F_t + v_t^2 / F_t) - logJac_t
-                        // (absolute scale: cLlik is off and bsmMatricesTrue is
-                        // active here).  Scores via central differences.
+        if (ind.n_elem > 0){
+                // OPG / BHHH information over the requested parameter indices.
+                // Built from per-observation scores of the (absolute-scale)
+                //   nll_t = 0.5 (log F_t + v_t^2 / F_t) - logJac_t
+                // (cLlik off and bsmMatricesTrue active here), central-
+                // differenced from the stored innovations.  PSD by construction
+                // and -- crucially -- finite even when the second-difference
+                // Hessian is not (single, small perturbations, no inversion of a
+                // near-singular matrix).  Returns an empty matrix if it cannot be
+                // formed (too few usable obs, or non-finite scores).
+                auto tryOPG = [&]()->mat {
                         uword n = SSmodel::inputs.y.n_rows;
                         vec p0 = SSmodel::inputs.p;
                         auto perObsNLL = [&](vec pp)->vec {
@@ -2050,16 +2033,49 @@ mat BSMclass::parCov(vec& returnP){
                         SSmodel::inputs.p = p0;
                         llik(p0, &(SSmodel::inputs));        // restore v/F at the solution
                         uvec good = find_finite(sum(S, 1));  // drop diffuse/missing obs
-                        if (good.n_elem >= ind.n_elem){
-                                mat Sg = S.rows(good);
-                                mat opg = Sg.t() * Sg;
-                                covSub = opg.is_finite() ? pinv(opg) : pinv(H);
-                        } else {
-                                covSub = pinv(H);            // not enough info for OPG
+                        if (good.n_elem < ind.n_elem) return mat();
+                        mat Sg = S.rows(good);
+                        mat opg = Sg.t() * Sg;
+                        if (!opg.is_finite()) return mat();
+                        return pinv(opg);
+                };
+                // Prefer the observed-information Hessian when it is finite,
+                // positive definite and not numerically singular.  Otherwise --
+                // indefinite (a boundary / weakly-identified variance), ill-
+                // conditioned, or outright non-finite (a degenerate optimum where
+                // the second differences blow up) -- fall back to OPG.  The
+                // augmented (xreg) path stores no per-obs v/F, so OPG is
+                // unavailable there; it keeps the Hessian (or NaN if non-finite).
+                mat H;
+                bool hessFinite = hess.is_finite();
+                bool hessUsable = false;
+                if (hessFinite){
+                        H = hess.submat(ind, ind);
+                        H = 0.5 * (H + H.t());           // symmetrise
+                        vec eval;
+                        bool eigok = eig_sym(eval, H);
+                        double emax = eval.n_elem ? eval.max() : 0.0;
+                        double emin = eval.n_elem ? eval.min() : 0.0;
+                        const double condTol = 1e-8;     // emin <= condTol*emax covers emin<=0
+                        hessUsable = eigok && (emin > condTol * std::max(emax, 1e-300));
+                }
+                mat covSub;
+                bool haveCov = false;
+                if (hessUsable || SSmodel::inputs.augmented){
+                        if (hessFinite){ covSub = pinv(H); haveCov = true; }
+                } else {
+                        covSub = tryOPG();
+                        if (!covSub.is_empty()){
+                                haveCov = true;
+                        } else if (hessFinite){
+                                covSub = pinv(H);        // last resort
+                                haveCov = true;
                         }
                 }
-                iHess.submat(ind, ind) = covSub;
-                iHess.diag() = abs(iHess.diag());
+                if (haveCov){
+                        iHess.submat(ind, ind) = covSub;
+                        iHess.diag() = abs(iHess.diag());
+                }
         }
         // Restore the estimation-scale configuration.
         SSmodel::inputs.cLlik = reserveCLLIK;
