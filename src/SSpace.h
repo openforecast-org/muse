@@ -589,6 +589,11 @@ double llik(vec& p, void* opt_data){
   v2F.fill(0);
   n = data->y.n_rows;
   data->d_t = n;
+  // Per-observation mask: 1 where llikCompute() takes the v^2/F (non-diffuse)
+  // branch, 0 where it takes the diffuse log|Finf| branch (or the obs is
+  // missing).  Captured here so the central BCnorm likelihood below splits the
+  // observations exactly as llikCompute() did.
+  vec nonDiffuseMask = zeros(n);
   // Kfinit
   KFinit(data->system.T, RQRt, ns, at, Pt, Pinft);
   oldPt.zeros(ns, ns);
@@ -628,8 +633,13 @@ double llik(vec& p, void* opt_data){
                  Finft, vt, data->system.D(0, 0), Ft, iFt, at, Pt, Pinft,
                  Kt, t, auxFinf, auxKinf, Z);
     // llik calculation
-    if (!miss && t < n)
+    if (!miss && t < n){
       llikCompute(colapsed, Finft, vt, Ft, iFt, v2F, logF, llikValue);
+      // Same branch condition as llikCompute(): non-diffuse iff collapsed or
+      // the diffuse innovation variance is already negligible.
+      if (colapsed || Finft(0, 0) < 1e-8)
+        nonDiffuseMask(t) = 1.0;
+    }
     // Prediction (sparse-T path)
     KFprediction(steadyState, colapsed, Tsp, RQRt, at, Pt, Pinft);
     // Storing final state and covariance for forecasting
@@ -699,9 +709,37 @@ double llik(vec& p, void* opt_data){
   }
   if (data->cLlik){         // Concentrated Likelihood (MLE)
       data->innVariance = v2F(0, 0) / nFinite;
-      llikValue = log(data->innVariance) + 1
-                  + (llikValue + logF) / nFinite
-                  - 2.0 * data->logJac / nFinite;
+      const double s2 = data->innVariance;
+      // Objective = the BCnorm log-likelihood (the C++ analogue of adam()'s
+      // loss = "likelihood": the concentrated scale s2 is plugged straight into
+      // the per-observation predictive sd).  The reported logLik / IC derive
+      // from this same objFunValue (PTSmodel.h::computeLLIK), so bcnorm is the
+      // single source.
+      const double diffuseTerm = llikValue(0, 0);   // Sum_{diffuse} log Finf
+      const bool haveRaw = (data->y_raw.n_elem == n);
+      vec yr     = haveRaw ? data->y_raw : data->y;
+      double lam = haveRaw ? data->lambda : 1.0;    // !haveRaw => identity
+      uvec finiteIdx = find_finite(data->y);
+      vec maskFin = nonDiffuseMask.elem(finiteIdx);
+      // Non-diffuse observations: full BCnorm data density in ONE vectorised
+      // call, each with its own predictive sd sqrt(s2 * F_t).
+      uvec ndIdx = finiteIdx.elem(find(maskFin > 0.5));
+      double LL = sum(bcnormLogDensity(
+                          yr.elem(ndIdx),
+                          data->y.elem(ndIdx) - data->v.elem(ndIdx),
+                          sqrt(s2 * data->F.elem(ndIdx)), lam));
+      // Diffuse observations are consumed estimating the diffuse initial state:
+      // they carry no data-fit term, only the (s2-scaled) log|Finf| determinant
+      // (== diffuseTerm) plus their BoxCox Jacobian.
+      uvec dIdx = finiteIdx.elem(find(maskFin < 0.5));
+      if (!dIdx.is_empty()){
+          double nDiff = (double)dIdx.n_elem;
+          LL += sum(bcnormLogJac(yr.elem(dIdx), lam))
+                - 0.5 * nDiff * std::log(2.0 * datum::pi)
+                - 0.5 * nDiff * std::log(s2)
+                - 0.5 * diffuseTerm;
+      }
+      llikValue(0, 0) = -2.0 * LL / nFinite - std::log(2.0 * datum::pi);
   } else {                  // Crude Likelihood (forecast-only path)
       llikValue = (llikValue + v2F + logF - 2.0 * data->logJac) / nFinite;
   }
