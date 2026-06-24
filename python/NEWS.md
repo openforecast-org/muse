@@ -2,6 +2,14 @@
 
 ## 0.1.0
 
+* **Point forecasts are now the conditional MEAN under a Box-Cox transform**,
+  not the median. Back-transforming the BC-scale point forecast gives the
+  median; for `lambda < 1` the convex inverse makes the median below the mean,
+  so forecasts under-reported (~8% on a `lambda = 0.43` series). A second-order
+  bias correction `mean ~= g^{-1}(mu) * (1 + 0.5*var*(1-lambda)/(1+lambda*mu)^2)`
+  is now applied (matching `forecast::InvBoxCox(biasadj=True)`). Interval
+  quantiles are unchanged. Identical to R.
+
 * **Zero-containing series can now be variance-stabilised** (and forecast
   non-negatively). Previously any zero forced `lambda = 1` (raw scale) -- the
   Guerrero lambda screen bailed to 1 on `any(y <= 0)` and a non-1 lambda gave a

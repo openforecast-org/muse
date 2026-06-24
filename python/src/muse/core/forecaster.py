@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.stats import norm
 
-from .boxcox import inv_box_cox
+from .boxcox import inv_box_cox, inv_box_cox_mean
 
 
 class ForecastResult:
@@ -68,7 +68,9 @@ def forecast(model, h, X=None, interval="prediction", level=0.95, side="both",
     yfor_bc = np.asarray(eng["yFor"], dtype=float)
     yforv = np.asarray(eng["yForV"], dtype=float)
     lam = model._lambda
-    mean_out = inv_box_cox(yfor_bc, lam)
+    # Point forecast = conditional MEAN (bias-corrected back-transform); the
+    # interval quantiles below stay median-style (exact quantiles, no bias adj).
+    mean_out = inv_box_cox_mean(yfor_bc, yforv, lam)
 
     sigma2_bc = float(model._scale) ** 2
     yforv_conf = np.maximum(0.0, yforv - sigma2_bc)

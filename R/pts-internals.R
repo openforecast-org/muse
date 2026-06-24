@@ -338,6 +338,28 @@
     out
 }
 
+# .inv_box_cox_mean: inverse Box-Cox of a forecast/fitted point, returning the
+# conditional MEAN rather than the median.  Back-transforming the BC-scale point
+# `mu_bc` with .inv_box_cox() gives g^{-1}(mu) = the conditional MEDIAN on the
+# original scale; because g^{-1} is convex for lambda < 1, the conditional MEAN
+# E[g^{-1}(z)] (z ~ N(mu, var) on the BC scale) is higher.  Apply the standard
+# second-order (delta-method) bias correction
+#   E[g^{-1}(z)]  ~=  g^{-1}(mu) * (1 + 0.5 * var * (1 - lambda) / (1 + lambda*mu)^2)
+# matching forecast::InvBoxCox(biasadj = TRUE).  Exact (factor 1) at lambda == 1.
+# `variance_bc` is the BC-scale forecast variance, same length as `mu_bc`.
+# Guards the near-support-boundary case 1 + lambda*mu <= 0 (and any non-finite
+# correction) by falling back to no correction there.
+.inv_box_cox_mean <- function(mu_bc, variance_bc, lambda){
+    med <- .inv_box_cox(mu_bc, lambda)
+    if (lambda == 1 || is.null(med) || length(med) == 0) return(med)
+    mu   <- as.numeric(mu_bc)
+    v    <- as.numeric(variance_bc)
+    base <- 1 + lambda * mu
+    corr <- 1 + 0.5 * v * (1 - lambda) / (base * base)
+    corr[!is.finite(corr) | base <= 0 | corr < 0] <- 1
+    med * corr
+}
+
 # .pts_build_comp: take the engine's component matrix and rebuild it in
 # the user-friendly column order  [Error, Fit, Level, Slope?, Seasonal?, ...].
 # Fit becomes the row-sum of the structural components (so users can plot
@@ -443,7 +465,9 @@
     # BC scale so forecast.pts can compute intervals by endpoint transform.
     yFor_bc <- .pts_wrap_oos(out$yFor,  y)
     yForV   <- .pts_wrap_oos(out$yForV, y)
-    yFor    <- .inv_box_cox(yFor_bc, out$lambda)
+    # Point forecast = conditional MEAN (bias-corrected back-transform), so it
+    # matches forecast.pts()$mean and is unbiased for lambda < 1.
+    yFor    <- .inv_box_cox_mean(yFor_bc, yForV, out$lambda)
     v       <- .pts_ts_innov   (out$v,     y)
 
     # Component matrix (raw + user-friendly rearrangement).  Components stay

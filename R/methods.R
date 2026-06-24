@@ -380,7 +380,11 @@ forecast.pts <- function(object, h = 10, newdata = NULL,
     yFor_bc   <- .pts_wrap_oos(as.numeric(out$yFor),  object$data)
     yForVpred <- .pts_wrap_oos(as.numeric(out$yForV), object$data)
     lambda    <- args$lambda
-    mean_out  <- .inv_box_cox(yFor_bc, lambda)
+    # Point forecast = conditional MEAN: bias-correct the back-transformed
+    # median for lambda < 1 (the interval quantiles below stay median-style --
+    # they are exact quantiles of the back-transformed distribution and must
+    # NOT be bias-corrected).
+    mean_out  <- .inv_box_cox_mean(yFor_bc, yForVpred, lambda)
     # Confidence variance = prediction variance minus the obs-noise
     # contribution.  For a SSM y_t = Z a_t + eps with var(eps) = sigma^2,
     # var(E[y_{t+h}|obs]) = var(y_{t+h}|obs) - sigma^2.  In PTS the

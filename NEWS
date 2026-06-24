@@ -1,6 +1,20 @@
 muse v0.1.0
 =======
 
+* Point forecasts (and the in-sample point forecast) are now the conditional
+  MEAN under a Box-Cox transform, not the median.  Back-transforming the
+  Box-Cox-scale point forecast g^{-1}(mu) returns the conditional MEDIAN on the
+  original scale; for lambda < 1 the inverse transform is convex so the MEDIAN
+  is below the MEAN, and the reported `$mean` / forecast(...)$mean systematically
+  under-forecast (e.g. ~8% low on a lambda = 0.43 series).  A second-order
+  bias correction is now applied,
+    mean ~= g^{-1}(mu) * (1 + 0.5 * var * (1 - lambda) / (1 + lambda*mu)^2),
+  with `var` the Box-Cox-scale forecast variance (matching
+  forecast::InvBoxCox(biasadj = TRUE)).  Prediction-interval quantiles are
+  unchanged -- they are exact quantiles of the back-transformed distribution
+  and must not be bias-corrected.  At lambda = 1 there is no change.  Shared
+  logic, so R and Python agree.
+
 * Series containing zeros can now be variance-stabilised (and forecast
   non-negatively).  Previously any zero forced lambda = 1 (raw scale): the
   msdecompose + Guerrero lambda screen bailed to 1 on `any(y <= 0)`, and even
