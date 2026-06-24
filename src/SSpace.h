@@ -909,19 +909,32 @@ double llikAug(vec& p, void* opt_data){
     // artifact cannot occur, however degenerate the fit.  (A genuinely
     // interpolating fit still gives RSS ~ 0; that is the separate degeneracy
     // handled by the disturbance-variance bound, not a numerical defect here.)
-    double rss = 0.0;
-    for (uword t = 0; t < n; t++){
-      double r = vStore(t) - dot(Vstore.col(t), beta);
-      rss += r * r * iFtStore(t);   // iFtStore == 0 at missing / steady steps
-    }
+    vec r = vStore - Vstore.t() * beta;     // GLS residual r_t = v_t - V_t·beta
+    double rss = dot(square(r), iFtStore);  // Sum r_t^2 / F_t (iFtStore==0 at
+                                            // missing / steady-skipped steps)
     // Guard only against log(0) at an exactly-interpolating fit (RSS == 0); this
     // is the unavoidable log-domain guard, not a sign fix.
     double rssFloor = arma::datum::eps * v2F(0, 0);
     if (rss < rssFloor) rss = rssFloor;
     data->innVariance = rss / nFinite;
-    llikValue = log(data->innVariance) + 1
-                + (log(det(Sn)) + logF) / nFinite
-                - 2.0 * logJac / nFinite;
+    // Objective via the BCnorm density (single source, exactly as llik()).  The
+    // GLS residual r_t has predictive sd sqrt(innVar * F_t); summing
+    // bcnormLogDensity over the observations gives the data likelihood, and the
+    // augmented-state determinant -0.5*log|Sn| (the diffuse initial states +
+    // regressors integrated under a flat prior) is the single correction term --
+    // the augmented analogue of llik()'s log|Finf| diffuse correction.  Packed
+    // so LL_BCnorm = -0.5*(nFinite*log(2pi) + nFinite*objFunValue), from which
+    // computeLLIK() derives the reported logLik / IC.
+    const bool haveRaw = (data->y_raw.n_elem == n);
+    vec yr     = haveRaw ? data->y_raw : data->y;
+    double lam = haveRaw ? data->lambda : 1.0;   // !haveRaw => identity
+    vec mu = data->y - r;                         // g(y_t) - r_t
+    vec sd = sqrt(data->innVariance / iFtStore);  // sqrt(innVar * F_t)
+    uvec finiteIdx = find_finite(data->y);
+    double LL = sum(bcnormLogDensity(yr.elem(finiteIdx), mu.elem(finiteIdx),
+                                     sd.elem(finiteIdx), lam))
+                - 0.5 * std::log(det(Sn));
+    llikValue(0, 0) = -2.0 * LL / nFinite - std::log(2.0 * datum::pi);
     data->objFunValue = llikValue(0, 0);
     data->betaAug = beta;
     data->betaAugVarMat = data->innVariance * iSn;
