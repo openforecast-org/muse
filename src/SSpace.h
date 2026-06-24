@@ -550,12 +550,15 @@ double llik(vec& p, void* opt_data){
   // the KF always runs on the correctly transformed series.
   if (data->estimateLambda) {
     double lam = p(p.n_elem - 1);
-    // Clamp lambda to the user-supplied lower bound (default -inf =
-    // no bound).  Required when y has zeros so BoxCox(0, lam<=0) =
-    // +/-Inf doesn't poison the KF.  The unclamped p.back() stays as
-    // the BFGS internal parameter; we just propagate the clamped lam
-    // to data->lambda (read by downstream consumers) and to BoxCox.
+    // Clamp lambda to [lambdaLower, LAMBDA_BOUND_UPPER].  The lower bound
+    // (default -inf) keeps BoxCox(0, lam<=0) = +/-Inf out of the KF on
+    // zero series.  The upper bound matches the value used when reporting /
+    // snapping lambda; without it the BFGS could push p.back() past 2 into a
+    // region where the objective and the (clamped) reported lambda disagree.
+    // The unclamped p.back() stays as the BFGS internal parameter; we just
+    // propagate the clamped lam to data->lambda and to BoxCox.
     if (lam < data->lambdaLower) lam = data->lambdaLower;
+    else if (lam > LAMBDA_BOUND_UPPER) lam = LAMBDA_BOUND_UPPER;
     data->lambda = lam;
     data->y = BoxCox(data->y_raw, lam);
   }
