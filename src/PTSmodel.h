@@ -1062,6 +1062,19 @@ void BSMclass::estim(vec p, bool VERBOSE){
 // variances or on irregular variances < 1e-6).  The actual user-supplied
 // parameters are then handed to this method.
 void BSMclass::setEstimatedParams(vec userParams){
+        // Incoming AR/SAR coefficients are in the standard (1 - phi B)
+        // convention (the reported convention -- see the output flip in
+        // runMuseCommand).  Convert them back to the engine's internal
+        // (1 + phi B) form (polyStationary negates, armaMatrices builds
+        // T = -col) before building the system matrices.  MA is already
+        // standard (armaMatrices uses R = +col), so it is left untouched.
+        if (inputs.ar > 0){
+                arma::vec ncum = arma::cumsum(inputs.nPar);
+                arma::uword a0 = (arma::uword)ncum(2) + 1;
+                arma::uword a1 = a0 + (arma::uword)inputs.ar - 1;
+                if (a1 < userParams.n_elem)
+                        userParams.rows(a0, a1) *= -1.0;
+        }
         SSmodel::inputs.userModel  = bsmMatricesTrue;
         SSmodel::inputs.cLlik      = false;
         SSmodel::inputs.userInputs = &inputs;

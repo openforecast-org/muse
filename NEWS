@@ -1,6 +1,18 @@
 muse v0.1.0
 =======
 
+* AR / SAR coefficients are now reported in the standard Box-Jenkins
+  convention (1 - phi B) y_t = (1 + theta B) e_t, matching stats::arima and
+  the forecasting literature.  The engine stores them internally in the
+  (1 + phi B) form (which makes the seasonal convolution and the state-space
+  companion work out), so the reported coefficient was the NEGATIVE of the
+  standard one (e.g. a +0.7 AR(1) signal was reported as -0.7).  The reported
+  AR/SAR coefficients (and their covariance) are now flipped to the standard
+  sign at the output boundary, and flipped back when a fitted object's
+  coefficients are reused for forecasting, so the round-trip is exact and
+  forecasts are unchanged.  MA / SMA coefficients were already standard and
+  are unaffected.  Shared C++ engine, so identical in R and Python.
+
 * Strongly seasonal series no longer get a spurious large POSITIVE
   log-likelihood (and the resulting explosive forecast / wrong model
   selection).  The concentrated likelihood was scaling the diffuse-
