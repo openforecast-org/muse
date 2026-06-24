@@ -1,6 +1,23 @@
 muse v0.1.0
 =======
 
+* Strongly seasonal series no longer get a spurious large POSITIVE
+  log-likelihood (and the resulting explosive forecast / wrong model
+  selection).  The concentrated likelihood was scaling the diffuse-
+  initialisation determinant by the concentrated variance sigma^2.  That is
+  harmless near sigma^2 ~ 1, but when the optimiser reaches a degenerate
+  corner -- a local-linear-trend whose observation variance collapses, so
+  sigma^2 underflows to ~1e-117 -- the d_t diffuse terms injected ~ +1600 of
+  bogus likelihood (e.g. logLik +986 on a series the model actually fits with
+  sigma ~ 0.6, picking an exp-trend forecast that blows up to ~3.6e7).  The
+  diffuse determinant is now left UNSCALED by sigma^2 -- the exact-diffuse
+  likelihood convention (Durbin-Koopman): only the n - d_t non-diffuse
+  observations carry the variance scale.  Such series now report a sane
+  negative logLik (~ -737) and select a sensible seasonal model.  logLik /
+  information criteria of models with diffuse initialisation shift by a small
+  amount (the diffuse determinant is now scale-free).  Shared C++ engine, so
+  identical to Python.
+
 * Concentrated variance can no longer come out negative (NaN standard
   errors / negative displayed variances).  In the augmented Kalman
   likelihood (`llikAug`) the concentrated innovation variance is the

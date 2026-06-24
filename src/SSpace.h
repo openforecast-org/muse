@@ -729,14 +729,20 @@ double llik(vec& p, void* opt_data){
                           data->y.elem(ndIdx) - data->v.elem(ndIdx),
                           sqrt(s2 * data->F.elem(ndIdx)), lam));
       // Diffuse observations are consumed estimating the diffuse initial state:
-      // they carry no data-fit term, only the (s2-scaled) log|Finf| determinant
-      // (== diffuseTerm) plus their BoxCox Jacobian.
+      // they carry no data-fit term, only the log|Finf| determinant (==
+      // diffuseTerm) plus their BoxCox Jacobian.  The determinant is NOT scaled
+      // by the concentrated variance s2 -- the exact-diffuse likelihood
+      // convention (Durbin-Koopman): only the n - d_t non-diffuse observations
+      // carry the s2 scale.  The previous form added -0.5*nDiff*log(s2), which
+      // is harmless near s2 ~ 1 but, when the optimiser drives s2 to an extreme
+      // corner (a degenerate trend whose observation variance has collapsed),
+      // injected a large spurious +likelihood -- the +986 "positive logLik" on
+      // strongly seasonal series.
       uvec dIdx = finiteIdx.elem(find(maskFin < 0.5));
       if (!dIdx.is_empty()){
           double nDiff = (double)dIdx.n_elem;
           LL += sum(bcnormLogJac(yr.elem(dIdx), lam))
                 - 0.5 * nDiff * std::log(2.0 * datum::pi)
-                - 0.5 * nDiff * std::log(s2)
                 - 0.5 * diffuseTerm;
       }
       llikValue(0, 0) = -2.0 * LL / nFinite - std::log(2.0 * datum::pi);
