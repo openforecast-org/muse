@@ -466,3 +466,54 @@ test_that("inner BFGS carries no lambda slot in p", {
     m0 <- pts(AirPassengers, h = 0, model = "0NT")
     expect_equal(nparam(m), nparam(m0))
 })
+
+#### lambda_estim + biasadj ####
+
+test_that("lambda_estim offers likelihood / guerrero / decomp-guerrero", {
+    # All three modes fit and return a finite lambda in [0, 2].
+    for (le in c("likelihood", "guerrero", "decomp-guerrero")){
+        m <- pts(AirPassengers, model = "ZNT", h = 0, lambda_estim = le)
+        expect_true(is.finite(m$lambda))
+        expect_gte(m$lambda, 0); expect_lte(m$lambda, 2)
+        expect_identical(m$lambda_estim, le)
+    }
+    # Default is the likelihood (joint) estimator.
+    expect_identical(formals(pts)$lambda_estim[[2]], "likelihood")
+    m_def <- pts(AirPassengers, model = "ZNT", h = 0)
+    expect_identical(m_def$lambda_estim, "likelihood")
+    # A fixed numeric power ignores lambda_estim entirely.
+    expect_equal(pts(AirPassengers, model = "0.5NT", h = 0,
+                     lambda_estim = "guerrero")$lambda, 0.5)
+})
+
+test_that("likelihood lambda estimation does not drop zeros / explode", {
+    # Zero-heavy seasonal series: a small Guerrero lambda maps the zeros to a
+    # huge negative outlier and the back-transform explodes; the likelihood
+    # estimator stays in the comparable, finite-sample region (lambda above the
+    # zero floor) and forecasts sanely.
+    set.seed(1)
+    seas <- c(0, 0, 1, 5, 20, 60, 90, 60, 20, 5, 1, 0)
+    y <- ts(pmax(0, round(rep(seas, 6) * (1 + 0.1 * rnorm(72)))), frequency = 12)
+    m <- pts(y, model = "ZND", h = 12, holdout = TRUE,
+             lambda_estim = "likelihood")
+    f <- forecast(m, h = 12)$mean
+    expect_true(all(is.finite(f)))
+    expect_lt(max(f), 50 * max(y))          # not exploded
+    expect_true(all(f >= 0))                # non-negative (lambda > 0)
+})
+
+test_that("biasadj toggles median vs bias-corrected mean", {
+    m0 <- pts(AirPassengers, model = "0NT", h = 12, biasadj = FALSE)
+    m1 <- pts(AirPassengers, model = "0NT", h = 12, biasadj = TRUE)
+    f0 <- forecast(m0, h = 12)$mean
+    f1 <- forecast(m1, h = 12)$mean
+    # For lambda < 1 the mean (biasadj) exceeds the median.
+    expect_true(all(f1 >= f0 - 1e-8))
+    expect_gt(max(f1), max(f0))
+    # forecast() can override the stored biasadj.
+    expect_equal(as.numeric(forecast(m0, h = 12, biasadj = TRUE)$mean),
+                 as.numeric(f1), tolerance = 1e-8)
+    # Default is FALSE (median).
+    expect_false(formals(pts)$biasadj)
+    expect_false(pts(AirPassengers, model = "0NT", h = 0)$biasadj)
+})

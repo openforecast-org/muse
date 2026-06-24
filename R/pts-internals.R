@@ -1,5 +1,71 @@
 # Internal helpers used by pts() and forecast.pts(). Not exported.
 
+# .pts_lambda_zero_floor: lower bound on the Box-Cox lambda for a series that
+# contains zeros.  Box-Cox maps y = 0 to g(0) = -1/lambda, which -> -Inf as
+# lambda -> 0 (at lambda = 0 exactly, log(0) = -Inf and the observation is
+# silently dropped -- so a likelihood at small lambda is computed on fewer
+# points and is NOT comparable across lambda).  To keep every zero finite and
+# no more extreme (in transformed space) than the transformed maximum we
+# require  |g(0)| <= |g(max)|  <=>  max^lambda >= 2  <=>  lambda >= log(2)/log(max).
+# Returns `base` unchanged when there are no zeros; capped at 1 for small-count
+# series (max <= 2).  This is the single source of truth for the zero floor,
+# shared by the Guerrero screens AND the engine's joint-lambda lower bound.
+.pts_lambda_zero_floor <- function(y, base = 0){
+    fin <- as.numeric(y); fin <- fin[is.finite(fin)]
+    if (!length(fin) || !any(fin == 0)) return(base)
+    mx <- max(fin[fin > 0], na.rm = TRUE)
+    floor <- if (is.finite(mx) && mx > 1) min(1, log(2) / log(mx)) else 1
+    max(base, floor)
+}
+
+# .pts_guerrero_cv_lambda: minimise the Guerrero coefficient-of-variation
+#   CV(lambda) = sd_i( sd_b[i] * mu_b[i]^(lambda-1) ) /
+#               mean_i( sd_b[i] * mu_b[i]^(lambda-1) )
+# over the clipped range [lambda_lower, lambda_upper], given per-block level
+# (mu_b) and dispersion (sd_b) vectors.  Shared by the classical and
+# decomposition Guerrero screens, which differ only in how mu_b / sd_b are
+# formed.  Falls back to 1 on any failure.
+.pts_guerrero_cv_lambda <- function(mu_b, sd_b, lambda_lower, lambda_upper){
+    ok   <- is.finite(mu_b) & is.finite(sd_b) & mu_b > 0 & sd_b > 0
+    mu_b <- mu_b[ok]; sd_b <- sd_b[ok]
+    if (length(mu_b) < 2L) return(1)
+    if (lambda_lower >= lambda_upper) return(lambda_lower)
+    obj <- function(L){
+        r <- sd_b * mu_b^(L - 1)
+        if (any(!is.finite(r))) return(Inf)
+        sd(r) / mean(r)
+    }
+    opt <- tryCatch(stats::optimize(obj, lower = lambda_lower,
+                                    upper = lambda_upper, tol = 1e-4),
+                    error = function(e) NULL)
+    if (is.null(opt) || !is.finite(opt$objective)) return(1)
+    opt$minimum
+}
+
+# .pts_guerrero_classic_lambda: the classical Guerrero (1993) Box-Cox screen.
+# Splits the series into non-overlapping season-length blocks and computes,
+# per block, the RAW mean (level) and RAW sd (dispersion); then minimises the
+# Guerrero CV.  Unlike the decomposition variant it does no trend smoothing --
+# this is the textbook method (e.g. forecast::BoxCox.lambda(method="guerrero")).
+.pts_guerrero_classic_lambda <- function(y, lags,
+                                         lambda_lower = 0,
+                                         lambda_upper = 2){
+    yv  <- as.numeric(y)
+    fin <- yv[is.finite(yv)]
+    if (length(fin) < 4L || any(fin < 0)) return(1)
+    lambda_lower <- .pts_lambda_zero_floor(yv, lambda_lower)
+    m <- as.integer(utils::tail(as.integer(lags), 1L))
+    if (length(m) == 0L || is.na(m) || m < 2L) return(1)
+    n <- length(yv)
+    if (n < 2L * m) return(1)
+    R    <- n %/% m
+    idx  <- rep(seq_len(R), each = m)
+    keep <- seq_len(R * m)
+    mu_b <- as.numeric(tapply(yv[keep], idx, mean, na.rm = TRUE))
+    sd_b <- as.numeric(tapply(yv[keep], idx, sd,   na.rm = TRUE))
+    .pts_guerrero_cv_lambda(mu_b, sd_b, lambda_lower, lambda_upper)
+}
+
 # .pts_guerrero_decomp_lambda: Box-Cox lambda screen via msdecompose +
 # Guerrero CV minimisation.  Used by pts() when the user requests
 # auto-lambda ("Z" in the model spec).  See the long comment in
@@ -24,17 +90,9 @@
     fin <- yv[is.finite(yv)]
     if (length(fin) < 4L || any(fin < 0)) return(1)
     # Zeros allowed, but keep lambda far enough from 0 that the transformed
-    # zero g(0) = -1/lambda does not become a huge outlier: the CV below only
-    # sees positive block levels, so left unconstrained it can drive lambda -> 0
-    # (then every zero maps to -Inf and the fit collapses).  Require the
-    # transformed zero to be no more extreme than the transformed maximum,
-    # |g(0)| <= |g(max)|  <=>  max^lambda >= 2  <=>  lambda >= log(2)/log(max).
-    # Capped at 1 (small-count series with max <= 2 just stay on the raw scale).
-    if (any(fin == 0)){
-        mx <- max(fin[fin > 0], na.rm = TRUE)
-        zeroFloor <- if (is.finite(mx) && mx > 1) min(1, log(2) / log(mx)) else 1
-        if (zeroFloor > lambda_lower) lambda_lower <- zeroFloor
-    }
+    # zero g(0) = -1/lambda does not become a huge outlier (see
+    # .pts_lambda_zero_floor).
+    lambda_lower <- .pts_lambda_zero_floor(yv, lambda_lower)
     m <- as.integer(utils::tail(as.integer(lags), 1L))
     if (length(m) == 0L || is.na(m) || m < 2L) return(1)
     n <- length(yv)
@@ -50,23 +108,10 @@
     R    <- n %/% m
     idx  <- rep(seq_len(R), each = m)
     keep <- seq_len(R * m)
-    mu_b <- as.numeric(tapply(mu_t[keep],            idx, mean, na.rm = TRUE))
-    sd_b <- as.numeric(tapply((yv - mu_t)[keep],     idx, sd,   na.rm = TRUE))
-    ok   <- is.finite(mu_b) & is.finite(sd_b) & mu_b > 0 & sd_b > 0
-    mu_b <- mu_b[ok]; sd_b <- sd_b[ok]
-    if (length(mu_b) < 2L) return(1)
-
-    if (lambda_lower >= lambda_upper) return(lambda_lower)
-    obj <- function(L){
-        r <- sd_b * mu_b^(L - 1)
-        if (any(!is.finite(r))) return(Inf)
-        sd(r) / mean(r)
-    }
-    opt <- tryCatch(stats::optimize(obj, lower = lambda_lower,
-                                    upper = lambda_upper, tol = 1e-4),
-                    error = function(e) NULL)
-    if (is.null(opt) || !is.finite(opt$objective)) return(1)
-    opt$minimum
+    # Block level = smoothed trend; block dispersion = swing+noise around it.
+    mu_b <- as.numeric(tapply(mu_t[keep],        idx, mean, na.rm = TRUE))
+    sd_b <- as.numeric(tapply((yv - mu_t)[keep], idx, sd,   na.rm = TRUE))
+    .pts_guerrero_cv_lambda(mu_b, sd_b, lambda_lower, lambda_upper)
 }
 
 
@@ -416,7 +461,8 @@
 # (now retired) PTSsetup + MSOEsetup + MSOE chain.
 .pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose,
                      ar = 0L, ma = 0L, armaLags = 1L, outlier = 0,
-                     lambdaLower = -Inf, B = NULL, uFuture = NULL){
+                     lambdaLower = -Inf, B = NULL, uFuture = NULL,
+                     biasadj = FALSE){
     # Flatten per-lag ar / ma vectors into the format pts_to_uc consumes:
     #   length-1 lags -> c(p, q)         (non-seasonal arma(p,q))
     #   length-2 lags -> c(p, q, P, Q, s) (sarma(p,q)(P,Q)_s)
@@ -500,9 +546,11 @@
     # BC scale so forecast.pts can compute intervals by endpoint transform.
     yFor_bc <- .pts_wrap_oos(out$yFor,  y)
     yForV   <- .pts_wrap_oos(out$yForV, y)
-    # Point forecast = conditional MEAN (bias-corrected back-transform), so it
-    # matches forecast.pts()$mean and is unbiased for lambda < 1.
-    yFor    <- .inv_box_cox_mean(yFor_bc, yForV, out$lambda)
+    # Point forecast back-transform.  biasadj = FALSE (default): the conditional
+    # MEDIAN g^{-1}(mu); biasadj = TRUE: the bias-corrected conditional MEAN
+    # (matches forecast.pts()$mean and forecast::InvBoxCox(biasadj = TRUE)).
+    yFor    <- if (isTRUE(biasadj)) .inv_box_cox_mean(yFor_bc, yForV, out$lambda)
+               else                 .inv_box_cox(yFor_bc, out$lambda)
     v       <- .pts_ts_innov   (out$v,     y)
 
     # Component matrix (raw + user-friendly rearrangement).  Components stay

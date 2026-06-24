@@ -1,6 +1,37 @@
 muse v0.1.0
 =======
 
+* New `lambda_estim` argument to `pts()` selects how the Box-Cox power is
+  estimated when the power slot is `"Z"`: `"likelihood"` (new default --
+  estimate lambda jointly with the structural parameters by maximum likelihood
+  in the engine), `"guerrero"` (the classical Guerrero (1993) variance-
+  stabilisation screen on raw season-length blocks), or `"decomp-guerrero"`
+  (Guerrero on an `msdecompose`-smoothed trend, the former default).  The
+  Guerrero screens minimise a coefficient of variation and ignore the
+  likelihood, so they can pick a poor lambda -- on a zero-heavy series they may
+  steer into the small-lambda region where the back-transform explodes.  The
+  likelihood estimator avoids this; it is now the default.
+
+* Zero-containing series no longer break joint lambda estimation.  Box-Cox maps
+  `y = 0` to `g(0) = -1/lambda`, which at `lambda = 0` is `-Inf` and silently
+  drops the observation -- so the likelihood (and AICc) at small lambda was
+  computed on fewer points and was not comparable across lambda, luring a
+  likelihood search toward a degenerate small lambda.  The joint-lambda lower
+  bound is now the proper zero floor `log(2)/log(max(y))` (was a flat `1e-10`),
+  keeping the search in the comparable, finite-sample region.  On an
+  intermittent tourism series this changed the auto lambda from ~0.09 (forecast
+  blew up to ~2e5 against actuals ~7e3) to ~0.25 (forecast ~8e3).
+
+* New `biasadj` argument to `pts()` / `forecast()` (default `FALSE`).  Point
+  forecasts are now the back-transformed conditional MEDIAN by default; with
+  `biasadj = TRUE` a second-order bias correction yields the conditional MEAN
+  (as in `forecast::InvBoxCox(biasadj = TRUE)`).  The mean is not robust under a
+  small-lambda Box-Cox (its heavy right tail makes it explode), so the median is
+  the safer default.  Prediction-interval quantiles are unaffected.
+
+* The default information criterion for automatic model selection is now
+  `AICc` (was `BICc`), matching `smooth::adam`.
+
 * Information criteria now charge for the estimated structural initial states,
   and `$nParam` is now an adam-style breakdown table.  The initial level, slope
   (for local / global / damped trend), cycle, and seasonal states are diffuse /

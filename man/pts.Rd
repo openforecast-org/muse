@@ -6,8 +6,10 @@
 \usage{
 pts(data, model = "ZZZ", lags = stats::frequency(data), orders = list(ar
   = 0, ma = 0, select = FALSE), formula = NULL, regressors = c("use"),
-  outliers = c("ignore", "use", "select"), level = 0.99, ic = c("BICc",
-  "AICc", "BIC", "AIC"), h = 0, holdout = FALSE, verbose = FALSE, ...)
+  outliers = c("ignore", "use", "select"), level = 0.99, ic = c("AICc",
+  "BICc", "BIC", "AIC"), lambda_estim = c("likelihood", "guerrero",
+  "decomp-guerrero"), biasadj = FALSE, h = 0, holdout = FALSE,
+  verbose = FALSE, ...)
 }
 \arguments{
 \item{data}{response series.  Either a univariate \code{ts} / \code{zoo} /
@@ -84,10 +86,27 @@ the engine's relative stiffness (LS ~= 1.087*z, SC ~= 1.304*z).
 Ignored when \code{outliers = "ignore"}.}
 
 \item{ic}{information criterion for automatic model selection; one of
-\code{"BICc"} (default), \code{"AICc"}, \code{"BIC"}, \code{"AIC"}.
-Matches the adam option set.  BICc is the default because its stiffer
-complexity penalty guards against runaway-trend candidates whose
-likelihood beats simpler shapes by only a couple of units.}
+\code{"AICc"} (default), \code{"BICc"}, \code{"BIC"}, \code{"AIC"}.
+Matches the adam option set; AICc is the default, as in \code{adam}.}
+
+\item{lambda_estim}{how the Box-Cox power \eqn{\lambda} is chosen when the
+power slot of \code{model} is \code{"Z"}; one of:
+\itemize{
+  \item \code{"likelihood"} (default) -- estimate \eqn{\lambda} jointly with
+    the structural parameters by maximum likelihood in the engine.
+  \item \code{"guerrero"} -- the classical Guerrero (1993) variance-
+    stabilisation screen on raw season-length blocks.
+  \item \code{"decomp-guerrero"} -- Guerrero on an \code{msdecompose}-smoothed
+    trend (the former default).
+}
+Ignored when a numeric power is supplied (e.g. \code{"0.5ZZ"}).}
+
+\item{biasadj}{logical (default \code{FALSE}).  Point forecasts are the
+back-transformed conditional \emph{median} \eqn{g^{-1}(\mu)}.  When
+\code{TRUE}, a second-order bias correction is applied so the point forecast
+approximates the conditional \emph{mean} (as in
+\code{forecast::InvBoxCox(biasadj = TRUE)}).  Prediction-interval quantiles
+are unaffected.  Has no effect at \eqn{\lambda = 1}.}
 
 \item{h}{forecast horizon. If \code{h > 0} a forecast is computed at fit
 time and cached on the object; \code{forecast(object, h)} can later

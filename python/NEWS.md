@@ -2,6 +2,31 @@
 
 ## 0.1.0
 
+* **New `lambda_estim` argument** to `PTS(...)` -- how the Box-Cox power is
+  chosen when the power slot is `"Z"`: `"likelihood"` (new default: joint ML
+  estimation in the engine), `"guerrero"` (classical Guerrero 1993 on raw
+  season blocks), or `"decomp-guerrero"` (Guerrero on an `msdecompose` trend,
+  the former default). The Guerrero screens ignore the likelihood and can pick
+  a poor lambda (on zero-heavy series, a small lambda whose back-transform
+  explodes); the likelihood estimator avoids this and is the default.
+
+* **Zero-containing series no longer break joint lambda estimation.** At
+  `lambda <= 0`, `y = 0 -> -Inf` is silently dropped, making the likelihood
+  incomparable across lambda. The joint-lambda lower bound is now the proper
+  zero floor `log(2)/log(max(y))` (was a flat `1e-10`), so likelihood-based
+  selection stays in the comparable region (e.g. auto lambda ~0.25 instead of
+  ~0.09 on an intermittent series, forecast ~8e3 instead of ~2e5).
+
+* **New `biasadj` argument** to `PTS(...)` / `predict(...)` (default `False`).
+  Point forecasts are the back-transformed conditional MEDIAN by default; with
+  `biasadj=True` a second-order bias correction gives the conditional MEAN (as
+  in `forecast::InvBoxCox(biasadj=True)`). The mean is not robust under a
+  small-lambda Box-Cox, so the median is the safer default. Interval quantiles
+  are unaffected. Identical to R.
+
+* **Default information criterion is now `AICc`** (was `BICc`), matching
+  R `pts()` and `smooth::adam`.
+
 * **Information criteria now charge for the estimated structural initials, and
   a new `n_param_table` gives an adam-style breakdown.** The initial level,
   slope (local / global / damped trend), cycle, and seasonal states are diffuse

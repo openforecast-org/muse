@@ -36,7 +36,7 @@
 \method{forecast}{pts}(object, h = 10, newdata = NULL,
   interval = c("prediction", "confidence", "simulated", "none"),
   level = 0.95, side = c("both", "upper", "lower"), cumulative = FALSE,
-  nsim = NULL, scenarios = FALSE, ...)
+  nsim = NULL, scenarios = FALSE, biasadj = NULL, ...)
 
 \method{initials}{pts}(object, ...)
 }
@@ -74,6 +74,10 @@ selects two-sided vs one-sided intervals.}
 
 \item{scenarios}{if \code{TRUE} and \code{interval = "simulated"},
 return the simulated path matrix as \code{$scenarios}.}
+
+\item{biasadj}{point-forecast back-transform: \code{FALSE} (median,
+the default) or \code{TRUE} (bias-corrected mean).  Defaults to the
+value the model was fitted with (\code{object$biasadj}).}
 }
 \description{
 Standard accessors and printing for fitted \code{pts}

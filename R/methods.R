@@ -345,6 +345,9 @@ predict.pts <- function(object, newdata = NULL, ...){
 #'   (default \code{10000}).
 #' @param scenarios if \code{TRUE} and \code{interval = "simulated"},
 #'   return the simulated path matrix as \code{$scenarios}.
+#' @param biasadj point-forecast back-transform: \code{FALSE} (median,
+#'   the default) or \code{TRUE} (bias-corrected mean).  Defaults to the
+#'   value the model was fitted with (\code{object$biasadj}).
 #' @export
 forecast.pts <- function(object, h = 10, newdata = NULL,
                          interval = c("prediction", "confidence",
@@ -354,9 +357,13 @@ forecast.pts <- function(object, h = 10, newdata = NULL,
                          cumulative = FALSE,
                          nsim = NULL,
                          scenarios = FALSE,
+                         biasadj = NULL,
                          ...){
     if (!is.numeric(h) || length(h) != 1 || h < 1)
         stop("`h` must be a positive integer.", call. = FALSE)
+    # Point forecast: bias-corrected MEAN (TRUE) vs MEDIAN (FALSE).  Defaults to
+    # the value the model was fitted with (object$biasadj), overridable here.
+    if (is.null(biasadj)) biasadj <- isTRUE(object$biasadj)
     interval <- match.arg(interval)
     side     <- match.arg(side)
     if (!is.numeric(level) || any(level <= 0) || any(level >= 1))
@@ -380,11 +387,12 @@ forecast.pts <- function(object, h = 10, newdata = NULL,
     yFor_bc   <- .pts_wrap_oos(as.numeric(out$yFor),  object$data)
     yForVpred <- .pts_wrap_oos(as.numeric(out$yForV), object$data)
     lambda    <- args$lambda
-    # Point forecast = conditional MEAN: bias-correct the back-transformed
-    # median for lambda < 1 (the interval quantiles below stay median-style --
-    # they are exact quantiles of the back-transformed distribution and must
-    # NOT be bias-corrected).
-    mean_out  <- .inv_box_cox_mean(yFor_bc, yForVpred, lambda)
+    # Point forecast.  biasadj = FALSE (default): conditional MEDIAN g^{-1}(mu);
+    # biasadj = TRUE: bias-corrected conditional MEAN.  Either way the interval
+    # quantiles below stay median-style (exact quantiles of the back-transformed
+    # distribution -- they must NOT be bias-corrected).
+    mean_out  <- if (isTRUE(biasadj)) .inv_box_cox_mean(yFor_bc, yForVpred, lambda)
+                 else                 .inv_box_cox(yFor_bc, lambda)
     # Confidence variance = prediction variance minus the obs-noise
     # contribution.  For a SSM y_t = Z a_t + eps with var(eps) = sigma^2,
     # var(E[y_{t+h}|obs]) = var(y_{t+h}|obs) - sigma^2.  In PTS the

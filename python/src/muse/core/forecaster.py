@@ -56,9 +56,14 @@ def _bands(fn, probs, h):
 
 
 def forecast(model, h, X=None, interval="prediction", level=0.95, side="both",
-             cumulative=False, nsim=10000, seed=0, scenarios=False):
+             cumulative=False, nsim=10000, seed=0, scenarios=False,
+             biasadj=None):
     if h < 1:
         raise ValueError("h must be a positive integer.")
+    # Point forecast: median (False, default) vs bias-corrected mean (True).
+    # Defaults to the value the model was fitted with.
+    if biasadj is None:
+        biasadj = bool(getattr(model, "biasadj", False))
     level = np.atleast_1d(np.asarray(level, dtype=float))
     if np.any(level <= 0) or np.any(level >= 1):
         raise ValueError("level must be in (0, 1).")
@@ -68,9 +73,11 @@ def forecast(model, h, X=None, interval="prediction", level=0.95, side="both",
     yfor_bc = np.asarray(eng["yFor"], dtype=float)
     yforv = np.asarray(eng["yForV"], dtype=float)
     lam = model._lambda
-    # Point forecast = conditional MEAN (bias-corrected back-transform); the
-    # interval quantiles below stay median-style (exact quantiles, no bias adj).
-    mean_out = inv_box_cox_mean(yfor_bc, yforv, lam)
+    # Point forecast: biasadj=False (default) -> conditional MEDIAN; True ->
+    # bias-corrected conditional MEAN.  Interval quantiles below stay
+    # median-style (exact quantiles, never bias-adjusted).
+    mean_out = (inv_box_cox_mean(yfor_bc, yforv, lam) if biasadj
+                else inv_box_cox(yfor_bc, lam))
 
     sigma2_bc = float(model._scale) ** 2
     yforv_conf = np.maximum(0.0, yforv - sigma2_bc)

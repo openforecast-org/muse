@@ -237,3 +237,51 @@ def test_lambda_screen_handles_missing_values():
     assert lam_clean < 0.95            # screen is meaningful (not ~1)
     assert lam_na != 1.0               # gaps did not force the bail-out
     assert abs(lam_na - lam_clean) < 0.05
+
+
+# ---- lambda_estim + biasadj --------------------------------------------
+
+
+def test_biasadj_toggles_median_vs_mean():
+    # lambda < 1: the bias-corrected mean (biasadj=True) exceeds the median.
+    m0 = PTS(model="0NT", lags=LAGS, h=12, holdout=True, biasadj=False).fit(Y)
+    m1 = PTS(model="0NT", lags=LAGS, h=12, holdout=True, biasadj=True).fit(Y)
+    f0 = np.asarray(m0.predict(12, interval="none").mean, dtype=float)
+    f1 = np.asarray(m1.predict(12, interval="none").mean, dtype=float)
+    assert np.all(f1 >= f0 - 1e-8)
+    assert f1.max() > f0.max()
+    # predict() can override the stored biasadj.
+    fo = np.asarray(m0.predict(12, interval="none", biasadj=True).mean,
+                    dtype=float)
+    assert np.allclose(fo, f1, atol=1e-8)
+    # Default is False (median).
+    assert PTS(model="0NT", lags=LAGS).biasadj is False
+
+
+def test_lambda_estim_default_is_likelihood():
+    assert PTS().lambda_estim == "likelihood"
+    with pytest.raises(ValueError):
+        PTS(lambda_estim="nonsense")
+
+
+@needs_smooth
+@pytest.mark.parametrize("le", ["likelihood", "guerrero", "decomp-guerrero"])
+def test_lambda_estim_modes_run(le):
+    m = PTS(model="ZNT", lags=LAGS, h=0, lambda_estim=le).fit(Y)
+    assert np.isfinite(m._lambda)
+    assert 0 <= m._lambda <= 2
+    assert m.lambda_estim == le
+
+
+def test_likelihood_lambda_no_explosion_on_zeros():
+    # Zero-heavy seasonal series: the likelihood estimator must keep lambda
+    # above the zero floor (where g(0) would explode) and forecast sanely.
+    rng = np.random.default_rng(1)
+    seas = np.array([0, 0, 1, 5, 20, 60, 90, 60, 20, 5, 1, 0], dtype=float)
+    y = np.maximum(0, np.round(np.tile(seas, 6) * (1 + 0.1 * rng.normal(size=72))))
+    m = PTS(model="ZND", lags=LAGS, h=12, holdout=True,
+            lambda_estim="likelihood").fit(y)
+    f = np.asarray(m.predict(12, interval="none").mean, dtype=float)
+    assert np.all(np.isfinite(f))
+    assert f.max() < 50 * y.max()       # not exploded
+    assert np.all(f >= 0)               # non-negative (lambda > 0)

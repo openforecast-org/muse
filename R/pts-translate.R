@@ -163,7 +163,7 @@ uc_to_pts <- function(modelUC, lambda){
 # .pts_ic_to_engine: map adam-style ic (AICc / AIC / BIC / BICc) to the
 # engine's lowercase criterion string.
 .pts_ic_to_engine <- function(ic){
-    ic <- match.arg(ic, c("BICc", "AICc", "BIC", "AIC"))
+    ic <- match.arg(ic, c("AICc", "BICc", "BIC", "AIC"))
     switch(ic,
            "AICc" = "aicc",
            "AIC"  = "aic",
@@ -200,11 +200,11 @@ uc_to_pts <- function(modelUC, lambda){
 # fit.  `lags` is length 1 (non-seasonal) or 2 (seasonal with seasonal
 # period in lags[2]).  Returns list(ar, ma, lags) with the winning per-lag
 # vectors.
-.pts_select_arma <- function(residuals, ar_max, ma_max, lags, ic = "BICc",
+.pts_select_arma <- function(residuals, ar_max, ma_max, lags, ic = "AICc",
                              verbose = FALSE){
     ar_max <- as.integer(ar_max); ma_max <- as.integer(ma_max)
     lags   <- as.integer(lags)
-    ic     <- match.arg(ic, c("BICc", "AICc", "BIC", "AIC"))
+    ic     <- match.arg(ic, c("AICc", "BICc", "BIC", "AIC"))
     r      <- as.numeric(residuals)
     r      <- r[is.finite(r)]
     n      <- length(r)
@@ -399,7 +399,8 @@ uc_to_pts <- function(modelUC, lambda){
 # matches the engine-side (damped, AR > 0) exclusion in findUCmodels().
 .pts_select_pts_arma <- function(y, u, model_template, lags,
                                  ar_max, ma_max, arma_lags,
-                                 ic, criterion, verbose = FALSE){
+                                 ic, criterion, verbose = FALSE,
+                                 lambdaLower = -Inf){
     n_template <- nchar(model_template)
     lambda_str <- substr(model_template, 1L, n_template - 2L)
     user_trend <- toupper(substr(model_template, n_template - 1L,
@@ -446,6 +447,7 @@ uc_to_pts <- function(modelUC, lambda){
                 .pts_fit(y = y, u = u, model = spec, lags = lags, h = 0L,
                          criterion = criterion, armaIdent = FALSE,
                          ar = 0L, ma = 0L, armaLags = 1L,
+                         lambdaLower = lambdaLower,
                          B = NULL, verbose = FALSE),
                 error = function(e) NULL)
             if (is.null(struct)) next
