@@ -966,6 +966,28 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     grad.fill(datum::nan);
     return grad;
   }
+  // Lambda gradient FIRST, from the CLEAN state left by the preceding
+  // objFun(p) call.  Lambda (theta) affects y via BoxCox, not Q/H, so the
+  // analytic disturbance-smoother formula gives zero -- a numerical step is
+  // needed.  But the smoother pass and the structural-gradient loop below
+  // mutate persistent state that llik() reads (a fresh llik(p) taken AFTER
+  // them differs from objFun(p) by ~1), and the passed-in `llikValue` is not a
+  // reliable f(p) either -- so a difference taken there is garbage (it slammed
+  // theta to a bound and froze lambda).  Here, before anything is perturbed,
+  // llik() is idempotent, so a CENTRAL difference is clean and O(h^2); restore
+  // state to p afterwards for the smoother below.
+  double gradLambda = 0.0;
+  const bool estLambda = data->estimateLambda;
+  if (estLambda){
+    uword li = p.n_elem - 1;
+    double hL = 1e-4 * std::max(1.0, std::abs(p(li)));
+    vec pU = p, pD = p; pU(li) += hL; pD(li) -= hL;
+    double fU = data->llikFUN(pU, opt_data);
+    double fD = data->llikFUN(pD, opt_data);
+    gradLambda = (fU - fD) / (2.0 * hL);
+    data->llikFUN(p, opt_data);   // restore the clean state at p
+    nFuns += 3;
+  }
   if (data->exact){  // Analytical derivative
     int ns = data->system.T.n_rows,
         n = data->y.n_elem,
@@ -1083,12 +1105,8 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
       // via BoxCox, not Q/H, so the analytic disturbance-smoother formula
       // gives zero.  Use a numerical step through the full llik() instead.
       if (data->estimateLambda && i == nPar - 1){
-        p0 = p;
-        p0.row(i) += inc(i);
-        double f1 = data->llikFUN(p0, opt_data);
-        grad.row(i) = (f1 - llikValue) / inc(i);
-        data->userModel(p, &data->system, data->userInputs);  // restore Q/H
-        nFuns += 1;
+        // Computed cleanly at the top of gradLlik (see gradLambda).
+        grad.row(i) = gradLambda;
         continue;
       }
       p0 = p;
@@ -1111,6 +1129,9 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     grad = (F1 - llikValue) / inc;
     nFuns += nPar;
   }
+  // Lambda slot: use the clean central difference from the top, not the
+  // llikValue-based forward difference above.
+  if (estLambda) grad(p.n_elem - 1) = gradLambda;
   return grad;
 }
 // Llik hessian (for parameter covariances).

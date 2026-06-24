@@ -3568,6 +3568,13 @@ void BSMclass::initParBsm(){
         if (SSmodel::inputs.estimateLambda){
                 double theta0 = thetaFromLambda(inputs.lambda,
                                                 SSmodel::inputs.lambdaLower);
+                // Keep the SEED out of the logistic's saturated tails, where
+                // d lambda/d theta ~ 0: there the (now correct) gradient is also
+                // ~0, so a warm-start landing in saturation (e.g. testBoxCox
+                // returning a bound value) would freeze lambda at that bound.
+                // The clamp is on the START only; the BFGS can still drive theta
+                // to a bound later if the likelihood genuinely wants it.
+                theta0 = std::max(-2.0, std::min(2.0, theta0));
                 SSmodel::inputs.p0 = join_vert(SSmodel::inputs.p0, vec({theta0}));
                 inputs.typePar = join_vert(inputs.typePar, vec({6.0}));
                 inputs.constPar = join_vert(inputs.constPar, vec({0.0}));

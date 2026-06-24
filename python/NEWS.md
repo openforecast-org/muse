@@ -2,6 +2,16 @@
 
 ## 0.1.0
 
+* **Joint ML Box-Cox lambda estimation: corrected lambda gradient.** The
+  optimiser's lambda derivative used a forward difference against its cached
+  objective value, which is not a reliable `f(p)` at the gradient point (the
+  smoother and structural-gradient loop mutate persistent Kalman state the
+  likelihood reads, so a fresh eval differs by ~1). The stale baseline gave a
+  ~1e6 gradient that pinned lambda at a bound (e.g. a monthly series stuck at
+  PTS(-2,D,N) AICc 525 instead of the near-optimal PTS(2,G,D) AICc 282). The
+  lambda gradient is now a central difference taken from clean state at the top
+  of the gradient routine. Shared C++ engine, identical to R.
+
 * **Joint ML Box-Cox lambda estimation (`lambda_estim="likelihood"`) now
   finds interior optima.** The engine optimised lambda against a hard clamp to
   its bounds, which made the likelihood flat beyond a bound and trapped the

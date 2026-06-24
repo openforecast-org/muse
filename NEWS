@@ -1,6 +1,20 @@
 muse v0.1.0
 =======
 
+* Joint maximum-likelihood Box-Cox lambda estimation: corrected the lambda
+  gradient.  The optimiser's lambda derivative was a forward difference using
+  the optimiser's cached objective value, but that value is not a reliable
+  f(p) at the gradient point -- the backward smoother and the structural-
+  gradient loop that run first mutate persistent Kalman-filter state that the
+  likelihood reads, so a fresh evaluation at the same p differs by ~1.  The
+  stale baseline produced a gradient of ~1e6 that drove lambda hard to a bound
+  and froze it at the warm-start (e.g. a monthly series settled at PTS(-2,D,N),
+  AICc 525, instead of the near-optimal PTS(2,G,D), AICc 282).  The lambda
+  gradient is now taken as a central difference at the TOP of the gradient
+  routine, from the clean state the objective leaves, before anything is
+  perturbed; and the warm-start seed is kept out of the logistic's saturated
+  tails.  Shared C++ engine, so identical in R and Python.
+
 * Joint maximum-likelihood Box-Cox lambda estimation
   (`lambda_estim = "likelihood"`) now finds interior optima reliably.  The
   engine optimised lambda against a hard clamp to its `[lower, upper]` bounds;
