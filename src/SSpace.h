@@ -746,10 +746,17 @@ double llikAug(vec& p, void* opt_data){
       iFt(1),
       viFt(1),
       logF(1),
-      v2F(1),
-      snBeta(1);
+      v2F(1);
   rowvec Vt(k),
          Xt(k);
+  // Per-step cache for a cancellation-free residual sum of squares.  beta_hat
+  // is only known after the full pass, so we store the innovation v_t, the
+  // augmented sensitivity V_t and the weight 1/F_t at every step and form the
+  // GLS residual r_t = v_t - V_t·beta_hat afterwards.  iFtStore is left 0 at
+  // missing / steady-state-skipped steps so they contribute nothing.
+  mat Vstore(k, n, fill::zeros);
+  vec vStore(n, fill::zeros),
+      iFtStore(n, fill::zeros);
   bool miss = false,
        steadyState = false;
   at.fill(0);
@@ -803,6 +810,10 @@ double llikAug(vec& p, void* opt_data){
       Sn += Vt.t() * iFt * Vt;
       v2F += vt * viFt;
       logF += log(Ft);
+      // Cache for the cancellation-free RSS reduction below.
+      vStore(t) = vt(0);
+      iFtStore(t) = iFt(0);
+      Vstore.col(t) = Vt.t();
     }
     // Checking steady state
     if (!steadyState && t > ns){
@@ -843,22 +854,31 @@ double llikAug(vec& p, void* opt_data){
         }
     }
     data->logJac = logJac;
-    snBeta = sn.t() * beta;
-    // Concentrated variance = residual sum of squares / n, where the RSS is
-    //   v2F - snBeta  =  Sum v_t^2/F_t  -  sn' Sn^{-1} sn
-    // i.e. total weighted sum of squares minus the part explained by the
-    // augmented states (initial states + regressors).  This is a SUM OF SQUARES
-    // and is mathematically >= 0.  But when the augmented states nearly
-    // interpolate the data (a degenerate near-perfect fit), v2F and snBeta are
-    // huge and nearly equal, so the subtraction loses all significant digits
-    // (catastrophic cancellation) and can come out NEGATIVE -- which would make
-    // innVariance, the displayed variances (= ratio * innVariance) and the
-    // parameter covariance non-positive.  Clamp the cancellation artifact to a
-    // tiny non-negative value (eps-scaled so it only ever bites in the
-    // cancellation regime; well-identified fits, where RSS >> eps*v2F, are
-    // untouched and keep their exact value).
-    double rss = v2F(0, 0) - snBeta(0);
-    double rssFloor = arma::datum::eps * std::fabs(v2F(0, 0));
+    // Concentrated variance = residual sum of squares / n.  The textbook form
+    //   RSS = v2F - sn'beta = Sum v_t^2/F_t - sn'Sn^{-1}sn
+    // is the projection identity (total weighted SS minus the part explained by
+    // the augmented states = diffuse initial states + regressors).  It is a sum
+    // of squares, hence >= 0 -- but computing it as that subtraction is the
+    // classic unstable move: at a near-interpolating fit v2F and sn'beta are
+    // huge and nearly equal, so every significant digit cancels and the result can
+    // come out negative, poisoning innVariance, the displayed variances and the
+    // parameter covariance.
+    //
+    // Instead form the residual explicitly: r_t = v_t - V_t·beta_hat, and
+    //   RSS = Sum r_t^2 / F_t,
+    // a sum of non-negative terms.  This is structurally >= 0 in floating point
+    // (no subtraction of large near-equal numbers) so the negative-variance
+    // artifact cannot occur, however degenerate the fit.  (A genuinely
+    // interpolating fit still gives RSS ~ 0; that is the separate degeneracy
+    // handled by the disturbance-variance bound, not a numerical defect here.)
+    double rss = 0.0;
+    for (uword t = 0; t < n; t++){
+      double r = vStore(t) - dot(Vstore.col(t), beta);
+      rss += r * r * iFtStore(t);   // iFtStore == 0 at missing / steady steps
+    }
+    // Guard only against log(0) at an exactly-interpolating fit (RSS == 0); this
+    // is the unavoidable log-domain guard, not a sign fix.
+    double rssFloor = arma::datum::eps * v2F(0, 0);
     if (rss < rssFloor) rss = rssFloor;
     data->innVariance = rss / nFinite;
     llikValue = log(data->innVariance) + 1

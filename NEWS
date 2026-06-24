@@ -3,21 +3,21 @@ muse v0.1.0
 
 * Concentrated variance can no longer come out negative (NaN standard
   errors / negative displayed variances).  In the augmented Kalman
-  likelihood (`llikAug`) the concentrated innovation variance is
-  `(v2F - snBeta)/n`, the residual sum of squares after projecting out the
-  augmented states (diffuse initial states + regressors) divided by `n`.
-  That RSS is mathematically a sum of squares, hence `>= 0`, but when the
-  augmented states nearly interpolate the data (a degenerate near-perfect
-  fit, which the corrected optimiser can now reach) `v2F` and `snBeta` are
-  both huge and nearly equal, so the subtraction loses every significant
-  digit (catastrophic cancellation) and can flip NEGATIVE -- making
-  `innVariance`, the displayed variances (`ratio * innVariance`) and the
-  parameter covariance non-positive.  The RSS is now clamped to a tiny
-  eps-scaled non-negative value, which only bites in the cancellation
-  regime; well-identified fits (RSS far above `eps * v2F`) are untouched
-  and keep their exact value.  `main` (no sparse refactor) produced sane
-  positive variances on the same data, so this is a regression exposed by
-  the corrected optimiser reaching the degenerate corner.
+  likelihood (`llikAug`) the concentrated innovation variance is the
+  residual sum of squares (after projecting out the diffuse initial states
+  and regressors) divided by `n`.  It used to be formed as the projection
+  identity `RSS = v2F - sn'Sn^{-1}sn`, a subtraction of two large nearly
+  equal numbers at a near-interpolating fit -- the classic unstable way to
+  compute a sum of squares -- which lost all precision (catastrophic
+  cancellation) and could flip NEGATIVE, making `innVariance`, the
+  displayed variances (`ratio * innVariance`) and the parameter covariance
+  non-positive.  The RSS is now formed directly as the sum of squared GLS
+  residuals `Sum (v_t - V_t·beta_hat)^2 / F_t`, a sum of non-negative terms
+  that is structurally `>= 0` in floating point, so the negative-variance
+  artifact cannot occur however degenerate the fit.  (A genuinely
+  interpolating fit still drives RSS toward 0; that residual degeneracy is
+  a modelling matter for the disturbance-variance control, not a numerical
+  defect.)
 
 * Forecasts no longer blow up when a disturbance variance collapses to
   zero.  With the corrected optimiser, a flexible model on some series
