@@ -87,6 +87,7 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
         Named("p0")       = out.p0Return,
         Named("parNames") = out.parNames,
         Named("ns")       = out.ns,
+        Named("nInitial") = out.nInitial,
         Named("criteria") = out.criteria);
 
     if (out.hasValidate){

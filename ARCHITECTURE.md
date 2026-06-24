@@ -117,7 +117,7 @@ Key slots:
 | `lambda` | double | — | Box-Cox λ (1 = no transform) |
 | `B` | named vec | — | Estimated parameter vector |
 | `vcov` | matrix | — | Parameter covariance (from Hessian) |
-| `nParam` | int | — | DoF count (structural params + λ if estimated) |
+| `nParam` | matrix | — | adam-style 2×5 DoF table (rows `Estimated`/`Provided` × cols `nParamInternal`/`nParamXreg`/`nParamOccurrence`/`nParamScale`/`nParamAll`); `nparam()` reads `[Estimated, nParamAll]`. Initials fold into `nParamInternal` |
 | `fitted` | ts/zoo | original | In-sample fitted values |
 | `residuals` | ts/zoo | BC | Innovations (BC scale, white-noise sequence) |
 | `comp` | matrix | BC | Additive decomposition: Error, Fit, Level, Slope?, Seasonal?, Irregular? |
@@ -224,14 +224,18 @@ pts()                                         R/pts.R
       ├─ .inv_box_cox(fittedBC, lambda) back-transform fitted values
       │
       └─ return list(modelUC, lambda, p, covp, yFor, comp, fitted,
-                     residuals, scale, logLik, lambdaEstimated, IC)
+                     residuals, scale, logLik, lambdaEstimated, nInitial, IC)
 
  pts() assembles the return object:
    states  = .pts_wrap_states(rbind(NA, comp[, structural cols]))
    ordersList = uc_to_arma(modelUC)
    out$B   = res$p
-   out$nParam = length(p) + as.integer(lambdaEstimated || lambdaWasScreened)
-                          + as.integer(grepl("^td/", modelUC))   # G drift slope
+   # adam-style 2x5 table; .pts_nparam_table() folds initials into Internal,
+   # peels one optimised param into Scale, regressors into Xreg.  Total
+   # (Estimated, nParamAll) = length(p) + nInitial + lambdaDoF + nXreg.
+   out$nParam = .pts_nparam_table(nP = length(p), nInitial = res$nInitial,
+                  lambdaDoF = as.integer(lambdaEstimated || lambdaWasScreened),
+                  nXreg = if (is.null(u)) 0L else nrow(u))
 ```
 
 ---
@@ -878,13 +882,38 @@ difference + OPG covariance — see `parCov` below — removed that sensitivity.
   snaps to a fixed anchor).  `pts()` adds `as.integer(lambdaEstimated ||
   lambdaWasScreened)`.  A fixed numeric λ in the spec (e.g. `"0.5LT"`) costs no DoF.
 
-- **G/td drift slope DoF.** The deterministic-trend (`G` → `td`) drift slope is
-  concentrated out as a regressor, so `BSMclass::parLabels()` emits no `Slope`
-  entry and it is absent from `length(B)`.  It is nonetheless an estimated DoF, so
-  the count is corrected in three coupled places that must stay in sync: the C++
-  `kFor` lambda in `BSMclass::estim()` (`+ (inputs.Drift ? 1 : 0)`), the R-side
-  selector `k_struct` in `.pts_select_pts_arma()` (`+ (tr == "G")`), and the
-  post-fit `nParam` in `pts()` (`+ grepl("^td/", modelUC)`).
+- **Estimated diffuse initials counted in k; adam-style `nParam` table.** The
+  estimated initial states — level, slope (for `L`/`G`/`D`), cycle, and seasonal
+  — are diffuse / profiled out and so are genuine degrees of freedom; charging
+  for them stops the IC under-penalising flexible seasonal and trend shapes.
+  The initial count is `nInitial = ns(0) + ns(1) + ns(2)` (trend + cycle +
+  seasonal state dimensions); the **stationary ARMA block `ns(3)` is excluded**
+  (its initial is the stationary distribution, not free — the ARMA *coefficients*
+  remain counted via `length(B)`).  Read from the engine's own state dimensions,
+  it is **lags-driven** and correct for multi-seasonal `lags = c(m1, m2, …)`
+  with no hard-coded period sizes; computed once in `runMuseCommand`
+  (`out.nInitial = ns(0)+ns(1)+ns(2)`) and surfaced over both bindings.
+
+  The user-facing `$nParam` is an **adam-style 2×5 matrix** (mirrors
+  `smooth::adam`): rows `Estimated`/`Provided` × columns `nParamInternal`,
+  `nParamXreg`, `nParamOccurrence`, `nParamScale`, `nParamAll`, built by
+  `.pts_nparam_table()` (R) / `_nparam_table()` (Python).  The **initials fold
+  into `nParamInternal`** (there is *no* separate `nInitial` slot); one optimised
+  parameter is peeled into `nParamScale` (the concentrated variance, loss is
+  always `likelihood`); regressors go to `nParamXreg`; `nParamOccurrence` is
+  always 0.  `nparam()` returns the `[Estimated, nParamAll]` cell =
+  `length(B) + nInitial + λDoF + nXreg`.
+
+  The count is added to k in **four coupled places that must stay in sync**: the
+  C++ `kFor` lambda in `BSMclass::estim()` (`+ nInitial + u.n_rows`, which drives
+  *engine model selection*), the post-fit `$nParam` table in `pts()` and
+  `PTS._post_process`, and the R/Python selector `k_struct`
+  (`+ struct$nInitial` / `+ st["n_initial"]`).  `nInitial` **subsumes the old
+  G/td drift term**: the deterministic drift *is* the initial slope, already
+  inside `ns(0) = 2`, so the former `+ (inputs.Drift ? 1 : 0)` / `+ (tr == "G")`
+  / `+ grepl("^td/", modelUC)` corrections were removed.  Note: `coef`, `vcov`,
+  and `confint` cover only the estimated coefficients (those with a covariance
+  row), so `length(coef) == nParam − nInitial − λ`, not `nParam`.
 
 - **MLE σ̂² and BCnorm consistency.**  Both `llik()` and `llikAug()` in
   `src/SSpace.h` use the **MLE divisor** `n_finite` (= total finite observations)

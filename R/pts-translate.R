@@ -449,12 +449,13 @@ uc_to_pts <- function(modelUC, lambda){
                          B = NULL, verbose = FALSE),
                 error = function(e) NULL)
             if (is.null(struct)) next
-            # G (deterministic) trend: drift slope is concentrated as a
-            # regressor and missing from length(struct$p) -- add +1 so
-            # the selection IC matches the post-fit nParam (pts.R).
+            # Match the post-fit nParam (pts.R): optimised params + lambda +
+            # estimated diffuse structural initials.  struct$nInitial is the
+            # engine's ns(0)+ns(1)+ns(2) and already includes the G/td drift
+            # (= initial slope), so no separate "tr == 'G'" term is needed.
             k_struct <- length(struct$p) +
                         as.integer(isTRUE(struct$lambdaEstimated)) +
-                        as.integer(tr == "G")
+                        struct$nInitial
             struct_ic <- ic_from_LL(as.numeric(struct$logLik), k_struct)
             if (!is.finite(struct_ic)) next
             if (isTRUE(verbose)){

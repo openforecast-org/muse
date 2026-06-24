@@ -52,12 +52,18 @@ test_that("pts ic argument is honoured (adam-style options)", {
 #### accessors ####
 test_that("S3 accessors return sensible values", {
     m <- pts(y, model = "0NT", h = 12)
-    expect_equal(length(coef(m)), m$nParam)
-    expect_equal(dim(vcov(m)), c(m$nParam, m$nParam))
+    # coef / vcov cover only the estimated coefficients (those with a
+    # covariance row); $nParam additionally folds in the diffuse initials
+    # (nParamInternal) and the concentrated scale, so it strictly exceeds
+    # length(coef).  $nParam is the adam-style 2 x 5 matrix.
+    expect_equal(dim(vcov(m)), c(length(coef(m)), length(coef(m))))
+    expect_gt(nparam(m), length(coef(m)))
+    expect_equal(nparam(m), m$nParam[1L, "nParamAll"])
+    expect_equal(dim(m$nParam), c(2L, 5L))
     expect_equal(nobs(m), length(y))
     ll <- logLik(m)
     expect_s3_class(ll, "logLik")
-    expect_equal(attr(ll, "df"), m$nParam)
+    expect_equal(attr(ll, "df"), nparam(m))
     expect_false(is.na(as.numeric(ll)))
     expect_false(is.na(AIC(m)))
     expect_false(is.na(BIC(m)))

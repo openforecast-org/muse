@@ -40,8 +40,8 @@ test_that("pts fits across the spec x data grid with coherent invariants", {
             expect_true(all(c("Error", "Fit") %in% colnames(m$comp)), info = info)
             expect_equal(nrow(m$states), n_in + 1L, info = info)
             # nParam coherence: counts at least the free coefficients
-            expect_true(m$nParam >= length(coef(m)) - 1L, info = info)
-            expect_true(m$nParam >= 1L, info = info)
+            expect_true(nparam(m) >= length(coef(m)) - 1L, info = info)
+            expect_true(nparam(m) >= 1L, info = info)
         }
     }
 })

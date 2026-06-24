@@ -2,6 +2,24 @@
 
 ## 0.1.0
 
+* **Information criteria now charge for the estimated structural initials, and
+  a new `n_param_table` gives an adam-style breakdown.** The initial level,
+  slope (local / global / damped trend), cycle, and seasonal states are diffuse
+  / profiled out and so are genuine degrees of freedom; they were previously
+  free in the IC, letting BICc / AICc under-penalise flexible seasonal and trend
+  shapes. The estimated-initials count `ns(0)+ns(1)+ns(2)` is read from the
+  engine so it is driven by `lags` -- correct for multi-seasonal
+  `lags=[m1, m2, ...]` with no hard-coded period sizes; the stationary ARMA
+  states are excluded (the ARMA coefficients are still counted). The engine adds
+  the same quantity to its own selection criterion, so `PTS(model="ZZZ")`
+  selection and the reported `n_param` agree. `n_param_table` is a 2 x 5
+  DataFrame mirroring R's `smooth::adam` `$nParam` (rows `Estimated` /
+  `Provided`; columns `nParamInternal`, `nParamXreg`, `nParamOccurrence`,
+  `nParamScale`, `nParamAll`); `n_param` returns the `[Estimated, nParamAll]`
+  total. The initials fold into `nParamInternal`; the concentrated variance is
+  `nParamScale`. `coef` / `vcov` cover only the estimated coefficients, so
+  `len(coef)` is smaller than `n_param`. Shared C++ engine, identical to R.
+
 * **Point forecasts are now the conditional MEAN under a Box-Cox transform**,
   not the median. Back-transforming the BC-scale point forecast gives the
   median; for `lambda < 1` the convex inverse makes the median below the mean,

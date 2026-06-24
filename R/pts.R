@@ -99,7 +99,13 @@
 #' \itemize{
 #'   \item Inputs / spec: \code{y, model, modelUC*, lags, lambda*}
 #'   \item Parameters: \code{B} (estimated parameter vector), \code{covp*}
-#'     (parameter covariance), \code{nParam}
+#'     (parameter covariance), \code{nParam} -- an adam-style 2 x 5 matrix
+#'     (rows \code{Estimated} / \code{Provided}; columns
+#'     \code{nParamInternal}, \code{nParamXreg}, \code{nParamOccurrence},
+#'     \code{nParamScale}, \code{nParamAll}).  \code{nparam()} returns the
+#'     \code{[Estimated, nParamAll]} cell.  Estimated structural initials
+#'     (level/slope, cycle, seasonal states) are folded into
+#'     \code{nParamInternal}, exactly as \code{smooth::adam} does
 #'   \item In-sample fit: \code{fitted, residuals, states} plus
 #'     pts-specific \code{comp*} (additive BC-scale decomposition with
 #'     Error/Fit columns)
@@ -430,21 +436,41 @@ pts <- function(data,
         betaAug    = res$betaAug,
         vcov       = res$covp,          # parameter covariance, computed by the
                                         # C++ "all" command at no extra cost
-        # Count the Box-Cox lambda as one additional DoF when the user
-        # asked the engine to estimate it (model spec started with "Z").
-        # Two paths can produce an estimated lambda: (a) the engine's
-        # joint-BFGS path returning lambdaEstimated = TRUE; (b) the
-        # R-side Brent screen above replacing "Z" with a numeric value
-        # before the structural ident runs.  Either way costs +1 DoF.
-        # Matches greybox::alm at alm.R:2148 for distribution = "dbcnorm".
-        # G (deterministic) trend: drift slope is concentrated out as a
-        # regressor (PTSmodel.h:3246), so parLabels() does not push a
-        # "Slope" entry and length(res$p) misses it.  Still an estimated
-        # DoF -- add it back here.
-        nParam     = length(res$p) +
-                     as.integer(isTRUE(res$lambdaEstimated) ||
-                                lambdaWasScreened) +
-                     as.integer(grepl("^td/", res$modelUC)),
+        # nParam: an adam-style breakdown table (mirrors smooth::adam's
+        # `$nParam`).  A 2 x 5 matrix, rows c("Estimated", "Provided"),
+        # columns c("nParamInternal", "nParamXreg", "nParamOccurrence",
+        # "nParamScale", "nParamAll").  nparam() / logLik() / the ICs read the
+        # [Estimated, nParamAll] cell, so the total degrees of freedom is
+        # unchanged from a scalar count -- only the presentation is richer.
+        #
+        # Column mapping for PTS:
+        #   nParamInternal -- structural parameters: the relative variances
+        #     (all variances except the one concentrated scale), ARMA coefs,
+        #     trend damping, the Box-Cox lambda when free, AND the estimated
+        #     diffuse initials (level/slope + cycle + seasonal states).  As in
+        #     adam, the initials are folded in here, not split out.  The
+        #     initial count res$nInitial = ns(0)+ns(1)+ns(2) is engine-computed
+        #     (lags-driven, correct for multi-seasonal lags; stationary ARMA
+        #     states excluded) and already includes the G/td drift (= initial
+        #     slope), so no separate "^td/" correction is needed.
+        #   nParamXreg     -- regressor coefficients (one per xreg row).
+        #   nParamOccurrence -- always 0 (PTS has no intermittent/occurrence
+        #     model).
+        #   nParamScale    -- 1: the concentrated innovation variance (the
+        #     scale of the dbcnorm likelihood; loss is always "likelihood").
+        #
+        # lambda DoF: counted when the engine estimated it (joint-BFGS,
+        # lambdaEstimated) OR when the R-side Brent screen replaced "Z" with a
+        # numeric value before the structural ident (lambdaWasScreened).  Folds
+        # into nParamInternal.  Matches greybox::alm for distribution =
+        # "dbcnorm".  The engine adds the same quantities to its own selection
+        # k (kFor in BSMclass::estim), so selection and reporting agree.
+        nParam     = .pts_nparam_table(
+                         nP        = length(res$p),
+                         nInitial  = res$nInitial,
+                         lambdaDoF = as.integer(isTRUE(res$lambdaEstimated) ||
+                                                lambdaWasScreened),
+                         nXreg     = if (is.null(u)) 0L else nrow(u)),
         ## --- in-sample ---
         fitted     = res$fitted,        # original scale (back-transformed)
         residuals  = res$residuals,     # BC scale (engine innovations)

@@ -115,7 +115,13 @@ extensions are flagged below.
 \itemize{
   \item Inputs / spec: \code{y, model, modelUC*, lags, lambda*}
   \item Parameters: \code{B} (estimated parameter vector), \code{covp*}
-    (parameter covariance), \code{nParam}
+    (parameter covariance), \code{nParam} -- an adam-style 2 x 5 matrix
+    (rows \code{Estimated} / \code{Provided}; columns
+    \code{nParamInternal}, \code{nParamXreg}, \code{nParamOccurrence},
+    \code{nParamScale}, \code{nParamAll}).  \code{nparam()} returns the
+    \code{[Estimated, nParamAll]} cell.  Estimated structural initials
+    (level/slope, cycle, seasonal states) are folded into
+    \code{nParamInternal}, exactly as \code{smooth::adam} does
   \item In-sample fit: \code{fitted, residuals, states} plus
     pts-specific \code{comp*} (additive BC-scale decomposition with
     Error/Fit columns)

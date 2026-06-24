@@ -1,6 +1,29 @@
 muse v0.1.0
 =======
 
+* Information criteria now charge for the estimated structural initial states,
+  and `$nParam` is now an adam-style breakdown table.  The initial level, slope
+  (for local / global / damped trend), cycle, and seasonal states are diffuse /
+  profiled out and so are genuine degrees of freedom; they were previously free
+  in the IC, which let BICc / AICc under-penalise flexible seasonal and trend
+  shapes.  The estimated-initials count `ns(0) + ns(1) + ns(2)` is taken
+  straight from the engine, so it is driven by `lags` (correct for
+  multi-seasonal `lags = c(m1, m2, ...)`) with no hard-coded period sizes; the
+  stationary ARMA states are excluded (their initial is the stationary
+  distribution, not a free parameter; the ARMA *coefficients* are still
+  counted).  The engine adds the same quantity to its own model-selection
+  criterion, so `pts(model = "ZZZ")` selection and the reported `nParam` agree.
+
+  `$nParam` is now a 2 x 5 matrix mirroring `smooth::adam` -- rows
+  `Estimated` / `Provided`, columns `nParamInternal`, `nParamXreg`,
+  `nParamOccurrence`, `nParamScale`, `nParamAll`.  `nparam()` returns the
+  `[Estimated, nParamAll]` cell (the total DoF, unchanged).  The estimated
+  initials fold into `nParamInternal` exactly as adam does (there is no separate
+  `nInitial` slot); the concentrated variance is `nParamScale = 1`; regressors
+  are `nParamXreg`.  Note `coef()` / `vcov()` / `confint()` still cover only the
+  estimated coefficients, so `length(coef)` is smaller than `nparam()`.  Shared
+  C++ engine, so identical in R and Python.
+
 * Point forecasts (and the in-sample point forecast) are now the conditional
   MEAN under a Box-Cox transform, not the median.  Back-transforming the
   Box-Cox-scale point forecast g^{-1}(mu) returns the conditional MEDIAN on the

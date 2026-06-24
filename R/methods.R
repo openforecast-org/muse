@@ -294,7 +294,7 @@ nobs.pts <- function(object, all = FALSE, ...){
 #' @export
 logLik.pts <- function(object, ...){
     out <- as.numeric(object$logLik)
-    attr(out, "df")   <- object$nParam
+    attr(out, "df")   <- nparam(object)   # [Estimated, nParamAll] of $nParam
     attr(out, "nobs") <- nobs(object)
     class(out) <- "logLik"
     out

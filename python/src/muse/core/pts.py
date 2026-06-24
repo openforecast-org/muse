@@ -22,6 +22,31 @@ from .boxcox import inv_box_cox
 _TREND_OPTIONS = "rw/llt/srw/td"
 _SEASONAL_OPTIONS = "none/linear/equal"
 
+_NPARAM_ROWS = ["Estimated", "Provided"]
+_NPARAM_COLS = ["nParamInternal", "nParamXreg", "nParamOccurrence",
+                "nParamScale", "nParamAll"]
+
+
+def _nparam_table(n_p, n_initial, lam_dof, n_xreg):
+    """adam-style 2 x 5 parameter-count table (mirror of R .pts_nparam_table).
+
+    Rows ["Estimated", "Provided"]; columns ["nParamInternal", "nParamXreg",
+    "nParamOccurrence", "nParamScale", "nParamAll"].  One optimised parameter
+    is the concentrated scale (-> nParamScale); the remaining structural
+    parameters, the diffuse initials, and a free lambda fold into
+    nParamInternal, exactly as smooth::adam does.  PTS has no occurrence model.
+    """
+    import pandas as pd
+
+    m = np.zeros((2, 5), dtype=int)
+    scale = 1 if n_p >= 1 else 0
+    m[0, 0] = max(0, n_p - scale) + n_initial + lam_dof   # nParamInternal
+    m[0, 1] = n_xreg                                      # nParamXreg
+    m[0, 3] = scale                                       # nParamScale
+    m[0, 4] = int(m[0, :4].sum())                         # nParamAll (Estimated)
+    m[1, 4] = int(m[1, :4].sum())                         # nParamAll (Provided)
+    return pd.DataFrame(m, index=_NPARAM_ROWS, columns=_NPARAM_COLS)
+
 
 class PTS:
     def __init__(
@@ -452,6 +477,7 @@ class PTS:
             "n_p": int(np.asarray(out["coef"], dtype=float).size),
             "lambda": float(out["lambda"]),
             "lambdaEstimated": bool(out.get("lambdaEstimated", False)),
+            "n_initial": int(out.get("nInitial", 0)),
         }
 
     # ---- post-processing (mirror .pts_fit + pts()) ----------------------
@@ -492,11 +518,31 @@ class PTS:
             math.sqrt(float(np.sum(res ** 2)) / ns) if ns > 0 else float("nan")
         )
 
-        # nParam = len(p) + (lambda estimated|screened) + (G/td drift slope)
+        # nParam: an adam-style breakdown table (mirror of smooth::adam and of
+        # the R pts() $nParam).  A 2 x 5 DataFrame, rows ["Estimated",
+        # "Provided"], columns ["nParamInternal", "nParamXreg",
+        # "nParamOccurrence", "nParamScale", "nParamAll"].  n_param returns the
+        # [Estimated, nParamAll] total, so the IC degrees of freedom is
+        # unchanged from a plain scalar -- only the presentation is richer.
+        #
+        # Estimated initials n_initial = ns(0)+ns(1)+ns(2) (level/slope + cycle
+        # + seasonal) come from the engine (lags-driven, multi-seasonal-correct,
+        # stationary ARMA states excluded) and are folded into nParamInternal,
+        # exactly as adam does.  They already include the G/td drift (= initial
+        # slope), so no separate td term.  The single concentrated variance is
+        # nParamScale; regressors are nParamXreg; PTS has no occurrence model.
+        # The engine adds the same quantities to its own selection k (kFor in
+        # BSMclass::estim), so selection and reporting agree.
         lam_dof = 1 if (bool(out.get("lambdaEstimated", False))
                         or lambda_screened) else 0
-        td_dof = 1 if self._model_uc.startswith("td/") else 0
-        self._nparam = int(self._p.size) + lam_dof + td_dof
+        n_initial = int(out.get("nInitial", 0))
+        # Real regressor count: the engine treats the (1, 2) all-zero dummy as
+        # "no xreg" (resizes it away), so mirror that rule here.
+        u = self._u
+        n_xreg = 0 if (u is None or tuple(u.shape) == (1, 2)) else int(u.shape[0])
+        self._nparam_table = _nparam_table(
+            int(self._p.size), n_initial, lam_dof, n_xreg)
+        self._nparam = int(self._nparam_table.loc["Estimated", "nParamAll"])
 
         self._vcov = np.asarray(out["covp"], dtype=float) if "covp" in out else None
 
@@ -562,7 +608,13 @@ class PTS:
 
     @property
     def n_param(self):
+        """Total estimated degrees of freedom ([Estimated, nParamAll])."""
         return self._nparam
+
+    @property
+    def n_param_table(self):
+        """adam-style 2 x 5 breakdown of the parameter count (DataFrame)."""
+        return self._nparam_table
 
     @property
     def log_lik(self):

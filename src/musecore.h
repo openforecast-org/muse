@@ -85,6 +85,12 @@ struct MuseOutputs {
     arma::vec               p0Return;
     std::vector<std::string> parNames;
     int                     ns = 0;
+    // Number of estimated diffuse structural initials = ns(0)+ns(1)+ns(2)
+    // (level/slope + cycle + seasonal states).  The stationary ARMA block
+    // ns(3) is excluded.  Added to the IC parameter count k on the R/Python
+    // side; the engine adds the same quantity to its own selection k (kFor in
+    // BSMclass::estim), so selection and reporting stay consistent.
+    int                     nInitial = 0;
     arma::vec               criteria;
 
     // Terminal-state cache (forecastOnly): the absolute-scale terminal state
@@ -278,6 +284,14 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
     out.p0Return = inputs2.p0Return;
     out.parNames = inputs2.parNames;
     out.ns       = static_cast<int>(sum(inputs2.ns));
+    // Estimated diffuse structural initials: trend (level/slope) + cycle +
+    // seasonal states.  ARMA states (inputs2.ns(3)) are stationary -- their
+    // initial condition is the stationary distribution, not a free parameter
+    // -- so they are excluded.  Driven entirely by the engine's state
+    // dimensions, so multi-seasonal lags and harmonic counts are handled
+    // automatically (no hard-coded period sizes).
+    out.nInitial = static_cast<int>(inputs2.ns(0) + inputs2.ns(1)
+                                    + inputs2.ns(2));
     out.criteria = inputs.criteria;
 
     // -- terminal-state cache (forecastOnly) --

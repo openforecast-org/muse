@@ -360,6 +360,41 @@
     med * corr
 }
 
+# .pts_nparam_table: assemble the adam-style parameter-count matrix stored in
+# pts()'s `$nParam`.  Mirrors smooth::adam's `$nParam`: a 2 x 5 matrix, rows
+# c("Estimated", "Provided"), columns c("nParamInternal", "nParamXreg",
+# "nParamOccurrence", "nParamScale", "nParamAll").  nparam.pts() reads the
+# [Estimated, nParamAll] cell, so the IC degrees of freedom is unchanged from a
+# plain scalar -- only the presentation is richer.
+#
+#   nP        -- length of the optimised parameter vector (all variances incl.
+#                the concentrated scale, ARMA coefs, damping).  Exactly one
+#                entry is the concentrated scale -> nParamScale; the remaining
+#                nP - 1 are structural -> nParamInternal.
+#   nInitial  -- estimated diffuse initials (level/slope + cycle + seasonal),
+#                folded into nParamInternal as adam does.
+#   lambdaDoF -- 1 when the Box-Cox lambda is a free DoF (folds into Internal).
+#   nXreg     -- regressor coefficients -> nParamXreg.
+#
+# PTS has no occurrence model, so nParamOccurrence is always 0; loss is always
+# "likelihood", so nParamScale is 1 whenever there is at least one parameter.
+.pts_nparam_table <- function(nP, nInitial, lambdaDoF, nXreg){
+    nP <- as.integer(nP); nInitial <- as.integer(nInitial)
+    lambdaDoF <- as.integer(lambdaDoF); nXreg <- as.integer(nXreg)
+    m <- matrix(0L, 2L, 5L,
+                dimnames = list(c("Estimated", "Provided"),
+                                c("nParamInternal", "nParamXreg",
+                                  "nParamOccurrence", "nParamScale",
+                                  "nParamAll")))
+    scale <- as.integer(nP >= 1L)                  # the concentrated variance
+    m[1L, "nParamInternal"] <- max(0L, nP - scale) + nInitial + lambdaDoF
+    m[1L, "nParamXreg"]     <- nXreg
+    m[1L, "nParamScale"]    <- scale
+    m[1L, "nParamAll"]      <- sum(m[1L, 1:4])
+    m[2L, "nParamAll"]      <- sum(m[2L, 1:4])
+    m
+}
+
 # .pts_build_comp: take the engine's component matrix and rebuild it in
 # the user-friendly column order  [Error, Fit, Level, Slope?, Seasonal?, ...].
 # Fit becomes the row-sum of the structural components (so users can plot
@@ -555,6 +590,10 @@
         table        = out$table,
         logLik       = logLik,
         lambdaEstimated = lambdaEstimated,
+        # Estimated diffuse structural initials (level/slope + cycle + seasonal
+        # states); counted into nParam for the information criteria.  Comes
+        # straight from the engine's state dimensions so it is lags-driven.
+        nInitial     = if (is.null(out$nInitial)) 0L else as.integer(out$nInitial),
         IC           = if (length(crit) >= 4) crit[2:4]       else NA_real_,
         outliersDetected = outliersDetected,
         # Terminal-state cache for decoupled forecasting (NULL if unavailable).

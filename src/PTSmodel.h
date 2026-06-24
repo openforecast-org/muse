@@ -886,13 +886,25 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 return ic;
         };
         // k convention: optimised parameters (p.n_elem already counts the
-        // concentrated variance), outlier dummies, plus lambda when free,
-        // plus the deterministic-trend drift slope (G / td) which is
-        // concentrated out as a regressor and absent from pSize.
+        // concentrated variance and the ARMA coefficients), regressors, lambda
+        // when free, plus the estimated diffuse structural initials.
+        //
+        // nInitial = ns(0)+ns(1)+ns(2) -- level/slope + cycle + seasonal
+        // states.  These initial states are estimated (diffuse / profiled out)
+        // and so are genuine degrees of freedom; charging for them stops the
+        // IC under-penalising flexible seasonal / trend shapes.  ARMA states
+        // (ns(3)) are stationary -- their initial is the stationary
+        // distribution, not free -- so they are excluded (the ARMA *coefs*
+        // remain counted via pSize).  This subsumes the old +Drift term: the
+        // G/td deterministic drift IS the initial slope, already inside
+        // ns(0)=2.  Driven by the engine's state dimensions, so multi-seasonal
+        // lags and harmonic counts need no hard-coded sizes.
+        int nInitial = static_cast<int>(inputs.ns(0) + inputs.ns(1)
+                                        + inputs.ns(2));
         auto kFor = [&](uword pSize) -> int {
                 return static_cast<int>(pSize + SSmodel::inputs.u.n_rows
-                                              + (inputs.lambdaEstimated ? 1 : 0)
-                                              + (inputs.Drift ? 1 : 0));
+                                              + (inputs.lambdaEstimated ? 1 : 0))
+                                              + nInitial;
         };
 
         LLIK = computeLLIK(objFunValue);

@@ -12,7 +12,8 @@ test_that("sigma.pts uses the (n - k) df formula from sigma.adam", {
 })
 
 test_that("nparam.pts matches the stored nParam slot", {
-    expect_equal(nparam(m), m$nParam)
+    # $nParam is the adam-style 2 x 5 matrix; nparam() reads [Estimated, All].
+    expect_equal(nparam(m), m$nParam[1L, "nParamAll"])
 })
 
 test_that("modelType.pts returns the PTS(lambda,T,S) code", {
@@ -91,7 +92,9 @@ test_that("outlierdummy returns bounds + id vector", {
 #### confint ####
 test_that("confint.pts produces a 2-column matrix with the right dims", {
     suppressWarnings(ci <- confint(m, level = 0.9))
-    expect_equal(dim(ci), c(nparam(m), 2L))
+    # confint covers only the estimated coefficients (with a covariance), not
+    # the diffuse structural initials folded into nparam.
+    expect_equal(dim(ci), c(length(coef(m)), 2L))
     finite <- complete.cases(ci)
     if (any(finite)){
         est <- coef(m); ses <- sqrt(diag(vcov(m)))
@@ -351,14 +354,17 @@ test_that("lambda counts as +1 parameter only when NOT snapped to an anchor", {
     # wins, it counts as +1.  See BSMclass::profileLambda.
     m_fixed <- pts(AirPassengers, model = "0NT", h = 0)   # lambda = 0
     m_auto  <- pts(AirPassengers, model = "ZNT", h = 0)   # lambda free
-    expect_equal(nparam(m_fixed), length(coef(m_fixed)))
+    # Same NT structure => identical parameter count apart from the lambda DoF,
+    # so compare nparam directly (the initials are folded into nParamInternal
+    # and equal across the two fits).
+    expect_equal(nparam(m_fixed), m_fixed$nParam[1L, "nParamAll"])
     anchors <- c(-2, -1, -0.5, 0, 0.5, 1, 2)
     if (m_auto$lambda %in% anchors){
-        # Snap fired -- nparam should not include lambda.
-        expect_equal(nparam(m_auto), length(coef(m_auto)))
+        # Snap fired -- lambda adds no DoF -> same count as the fixed fit.
+        expect_equal(nparam(m_auto), nparam(m_fixed))
     } else {
-        # Optimised lambda kept -- +1 DoF.
-        expect_equal(nparam(m_auto), length(coef(m_auto)) + 1L)
+        # Optimised lambda kept -- exactly one more DoF than the fixed fit.
+        expect_equal(nparam(m_auto), nparam(m_fixed) + 1L)
     }
 })
 
@@ -408,14 +414,15 @@ test_that("ZZZ on AirPassengers picks a lambda inside [-2, 2] (anchor or not)", 
 })
 
 test_that("snap saves a DoF when lambda lands on an anchor", {
-    m <- pts(AirPassengers, h = 0, model = "ZNT")
+    m     <- pts(AirPassengers, h = 0, model = "ZNT")
+    m_fix <- pts(AirPassengers, h = 0, model = "0NT")  # same NT structure
     anchors <- c(-2, -1, -0.5, 0, 0.5, 1, 2)
     if (m$lambda %in% anchors){
-        # Snapped: lambda should NOT contribute to nparam.
-        expect_equal(nparam(m), length(coef(m)))
+        # Snapped: lambda adds no DoF -> matches the fixed-lambda count.
+        expect_equal(nparam(m), nparam(m_fix))
     } else {
-        # Kept lambda*: +1 DoF.
-        expect_equal(nparam(m), length(coef(m)) + 1L)
+        # Kept lambda*: +1 DoF over the fixed-lambda count.
+        expect_equal(nparam(m), nparam(m_fix) + 1L)
     }
 })
 
@@ -424,8 +431,10 @@ test_that("snapped pts at lambda = anchor matches a fixed-lambda pts", {
     # should be the same as 0NT to working tolerance (warm-start
     # initialisation differences notwithstanding).
     m_snap <- pts(AirPassengers, h = 0, model = "ZNT")
-    if (isTRUE(all.equal(m_snap$lambda, 0)) && nparam(m_snap) == length(coef(m_snap))){
-        m_fix <- pts(AirPassengers, h = 0, model = "0NT")
+    m_fix  <- pts(AirPassengers, h = 0, model = "0NT")
+    # Snapped to 0 (lambda fixed) iff lambda == 0 and it carries no extra DoF
+    # over the fixed-lambda NT fit.
+    if (isTRUE(all.equal(m_snap$lambda, 0)) && nparam(m_snap) == nparam(m_fix)){
         # Logliks should agree closely (optimiser tolerance ~1e-4).
         expect_lt(abs(as.numeric(logLik(m_snap)) - as.numeric(logLik(m_fix))), 5)
     } else {
@@ -436,7 +445,8 @@ test_that("snapped pts at lambda = anchor matches a fixed-lambda pts", {
 test_that("AIC of snapped fit beats the +1-DoF optimised fit", {
     # If a snap fired, by construction snap-AIC <= optimised-AIC.
     # Compare against a forced-optimised fit by reading lambdaEstimated.
-    m <- pts(AirPassengers, h = 0, model = "ZNT")
+    m     <- pts(AirPassengers, h = 0, model = "ZNT")
+    m_fix <- pts(AirPassengers, h = 0, model = "0NT")
     # Either the snap fired (lambda hits an anchor and saves a DoF) or
     # the optimised lambda truly beat any anchor.  Both outcomes are
     # internally consistent; this test just guards against the broken
@@ -444,13 +454,15 @@ test_that("AIC of snapped fit beats the +1-DoF optimised fit", {
     anchors <- c(-2, -1, -0.5, 0, 0.5, 1, 2)
     if (m$lambda %in% anchors){
         # nparam() should not double-count lambda.
-        expect_equal(nparam(m), length(coef(m)))
+        expect_equal(nparam(m), nparam(m_fix))
     }
 })
 
 test_that("inner BFGS carries no lambda slot in p", {
-    # Fixed-lambda spec: nparam should be exactly length(coef) -- no
-    # leftover slot from the retired joint-lambda path.
-    m <- pts(AirPassengers, h = 0, model = "1NT")
-    expect_equal(nparam(m), length(coef(m)))
+    # Fixed-lambda spec carries no lambda DoF: two different fixed lambdas on
+    # the same NT structure must give the same parameter count (no leftover
+    # lambda slot from the retired joint-lambda path).
+    m  <- pts(AirPassengers, h = 0, model = "1NT")
+    m0 <- pts(AirPassengers, h = 0, model = "0NT")
+    expect_equal(nparam(m), nparam(m0))
 })
