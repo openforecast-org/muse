@@ -12,13 +12,29 @@
                                         lambda_lower = 0,
                                         lambda_upper = 2){
     yv <- as.numeric(y)
-    # Disqualify only on a Box-Cox domain violation (non-positive values).
-    # NA / NaN are missing data, not a domain problem: msdecompose imputes
-    # them and the block statistics below use na.rm, so the screen runs
-    # normally on series with gaps.  (Filter to finite first; `NA <= 0` is
-    # NA, which would error inside `if`.)
+    # Disqualify only on a genuine Box-Cox domain violation: NEGATIVE values
+    # (y^lambda is complex for y < 0 at fractional lambda).  ZEROS are allowed:
+    # for lambda > 0 the transform is finite (sqrt(0) = 0, etc.), and a
+    # variance-stabilising lambda in (0, 1) is exactly what an intermittent /
+    # zero-heavy series wants -- it also makes the inverse transform
+    # non-negative, so forecasts can't go below zero.  The block CV below only
+    # needs positive block-average LEVELS (filtered at `mu_b > 0`), not
+    # positive individual observations.  NA / NaN are missing data, not a
+    # domain problem (msdecompose imputes them; the block stats use na.rm).
     fin <- yv[is.finite(yv)]
-    if (length(fin) < 4L || any(fin <= 0)) return(1)
+    if (length(fin) < 4L || any(fin < 0)) return(1)
+    # Zeros allowed, but keep lambda far enough from 0 that the transformed
+    # zero g(0) = -1/lambda does not become a huge outlier: the CV below only
+    # sees positive block levels, so left unconstrained it can drive lambda -> 0
+    # (then every zero maps to -Inf and the fit collapses).  Require the
+    # transformed zero to be no more extreme than the transformed maximum,
+    # |g(0)| <= |g(max)|  <=>  max^lambda >= 2  <=>  lambda >= log(2)/log(max).
+    # Capped at 1 (small-count series with max <= 2 just stay on the raw scale).
+    if (any(fin == 0)){
+        mx <- max(fin[fin > 0], na.rm = TRUE)
+        zeroFloor <- if (is.finite(mx) && mx > 1) min(1, log(2) / log(mx)) else 1
+        if (zeroFloor > lambda_lower) lambda_lower <- zeroFloor
+    }
     m <- as.integer(utils::tail(as.integer(lags), 1L))
     if (length(m) == 0L || is.na(m) || m < 2L) return(1)
     n <- length(yv)

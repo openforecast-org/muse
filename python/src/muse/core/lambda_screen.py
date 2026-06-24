@@ -20,13 +20,26 @@ def _nansd1(x):
 
 def guerrero_decomp_lambda(y, lags, lower: float = 0.0, upper: float = 2.0) -> float:
     y = np.asarray(y, dtype=float).ravel()
-    # Disqualify only on a Box-Cox domain violation (non-positive values).
-    # NaN / NA are missing data, not a domain problem: msdecompose imputes
-    # them and the block stats below are nan-aware, so the screen runs
-    # normally on series with gaps.
+    # Disqualify only on a genuine Box-Cox domain violation: NEGATIVE values
+    # (y**lambda is complex for y < 0 at fractional lambda).  ZEROS are allowed:
+    # for lambda > 0 the transform is finite (sqrt(0) = 0, etc.) and a
+    # variance-stabilising lambda in (0, 1) is what an intermittent / zero-heavy
+    # series wants -- it also makes the inverse transform non-negative.  NaN / NA
+    # are missing data (msdecompose imputes them; the block stats are nan-aware).
     fin = y[np.isfinite(y)]
-    if fin.size < 4 or np.any(fin <= 0):
+    if fin.size < 4 or np.any(fin < 0):
         return 1.0
+    # Zeros allowed, but keep lambda far enough from 0 that the transformed zero
+    # g(0) = -1/lambda is no more extreme than the transformed maximum:
+    # |g(0)| <= |g(max)|  <=>  lambda >= log(2)/log(max).  (Capped at 1; the CV
+    # only sees positive block levels and would otherwise drive lambda -> 0,
+    # mapping every zero to -Inf.)
+    if np.any(fin == 0):
+        pos = fin[fin > 0]
+        mx = float(np.max(pos)) if pos.size else 0.0
+        zero_floor = min(1.0, np.log(2.0) / np.log(mx)) if mx > 1.0 else 1.0
+        if zero_floor > lower:
+            lower = zero_floor
     m = int(np.atleast_1d(lags)[-1])
     if m < 2:
         return 1.0

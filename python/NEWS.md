@@ -2,6 +2,17 @@
 
 ## 0.1.0
 
+* **Zero-containing series can now be variance-stabilised** (and forecast
+  non-negatively). Previously any zero forced `lambda = 1` (raw scale) -- the
+  Guerrero lambda screen bailed to 1 on `any(y <= 0)` and a non-1 lambda gave a
+  NaN log-likelihood -- so intermittent / zero-heavy series were fit on the raw
+  scale and routinely forecast negative. Now the BCnorm density allows `y == 0`
+  for `lambda > 0` (rejecting only the undefined `y <= 0, lambda <= 0` corner),
+  and the lambda screen runs on zero series (disqualifying only on negatives)
+  with a floor `lambda >= log(2)/log(max(y))`. A power transform in (0, 1) fits
+  such series far better and makes forecasts non-negative. Shared C++ engine;
+  the R and Python lambda screens stay in parity.
+
 * **Concentrated variance can no longer come out negative.** In the
   augmented Kalman likelihood the concentrated innovation variance is the
   post-projection residual sum of squares divided by `n` -- a sum of

@@ -1,6 +1,24 @@
 muse v0.1.0
 =======
 
+* Series containing zeros can now be variance-stabilised (and forecast
+  non-negatively).  Previously any zero forced lambda = 1 (raw scale): the
+  msdecompose + Guerrero lambda screen bailed to 1 on `any(y <= 0)`, and even
+  a user-supplied lambda != 1 returned a NaN log-likelihood, so zero-heavy /
+  intermittent series were fit on the raw scale and routinely forecast
+  negative values.  Two fixes:
+    - The BCnorm density now rejects only the genuinely-undefined corner
+      (y <= 0 with lambda <= 0); y == 0 with lambda > 0 is finite
+      (g(0) = -1/lambda, e.g. sqrt(0) = 0) and is allowed.
+    - The lambda screen now runs on zero-containing series (it disqualifies
+      only on NEGATIVE values), with a floor lambda >= log(2)/log(max(y)) so
+      the transformed zero is no more extreme than the transformed maximum.
+  A power transform in (0, 1) both fits intermittent series far better and
+  guarantees non-negative forecasts (the inverse BoxCox can't go below zero).
+  E.g. eurostat tourism series 267 moves from PTS(1,G,D) with a forecast
+  dipping to -101, to PTS(0.13,N,D) forecasting in [0, 15].  Shared C++ engine
+  for the density; the R and Python lambda screens are kept in parity.
+
 * AR / SAR coefficients are now reported in the standard Box-Jenkins
   convention (1 - phi B) y_t = (1 + theta B) e_t, matching stats::arima and
   the forecasting literature.  The engine stores them internally in the

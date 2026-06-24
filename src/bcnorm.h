@@ -87,11 +87,17 @@ inline double bcnormLogDensityScalar(double y_raw, double mu,
 
     if (!std::isfinite(y_raw) || !std::isfinite(mu) || sigma <= 0.0)
         return -std::numeric_limits<double>::infinity();
-    // The Box-Cox transform requires y > 0, EXCEPT at lambda == 1 (identity),
-    // where the BCnorm distribution is a plain (shifted) normal valid for all
-    // real y -- matches greybox::dbcnorm, and is needed for raw-scale models
-    // (lambda fixed at 1) whose data can be negative.
-    if (lambda != 1.0 && y_raw <= 0.0)
+    // Box-Cox domain.  g(y) = (y^lambda - 1)/lambda is finite for:
+    //   * y > 0          (all lambda),
+    //   * y == 0 with lambda > 0   (g(0) = -1/lambda, e.g. sqrt(0) = 0),
+    //   * any real y at lambda == 1 (identity).
+    // It is UNDEFINED only for y <= 0 with lambda <= 0 (log(0) at lambda 0,
+    // 0^negative -> Inf at lambda < 0).  y < 0 with fractional lambda gives a
+    // complex g, caught by the !isfinite(g) check below.  So reject only the
+    // genuinely-undefined corner here -- in particular do NOT reject y == 0 for
+    // lambda > 0, which is exactly the variance-stabilising case for
+    // intermittent / zero-containing series (sqrt etc.).
+    if (lambda <= 0.0 && y_raw <= 0.0)
         return -std::numeric_limits<double>::infinity();
 
     const double g = bcnormBoxCox(y_raw, lambda);
