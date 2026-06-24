@@ -549,16 +549,12 @@ double llik(vec& p, void* opt_data){
   // Joint-lambda: re-apply BoxCox at the current lambda (p.back()) so
   // the KF always runs on the correctly transformed series.
   if (data->estimateLambda) {
-    double lam = p(p.n_elem - 1);
-    // Clamp lambda to [lambdaLower, LAMBDA_BOUND_UPPER].  The lower bound
-    // (default -inf) keeps BoxCox(0, lam<=0) = +/-Inf out of the KF on
-    // zero series.  The upper bound matches the value used when reporting /
-    // snapping lambda; without it the BFGS could push p.back() past 2 into a
-    // region where the objective and the (clamped) reported lambda disagree.
-    // The unclamped p.back() stays as the BFGS internal parameter; we just
-    // propagate the clamped lam to data->lambda and to BoxCox.
-    if (lam < data->lambdaLower) lam = data->lambdaLower;
-    else if (lam > LAMBDA_BOUND_UPPER) lam = LAMBDA_BOUND_UPPER;
+    // p.back() is an UNCONSTRAINED theta; map it to lambda in (lo, hi) via a
+    // logistic (boxcox.h::lambdaFromTheta) so the gradient never flattens at
+    // the bounds.  lo respects data->lambdaLower (the zero floor on zero
+    // series); hi = LAMBDA_BOUND_UPPER.  Replaces the old hard clamp, whose
+    // flat region trapped the optimiser at a bound.
+    double lam = lambdaFromTheta(p(p.n_elem - 1), data->lambdaLower);
     data->lambda = lam;
     data->y = BoxCox(data->y_raw, lam);
   }

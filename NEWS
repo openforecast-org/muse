@@ -1,6 +1,19 @@
 muse v0.1.0
 =======
 
+* Joint maximum-likelihood Box-Cox lambda estimation
+  (`lambda_estim = "likelihood"`) now finds interior optima reliably.  The
+  engine optimised lambda against a hard clamp to its `[lower, upper]` bounds;
+  the clamp made the likelihood flat beyond a bound, so the optimiser's
+  gradient there was exactly zero and it got trapped at the bound -- pinning
+  lambda at the floor / cap and missing the true optimum (e.g. a 74%-zero
+  series settled at the zero floor 0.078, where the prediction interval
+  exploded, instead of the likelihood optimum ~0.18).  The lambda slot is now
+  an unconstrained parameter mapped to `(lower, upper)` through a logistic, so
+  the gradient stays informative everywhere; the optimiser locates interior
+  optima and still goes to a bound only when the profile genuinely wants it.
+  Shared C++ engine, so identical in R and Python.
+
 * New `lambda_estim` argument to `pts()` selects how the Box-Cox power is
   estimated when the power slot is `"Z"`: `"likelihood"` (new default --
   estimate lambda jointly with the structural parameters by maximum likelihood

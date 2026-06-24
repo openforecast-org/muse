@@ -830,17 +830,15 @@ void BSMclass::estim(vec p, bool VERBOSE){
         // downstream consumers see an unclamped value (e.g. lambda=0
         // when y has zeros, which then crashes the snap-anchor / trig
         // seasonal init at lambda=0 -> log(0) = -Inf).
+        // p.back() is the unconstrained theta; recover lambda via the same
+        // logistic map the objective uses.  By construction it lies in
+        // (lo, hi) = (max(LAMBDA_BOUND_LOWER, lambdaLower), LAMBDA_BOUND_UPPER),
+        // so no clamp / slot-fixup is needed (the old hard-clamp version had to
+        // bump an out-of-bounds p.back() back up to lambdaLower here).
         double lambdaStar = lambdaWasEstimated
-                            ? std::max(LAMBDA_BOUND_LOWER,
-                                       std::min(LAMBDA_BOUND_UPPER,
-                                                p(p.n_elem - 1)))
+                            ? lambdaFromTheta(p(p.n_elem - 1),
+                                              SSmodel::inputs.lambdaLower)
                             : inputs.lambda;
-        if (lambdaWasEstimated &&
-            std::isfinite(SSmodel::inputs.lambdaLower) &&
-            lambdaStar < SSmodel::inputs.lambdaLower){
-                lambdaStar = SSmodel::inputs.lambdaLower;
-                p(p.n_elem - 1) = lambdaStar;  // keep BFGS slot consistent
-        }
         if (lambdaWasEstimated){
                 inputs.lambda          = lambdaStar;
                 SSmodel::inputs.lambda = lambdaStar;
@@ -3560,12 +3558,17 @@ void BSMclass::initParBsm(){
                 }
         }
         // Section 9: Lambda parameter (joint estimation).
-        // When SSmodel::inputs.estimateLambda is true, lambda is appended as
-        // the last element of p (typePar=6 keeps it out of the concentrated-
-        // variance machinery; constPar=0 means it is a free parameter).
-        // inputs.lambda holds the warm-start value set by estimUCs or musecore.h.
+        // When SSmodel::inputs.estimateLambda is true, an UNCONSTRAINED theta is
+        // appended as the last element of p (typePar=6 keeps it out of the
+        // concentrated-variance machinery; constPar=0 means it is a free
+        // parameter).  The objective maps theta -> lambda via a logistic
+        // (boxcox.h::lambdaFromTheta), so seed the slot from the warm-start
+        // lambda via the inverse map.  inputs.lambda holds the warm-start value
+        // set by estimUCs or musecore.h.
         if (SSmodel::inputs.estimateLambda){
-                SSmodel::inputs.p0 = join_vert(SSmodel::inputs.p0, vec({inputs.lambda}));
+                double theta0 = thetaFromLambda(inputs.lambda,
+                                                SSmodel::inputs.lambdaLower);
+                SSmodel::inputs.p0 = join_vert(SSmodel::inputs.p0, vec({theta0}));
                 inputs.typePar = join_vert(inputs.typePar, vec({6.0}));
                 inputs.constPar = join_vert(inputs.constPar, vec({0.0}));
         }

@@ -15,6 +15,37 @@
 constexpr double LAMBDA_BOUND_LOWER = -2.0;
 constexpr double LAMBDA_BOUND_UPPER =  2.0;
 
+// Smooth box constraint for the jointly-estimated Box-Cox lambda.  The BFGS
+// optimises an UNCONSTRAINED slot theta; lambda = lo + (hi - lo)/(1 + e^-theta)
+// stays strictly inside (lo, hi) with a gradient that never vanishes at the
+// bounds.  A hard clamp (the old approach) instead makes the objective flat
+// beyond a bound, so the optimiser's gradient there is exactly zero and it gets
+// trapped at the bound -- missing genuine interior optima.  No extra parameter:
+// theta occupies the single slot lambda used to.
+//   hi = LAMBDA_BOUND_UPPER
+//   lo = LAMBDA_BOUND_LOWER, raised to the caller's lambdaLower when finite
+//        (e.g. the zero floor log(2)/log(max y) for series containing zeros).
+inline double lambdaSigmoidLower(double lambdaLower){
+    return std::isfinite(lambdaLower)
+           ? std::max(LAMBDA_BOUND_LOWER, lambdaLower)
+           : LAMBDA_BOUND_LOWER;
+}
+// theta (unconstrained) -> lambda in (lo, hi).
+inline double lambdaFromTheta(double theta, double lambdaLower){
+    double lo = lambdaSigmoidLower(lambdaLower);
+    return lo + (LAMBDA_BOUND_UPPER - lo) / (1.0 + std::exp(-theta));
+}
+// lambda in [lo, hi] -> theta (inverse of lambdaFromTheta), used to seed the
+// BFGS slot from a warm-start lambda.  Clamps the logistic argument away from
+// the open-interval ends so a warm-start exactly at a bound gives a finite theta.
+inline double thetaFromLambda(double lambda, double lambdaLower){
+    double lo = lambdaSigmoidLower(lambdaLower);
+    double u = (lambda - lo) / (LAMBDA_BOUND_UPPER - lo);
+    if (u < 1e-9)            u = 1e-9;
+    else if (u > 1.0 - 1e-9) u = 1.0 - 1e-9;
+    return std::log(u / (1.0 - u));
+}
+
 // Struct for boxcox optimization
 struct boxcoxInputs{
   vec y;

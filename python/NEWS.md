@@ -2,6 +2,16 @@
 
 ## 0.1.0
 
+* **Joint ML Box-Cox lambda estimation (`lambda_estim="likelihood"`) now
+  finds interior optima.** The engine optimised lambda against a hard clamp to
+  its bounds, which made the likelihood flat beyond a bound and trapped the
+  optimiser there (pinning lambda at the floor/cap and missing the true
+  optimum -- e.g. a 74%-zero series stuck at the zero floor 0.078, where the
+  prediction interval exploded, instead of the optimum ~0.18). The lambda slot
+  is now unconstrained and mapped to `(lower, upper)` through a logistic, so
+  the gradient stays informative and interior optima are found. Shared C++
+  engine, identical to R.
+
 * **New `lambda_estim` argument** to `PTS(...)` -- how the Box-Cox power is
   chosen when the power slot is `"Z"`: `"likelihood"` (new default: joint ML
   estimation in the engine), `"guerrero"` (classical Guerrero 1993 on raw
