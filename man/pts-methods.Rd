@@ -79,6 +79,43 @@ return the simulated path matrix as \code{$scenarios}.}
 the default) or \code{TRUE} (bias-corrected mean).  Defaults to the
 value the model was fitted with (\code{object$biasadj}).}
 }
+\value{
+The methods return the following:
+\itemize{
+  \item \code{fitted}, \code{predict} -- the in-sample fitted values as a
+    \code{ts} / numeric vector on the original (back-transformed) scale.
+  \item \code{residuals} -- the model residuals as a \code{ts} / numeric
+    vector on the Box-Cox scale.
+  \item \code{coef} -- a named numeric vector of the estimated parameters
+    (structural variances plus any ARMA / damping coefficients).
+  \item \code{vcov} -- the parameter variance-covariance \code{matrix}.
+  \item \code{nobs} -- an integer, the number of in-sample observations
+    (plus the holdout when \code{all = TRUE}).
+  \item \code{nparam} -- an integer, the number of estimated parameters
+    (the degrees of freedom used by the information criteria).
+  \item \code{logLik} -- an object of class \code{"logLik"}: the maximised
+    log-likelihood, with \code{df} and \code{nobs} attributes.
+  \item \code{sigma}, \code{extractSigma} -- a numeric scalar, the residual
+    standard deviation; \code{extractScale} -- the maximum-likelihood scale
+    of the assumed distribution.
+  \item \code{actuals} -- the original response series.
+  \item \code{modelType} -- a character string with the PTS model code (e.g.
+    \code{"PTS(0,N,T)"}); \code{modelName} -- a human-readable description;
+    \code{errorType} -- the character error type (\code{"A"}, additive on
+    the Box-Cox scale).
+  \item \code{lags} -- the integer seasonal period; \code{orders} -- a
+    \code{list} of the irregular ARMA orders (\code{ar}, \code{ma},
+    \code{lags}); \code{initials} -- a named numeric vector of the estimated
+    initial structural-state values.
+  \item \code{forecast} -- an object of class \code{"pts.forecast"}: a
+    \code{list} with the point forecast \code{$mean} and the interval bounds
+    \code{$lower} / \code{$upper} (original scale), together with the
+    forecast variance, level, and interval metadata.
+  \item \code{print} and \code{plot} are called for their side effects
+    (console output and a diagnostic plot, respectively) and invisibly
+    return their first argument.
+}
+}
 \description{
 Standard accessors and printing for fitted \code{pts}
 objects. \code{forecast(object, h)} generates forecasts from the fitted
