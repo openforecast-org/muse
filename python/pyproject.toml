@@ -64,10 +64,16 @@ select = ["E", "F", "W", "I", "B", "UP"]
 "tests/*" = ["E501"]
 
 [tool.mypy]
-# 3.12+: numpy's bundled stubs use PEP 695 `type` statements, which mypy only
-# accepts when the analysis target is >= 3.12 (otherwise it errors on
-# numpy/__init__.pyi with "Type statement is only supported in Python 3.12
-# and greater").  Runtime support (requires-python) is unaffected.
-python_version = "3.12"
+python_version = "3.11"
 ignore_missing_imports = true
 files = ["src/muse"]
+
+# numpy's bundled stubs use PEP 695 `type` statements, which mypy refuses to
+# parse when the analysis target is < 3.12 ("Type statement is only supported
+# in Python 3.12 and greater").  We target 3.11, so skip following into numpy
+# and treat it as untyped -- the source uses only `np.*` calls with no numpy
+# type annotations, so nothing of our own is lost.
+[[tool.mypy.overrides]]
+module = "numpy.*"
+follow_imports = "skip"
+follow_imports_for_stubs = true
