@@ -3,6 +3,7 @@
 Not part of the public API; used by PTS.fit() to turn a 3-letter PTS spec
 into the UC string the C++ engine speaks, and back.
 """
+
 from __future__ import annotations
 
 
@@ -50,9 +51,7 @@ def pts_to_uc(model: str, arma_orders=(0, 0)) -> tuple[str, float]:
         if aux == "z":
             lam = 9999.9  # C++ sentinel for "estimate"
         else:
-            raise ValueError(
-                f"Invalid power letter in PTS spec: '{aux}'"
-            ) from None
+            raise ValueError(f"Invalid power letter in PTS spec: '{aux}'") from None
     return modelu, lam
 
 
@@ -62,12 +61,8 @@ def uc_to_pts(model_uc: str, lam: float) -> str:
     sl = [i for i, c in enumerate(model_uc) if c == "/"]
     trend = model_uc[: sl[0]]
     seasonal = model_uc[sl[0] + 1 : sl[1]]
-    trend_letter = {"rw": "N", "srw": "D", "llt": "L", "td": "G", "?": "Z"}.get(
-        trend, ""
-    )
-    seasonal_letter = {"none": "N", "equal": "T", "linear": "D", "?": "Z"}.get(
-        seasonal, ""
-    )
+    trend_letter = {"rw": "N", "srw": "D", "llt": "L", "td": "G", "?": "Z"}.get(trend, "")
+    seasonal_letter = {"none": "N", "equal": "T", "linear": "D", "?": "Z"}.get(seasonal, "")
     return f"PTS({_fmt_lambda(lam)},{trend_letter},{seasonal_letter})"
 
 

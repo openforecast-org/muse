@@ -5,6 +5,7 @@ through the inverse Box-Cox (with the lambda<0 truncated-distribution
 renormalisation), matching R exactly.  No greybox dependency: R's forecast
 path uses base pnorm/qnorm, which scipy.stats.norm reproduces.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -14,8 +15,9 @@ from .boxcox import inv_box_cox, inv_box_cox_mean
 
 
 class ForecastResult:
-    def __init__(self, mean, lower, upper, variance, level, interval, side,
-                 cumulative, scenarios=None):
+    def __init__(
+        self, mean, lower, upper, variance, level, interval, side, cumulative, scenarios=None
+    ):
         self.mean = mean
         self.lower = lower
         self.upper = upper
@@ -55,9 +57,19 @@ def _bands(fn, probs, h):
     return out
 
 
-def forecast(model, h, X=None, interval="prediction", level=0.95, side="both",
-             cumulative=False, nsim=10000, seed=0, scenarios=False,
-             biasadj=None):
+def forecast(
+    model,
+    h,
+    X=None,
+    interval="prediction",
+    level=0.95,
+    side="both",
+    cumulative=False,
+    nsim=10000,
+    seed=0,
+    scenarios=False,
+    biasadj=None,
+):
     if h < 1:
         raise ValueError("h must be a positive integer.")
     # Point forecast: median (False, default) vs bias-corrected mean (True).
@@ -76,8 +88,7 @@ def forecast(model, h, X=None, interval="prediction", level=0.95, side="both",
     # Point forecast: biasadj=False (default) -> conditional MEDIAN; True ->
     # bias-corrected conditional MEAN.  Interval quantiles below stay
     # median-style (exact quantiles, never bias-adjusted).
-    mean_out = (inv_box_cox_mean(yfor_bc, yforv, lam) if biasadj
-                else inv_box_cox(yfor_bc, lam))
+    mean_out = inv_box_cox_mean(yfor_bc, yforv, lam) if biasadj else inv_box_cox(yfor_bc, lam)
 
     sigma2_bc = float(model._scale) ** 2
     yforv_conf = np.maximum(0.0, yforv - sigma2_bc)
@@ -152,6 +163,14 @@ def forecast(model, h, X=None, interval="prediction", level=0.95, side="both",
             upper = np.array([[q_tot(p) for p in qUp]])
             variance = float(np.var(totals, ddof=1))
 
-    return ForecastResult(mean_out, lower, upper, variance,
-                          level if level.size > 1 else float(level[0]),
-                          interval, side, cumulative, scen)
+    return ForecastResult(
+        mean_out,
+        lower,
+        upper,
+        variance,
+        level if level.size > 1 else float(level[0]),
+        interval,
+        side,
+        cumulative,
+        scen,
+    )

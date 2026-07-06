@@ -9,6 +9,7 @@ fixed-lambda specs (and engine-side trend/seasonal "Z" selection, which the
 engine resolves).  The R-side auto-lambda screen, ARMA order selection, and
 forecasting/intervals arrive in later phases.
 """
+
 from __future__ import annotations
 
 import math
@@ -23,8 +24,7 @@ _TREND_OPTIONS = "rw/llt/srw/td"
 _SEASONAL_OPTIONS = "none/linear/equal"
 
 _NPARAM_ROWS = ["Estimated", "Provided"]
-_NPARAM_COLS = ["nParamInternal", "nParamXreg", "nParamOccurrence",
-                "nParamScale", "nParamAll"]
+_NPARAM_COLS = ["nParamInternal", "nParamXreg", "nParamOccurrence", "nParamScale", "nParamAll"]
 
 
 def _nparam_table(n_p, n_initial, lam_dof, n_xreg):
@@ -40,11 +40,11 @@ def _nparam_table(n_p, n_initial, lam_dof, n_xreg):
 
     m = np.zeros((2, 5), dtype=int)
     scale = 1 if n_p >= 1 else 0
-    m[0, 0] = max(0, n_p - scale) + n_initial + lam_dof   # nParamInternal
-    m[0, 1] = n_xreg                                      # nParamXreg
-    m[0, 3] = scale                                       # nParamScale
-    m[0, 4] = int(m[0, :4].sum())                         # nParamAll (Estimated)
-    m[1, 4] = int(m[1, :4].sum())                         # nParamAll (Provided)
+    m[0, 0] = max(0, n_p - scale) + n_initial + lam_dof  # nParamInternal
+    m[0, 1] = n_xreg  # nParamXreg
+    m[0, 3] = scale  # nParamScale
+    m[0, 4] = int(m[0, :4].sum())  # nParamAll (Estimated)
+    m[1, 4] = int(m[1, :4].sum())  # nParamAll (Provided)
     return pd.DataFrame(m, index=_NPARAM_ROWS, columns=_NPARAM_COLS)
 
 
@@ -73,10 +73,7 @@ class PTS:
             raise ValueError("outliers must be 'ignore' or 'use'.")
         self.outliers = outliers
         if lambda_estim not in ("likelihood", "guerrero", "decomp-guerrero"):
-            raise ValueError(
-                "lambda_estim must be 'likelihood', 'guerrero', "
-                "or 'decomp-guerrero'."
-            )
+            raise ValueError("lambda_estim must be 'likelihood', 'guerrero', or 'decomp-guerrero'.")
         self.lambda_estim = lambda_estim
         self.biasadj = bool(biasadj)
         if not (0 < level < 1):
@@ -90,6 +87,7 @@ class PTS:
     # ---- fit ------------------------------------------------------------
     def fit(self, y, X=None):
         from . import io
+
         y, self._index, inferred = io.parse_input(y)
         lags_in = self.lags if self.lags is not None else inferred
         if lags_in is None:
@@ -117,15 +115,14 @@ class PTS:
             held = y[len(y) - self.h :]
             y = y[: len(y) - self.h]
         self._index_full = self._index
-        self._index_train = (self._index[: len(y)]
-                             if self._index is not None else None)
+        self._index_train = self._index[: len(y)] if self._index is not None else None
         self._u = self._prepare_u(X)
         # Split off the held-out future regressors (adam-style: the auto-forecast
         # takes those rows of the data).  _u is k x N -> train k x n + fut k x h.
         self._has_x = X is not None
         self._u_future = None
         if self._has_x and self.holdout and self.h > 0:
-            n_tr = len(y)            # y is already the training portion
+            n_tr = len(y)  # y is already the training portion
             self._u_future = self._u[:, n_tr:]
             self._u = self._u[:, :n_tr]
 
@@ -134,6 +131,7 @@ class PTS:
         # (below it g(0) = -1/lambda is a pathological outlier / dropped at
         # lambda <= 0, making the likelihood incomparable), else unbounded.
         from .lambda_screen import lambda_zero_floor
+
         if np.any(y < 0):
             lambda_lower = 0.0
         elif np.any(y == 0):
@@ -155,27 +153,31 @@ class PTS:
         lambda_screened = False
         model_str = self.model
         if power == "z" and self.lambda_estim != "likelihood" and len(y) >= 4:
-            lower_screen = max(0.0, lambda_lower if math.isfinite(lambda_lower)
-                               else 0.0)
+            lower_screen = max(0.0, lambda_lower if math.isfinite(lambda_lower) else 0.0)
             if self.lambda_estim == "guerrero":
                 from .lambda_screen import guerrero_classic_lambda
-                best = guerrero_classic_lambda(y, lags, lower=lower_screen,
-                                               upper=2.0)
+
+                best = guerrero_classic_lambda(y, lags, lower=lower_screen, upper=2.0)
             else:
                 from .lambda_screen import guerrero_decomp_lambda
-                best = guerrero_decomp_lambda(y, lags, lower=lower_screen,
-                                              upper=2.0)
+
+                best = guerrero_decomp_lambda(y, lags, lower=lower_screen, upper=2.0)
             best = float(f"{best:.7g}")  # match R format(..., digits = 7)
             model_str = _fmt_lambda_str(best) + self.model[nm - 2 :]
             lambda_screened = True
 
         if user_select:
             from . import selector
+
             sel = selector.select_pts_arma(
-                y, model_str, lags, ar_v, ma_v, arma_lags, self.ic,
-                fit_structural=lambda spec: self._fit_structural(
-                    spec, y, lags, criterion
-                ),
+                y,
+                model_str,
+                lags,
+                ar_v,
+                ma_v,
+                arma_lags,
+                self.ic,
+                fit_structural=lambda spec: self._fit_structural(spec, y, lags, criterion),
             )
             # model_spec already carries the screened lambda + the selected
             # trend/seasonal letters; use it verbatim (do not re-slice).
@@ -188,15 +190,23 @@ class PTS:
         # The lambda screen above already pins lambda to a number before the
         # engine runs, so R's joint-lambda + outlier workaround is moot here.
         from scipy.stats import norm
-        outlier_z = 0.0 if self.outliers == "ignore" else float(
-            norm.ppf((1 + self.level) / 2)
-        )
+
+        outlier_z = 0.0 if self.outliers == "ignore" else float(norm.ppf((1 + self.level) / 2))
 
         arma_tuple, irregular = translate.arma_spec(ar_v, ma_v, arma_lags)
         model_uc, lam = translate.pts_to_uc(model_str, arma_orders=arma_tuple)
-        out = self._engine(y, self._u, model_uc, lam, lags, criterion,
-                           irregular, arma_ident=False, outlier=outlier_z,
-                           lambda_lower=lambda_lower)
+        out = self._engine(
+            y,
+            self._u,
+            model_uc,
+            lam,
+            lags,
+            criterion,
+            irregular,
+            arma_ident=False,
+            outlier=outlier_z,
+            lambda_lower=lambda_lower,
+        )
         if out.get("model") == "error":
             raise RuntimeError("muse engine returned an error for this spec.")
 
@@ -205,7 +215,8 @@ class PTS:
         self._orders = {
             "ar": ar_v[0] if len(arma_lags) == 1 else ar_v,
             "ma": ma_v[0] if len(arma_lags) == 1 else ma_v,
-            "lags": arma_lags, "select": user_select,
+            "lags": arma_lags,
+            "select": user_select,
         }
 
         # Decoupled forecast cache: one forecastOnly pass populates the
@@ -244,16 +255,45 @@ class PTS:
             u = u.T
         return u
 
-    def _engine(self, y, u, model_uc, lam, lags, criterion, irregular,
-                arma_ident, outlier=0.0, lambda_lower=-math.inf):
+    def _engine(
+        self,
+        y,
+        u,
+        model_uc,
+        lam,
+        lags,
+        criterion,
+        irregular,
+        arma_ident,
+        outlier=0.0,
+        lambda_lower=-math.inf,
+    ):
         periods = lags / np.arange(1, max(1, lags // 2) + 1)
         rhos = np.ones_like(periods)
         return _musecore.ucomp(
-            "all", y, u, model_uc, int(self.h), float(lam), float(outlier),
-            False, criterion, periods, rhos, self.verbose, False,
-            np.array([-9999.9]), bool(arma_ident), np.array([-9999.99]),
-            float(lags), _TREND_OPTIONS, _SEASONAL_OPTIONS,
-            irregular, 1, 0, float(lambda_lower),
+            "all",
+            y,
+            u,
+            model_uc,
+            int(self.h),
+            float(lam),
+            float(outlier),
+            False,
+            criterion,
+            periods,
+            rhos,
+            self.verbose,
+            False,
+            np.array([-9999.9]),
+            bool(arma_ident),
+            np.array([-9999.99]),
+            float(lags),
+            _TREND_OPTIONS,
+            _SEASONAL_OPTIONS,
+            irregular,
+            1,
+            0,
+            float(lambda_lower),
         )
 
     def _arma_candidate(self):
@@ -290,17 +330,33 @@ class PTS:
         aEnd = getattr(self, "_aEnd", None)
         cached = aEnd is not None and np.asarray(aEnd).size > 0
         return _musecore.ucomp(
-            "forecastOnly", self._y_train, u, self._model_uc, int(h),
-            float(self._lambda), 0.0, False, "aic", periods, rhos, False,
-            False, np.asarray(self._p, dtype=float), False,
-            np.array([-9999.99]), float(self._lags), _TREND_OPTIONS,
-            _SEASONAL_OPTIONS, self._arma_candidate(), 1, 0, -math.inf,
+            "forecastOnly",
+            self._y_train,
+            u,
+            self._model_uc,
+            int(h),
+            float(self._lambda),
+            0.0,
+            False,
+            "aic",
+            periods,
+            rhos,
+            False,
+            False,
+            np.asarray(self._p, dtype=float),
+            False,
+            np.array([-9999.99]),
+            float(self._lags),
+            _TREND_OPTIONS,
+            _SEASONAL_OPTIONS,
+            self._arma_candidate(),
+            1,
+            0,
+            -math.inf,
             np.asarray(aEnd, dtype=float) if cached else np.zeros(0),
-            np.asarray(getattr(self, "_PEnd", None), dtype=float)
-                if cached else np.zeros((0, 0)),
+            np.asarray(getattr(self, "_PEnd", None), dtype=float) if cached else np.zeros((0, 0)),
             float(getattr(self, "_innVar", -1.0)) if cached else -1.0,
-            np.asarray(getattr(self, "_betaAug", None), dtype=float)
-                if cached else np.zeros(0),
+            np.asarray(getattr(self, "_betaAug", None), dtype=float) if cached else np.zeros(0),
         )
 
     def _forecast_paths(self, h, nsim, seed):
@@ -309,30 +365,74 @@ class PTS:
         rhos = np.ones_like(periods)
         u = np.zeros((1, 2), dtype=float)
         out = _musecore.ucomp(
-            "simulate", self._y_train, u, self._model_uc, int(h),
-            float(self._lambda), 0.0, False, "aic", periods, rhos, False,
-            False, np.asarray(self._p, dtype=float), False,
-            np.array([-9999.99]), float(self._lags), _TREND_OPTIONS,
-            _SEASONAL_OPTIONS, self._arma_candidate(), int(nsim), int(seed),
+            "simulate",
+            self._y_train,
+            u,
+            self._model_uc,
+            int(h),
+            float(self._lambda),
+            0.0,
+            False,
+            "aic",
+            periods,
+            rhos,
+            False,
+            False,
+            np.asarray(self._p, dtype=float),
+            False,
+            np.array([-9999.99]),
+            float(self._lags),
+            _TREND_OPTIONS,
+            _SEASONAL_OPTIONS,
+            self._arma_candidate(),
+            int(nsim),
+            int(seed),
             -math.inf,
         )
         return np.asarray(out["simPaths"], dtype=float)
 
-    def predict(self, h, X=None, interval="prediction", level=0.95, side="both",
-                cumulative=False, nsim=10000, seed=0, scenarios=False,
-                biasadj=None):
+    def predict(
+        self,
+        h,
+        X=None,
+        interval="prediction",
+        level=0.95,
+        side="both",
+        cumulative=False,
+        nsim=10000,
+        seed=0,
+        scenarios=False,
+        biasadj=None,
+    ):
         from .forecaster import forecast
-        return forecast(self, h, X=X, interval=interval, level=level, side=side,
-                        cumulative=cumulative, nsim=nsim, seed=seed,
-                        scenarios=scenarios, biasadj=biasadj)
+
+        return forecast(
+            self,
+            h,
+            X=X,
+            interval=interval,
+            level=level,
+            side=side,
+            cumulative=cumulative,
+            nsim=nsim,
+            seed=seed,
+            scenarios=scenarios,
+            biasadj=biasadj,
+        )
 
     def update(self, **overrides):
         """Re-fit on the same data with selected spec changes (sklearn-clone
         style).  e.g. m.update(h=24) or m.update(model="1LT")."""
         kw = dict(
-            model=self.model, lags=self.lags, orders=self._orders_arg,
-            ic=self.ic, lambda_estim=self.lambda_estim, biasadj=self.biasadj,
-            h=self.h, holdout=self.holdout, verbose=self.verbose,
+            model=self.model,
+            lags=self.lags,
+            orders=self._orders_arg,
+            ic=self.ic,
+            lambda_estim=self.lambda_estim,
+            biasadj=self.biasadj,
+            h=self.h,
+            holdout=self.holdout,
+            verbose=self.verbose,
         )
         kw.update(overrides)
         return PTS(**kw).fit(self._y_full)
@@ -347,12 +447,15 @@ class PTS:
         deterministic drift slope is injected as a Slope row (NaN SE).
         """
         from scipy.stats import norm
+
         est = self._p.astype(float)
         nm = list(self._par_names)
         n = self.nobs
-        cv = (self._vcov.astype(float).copy()
-              if (self._vcov is not None and np.ndim(self._vcov) == 2)
-              else None)
+        cv = (
+            self._vcov.astype(float).copy()
+            if (self._vcov is not None and np.ndim(self._vcov) == 2)
+            else None
+        )
 
         ses = np.full(est.size, np.nan)
         if cv is not None:
@@ -371,8 +474,11 @@ class PTS:
         a = (1 - level) / 2
         z = norm.ppf([a, 1 - a])
         coef = {
-            "names": list(nm), "estimate": est.copy(), "std_error": ses.copy(),
-            "lower": est + ses * z[0], "upper": est + ses * z[1],
+            "names": list(nm),
+            "estimate": est.copy(),
+            "std_error": ses.copy(),
+            "lower": est + ses * z[0],
+            "upper": est + ses * z[1],
         }
         # deterministic drift slope row (G / td), inserted after Level
         det_slope = None
@@ -381,16 +487,25 @@ class PTS:
             if "Level" in coef["names"]:
                 pos = coef["names"].index("Level") + 1
                 coef["names"].insert(pos, "Slope")
-                for key, val in (("estimate", det_slope), ("std_error", np.nan),
-                                 ("lower", np.nan), ("upper", np.nan)):
+                for key, val in (
+                    ("estimate", det_slope),
+                    ("std_error", np.nan),
+                    ("lower", np.nan),
+                    ("upper", np.nan),
+                ):
                     coef[key] = np.insert(coef[key], pos, val)
 
         # variance proportions (exclude AR/MA, Beta, Damping, outliers)
-        is_var = np.array([
-            not (n.startswith(("AR(", "SAR(", "MA(", "SMA(", "Beta"))
-                 or n == "Damping" or _is_outlier(n))
-            for n in nm
-        ])
+        is_var = np.array(
+            [
+                not (
+                    n.startswith(("AR(", "SAR(", "MA(", "SMA(", "Beta"))
+                    or n == "Damping"
+                    or _is_outlier(n)
+                )
+                for n in nm
+            ]
+        )
         var_vals = est[is_var]
         S = float(np.sum(var_vals))
         props = var_vals / S if (var_vals.size and S > 0) else var_vals
@@ -406,26 +521,37 @@ class PTS:
                     prop_ses = np.sqrt(np.maximum(0.0, prop_var))
 
         return {
-            "model": self._model_label, "lambda": self._lambda,
-            "nobs": n, "n_param": self._nparam, "sigma": self.sigma,
+            "model": self._model_label,
+            "lambda": self._lambda,
+            "nobs": n,
+            "n_param": self._nparam,
+            "sigma": self.sigma,
             "logLik": self._logLik,
-            "ic": {"AIC": self.aic, "BIC": self.bic, "AICc": self.aicc,
-                   "BICc": self.bicc},
+            "ic": {"AIC": self.aic, "BIC": self.bic, "AICc": self.aicc, "BICc": self.bicc},
             "coefficients": coef,
-            "proportions": {"names": [x for x, kk in zip(nm, is_var, strict=False) if kk],
-                            "proportion": props, "std_error": prop_ses},
+            "proportions": {
+                "names": [x for x, kk in zip(nm, is_var, strict=False) if kk],
+                "proportion": props,
+                "std_error": prop_ses,
+            },
         }
 
     # ---- plotting (reuses smooth's plot_adam via a duck-typed adapter) --
-    def plot(self, which=(1, 2, 4, 6), level=0.95, legend=False, lowess=True,
-             **kwargs):
+    def plot(self, which=(1, 2, 4, 6), level=0.95, legend=False, lowess=True, **kwargs):
         """Diagnostic plots, reusing smooth.adam's plot_adam on an adapter
         that exposes the attributes it duck-types on.  Plots 1-7,9 (incl. the
         default 1,2,4,6) need only fitted/residuals/scale/distribution; the
         states plot (12) is best-effort."""
         from smooth.adam_general.core.plotting import plot_adam
-        return plot_adam(_PlotAdapter(self), which=list(np.atleast_1d(which)),
-                         level=level, legend=legend, lowess=lowess, **kwargs)
+
+        return plot_adam(
+            _PlotAdapter(self),
+            which=list(np.atleast_1d(which)),
+            level=level,
+            legend=legend,
+            lowess=lowess,
+            **kwargs,
+        )
 
     # ---- diagnostics ----------------------------------------------------
     def rstandard(self):
@@ -442,6 +568,7 @@ class PTS:
 
     def point_lik(self, log=True):
         from scipy.stats import norm
+
         s = self.sigma
         e = self._residuals
         if s == 0 or not math.isfinite(s):
@@ -450,6 +577,7 @@ class PTS:
 
     def confint(self, level=0.95):
         from scipy.stats import norm
+
         est = self._p
         cv = self._vcov
         if cv is not None and np.ndim(cv) == 2 and cv.shape[0] == est.size:
@@ -464,11 +592,12 @@ class PTS:
             "names": self._par_names,
             "lower": lower,
             "upper": upper,
-            "level_labels": [f"{100*a:.1f} %", f"{100*(1-a):.1f} %"],
+            "level_labels": [f"{100 * a:.1f} %", f"{100 * (1 - a):.1f} %"],
         }
 
     def accuracy(self, holdout=None):
         import greybox
+
         if holdout is None:
             holdout = self._held
         if holdout is None:
@@ -477,12 +606,12 @@ class PTS:
                 "holdout=True or pass holdout explicitly."
             )
         holdout = np.asarray(holdout, dtype=float)
-        pred = np.asarray(self.predict(len(holdout), interval="none").mean,
-                          dtype=float)
+        pred = np.asarray(self.predict(len(holdout), interval="none").mean, dtype=float)
         # R's accuracy.pts scales against actuals(object) == the in-sample
         # training series (object$data), not the full series.
-        return greybox.measures(holdout=holdout, forecast=pred,
-                                actual=np.asarray(self._y_train, dtype=float))
+        return greybox.measures(
+            holdout=holdout, forecast=pred, actual=np.asarray(self._y_train, dtype=float)
+        )
 
     def simulate(self, nsim=1, seed=0):
         """In-sample replay from the initial state (command='simulateInit').
@@ -491,11 +620,28 @@ class PTS:
         rhos = np.ones_like(periods)
         u = np.zeros((1, 2), dtype=float)
         out = _musecore.ucomp(
-            "simulateInit", self._y_train, u, self._model_uc, int(self.nobs),
-            float(self._lambda), 0.0, False, "aic", periods, rhos, False,
-            False, np.asarray(self._p, dtype=float), False,
-            np.array([-9999.99]), float(self._lags), _TREND_OPTIONS,
-            _SEASONAL_OPTIONS, self._arma_candidate(), int(nsim), int(seed),
+            "simulateInit",
+            self._y_train,
+            u,
+            self._model_uc,
+            int(self.nobs),
+            float(self._lambda),
+            0.0,
+            False,
+            "aic",
+            periods,
+            rhos,
+            False,
+            False,
+            np.asarray(self._p, dtype=float),
+            False,
+            np.array([-9999.99]),
+            float(self._lags),
+            _TREND_OPTIONS,
+            _SEASONAL_OPTIONS,
+            self._arma_candidate(),
+            int(nsim),
+            int(seed),
             -math.inf,
         )
         return np.asarray(out["simPaths"], dtype=float)
@@ -503,10 +649,17 @@ class PTS:
     def _fit_structural(self, spec, y, lags, criterion):
         """Lightweight no-ARMA fit used by the order selector's Pass 1."""
         model_uc, lam = translate.pts_to_uc(spec, arma_orders=(0, 0))
-        out = self._engine(y, self._u, model_uc, lam, lags, criterion,
-                            "arma(0,0)", arma_ident=False,
-                            lambda_lower=getattr(self, "_lambda_lower",
-                                                 -math.inf))
+        out = self._engine(
+            y,
+            self._u,
+            model_uc,
+            lam,
+            lags,
+            criterion,
+            "arma(0,0)",
+            arma_ident=False,
+            lambda_lower=getattr(self, "_lambda_lower", -math.inf),
+        )
         if out.get("model") == "error":
             return None
         v = np.asarray(out["v"], dtype=float)
@@ -553,9 +706,7 @@ class PTS:
 
         # MLE scale on the BC scale (matches .pts_fit / adam scaler())
         res = self._residuals[np.isfinite(self._residuals)]
-        self._scale = (
-            math.sqrt(float(np.sum(res ** 2)) / ns) if ns > 0 else float("nan")
-        )
+        self._scale = math.sqrt(float(np.sum(res**2)) / ns) if ns > 0 else float("nan")
 
         # nParam: an adam-style breakdown table (mirror of smooth::adam and of
         # the R pts() $nParam).  A 2 x 5 DataFrame, rows ["Estimated",
@@ -572,15 +723,13 @@ class PTS:
         # nParamScale; regressors are nParamXreg; PTS has no occurrence model.
         # The engine adds the same quantities to its own selection k (kFor in
         # BSMclass::estim), so selection and reporting agree.
-        lam_dof = 1 if (bool(out.get("lambdaEstimated", False))
-                        or lambda_screened) else 0
+        lam_dof = 1 if (bool(out.get("lambdaEstimated", False)) or lambda_screened) else 0
         n_initial = int(out.get("nInitial", 0))
         # Real regressor count: the engine treats the (1, 2) all-zero dummy as
         # "no xreg" (resizes it away), so mirror that rule here.
         u = self._u
         n_xreg = 0 if (u is None or tuple(u.shape) == (1, 2)) else int(u.shape[0])
-        self._nparam_table = _nparam_table(
-            int(self._p.size), n_initial, lam_dof, n_xreg)
+        self._nparam_table = _nparam_table(int(self._p.size), n_initial, lam_dof, n_xreg)
         self._nparam = int(self._nparam_table.loc["Estimated", "nParamAll"])
 
         self._vcov = np.asarray(out["covp"], dtype=float) if "covp" in out else None
@@ -617,16 +766,19 @@ class PTS:
     @property
     def fitted(self):
         from . import io
+
         return io.wrap(self._fitted, self._index_train)
 
     @property
     def residuals(self):
         from . import io
+
         return io.wrap(self._residuals, self._index_train)
 
     @property
     def actuals(self):
         from . import io
+
         return io.wrap(self._y_full, self._index_full)
 
     @property
@@ -670,7 +822,7 @@ class PTS:
         if df <= 0:
             df = n
         res = self._residuals[np.isfinite(self._residuals)]
-        return math.sqrt(float(np.sum(res ** 2)) / df)
+        return math.sqrt(float(np.sum(res**2)) / df)
 
     @property
     def comp(self):
@@ -686,6 +838,7 @@ class PTS:
 
     def outlierdummy(self, level=0.999, type="rstandard"):
         from scipy.stats import norm
+
         r = self.rstandard() if type == "rstandard" else self.rstudent()
         q = norm.ppf(level)
         ids = np.where(np.abs(np.asarray(r, dtype=float)) > q)[0]
@@ -710,11 +863,7 @@ class PTS:
     def bicc(self):
         n, k = self.nobs, self._nparam
         denom = n - k - 1
-        return (
-            self.bic + (math.log(n) * k * (k + 1)) / denom
-            if denom > 0
-            else math.inf
-        )
+        return self.bic + (math.log(n) * k * (k + 1)) / denom if denom > 0 else math.inf
 
     def __repr__(self):
         if not self._fit:
@@ -727,6 +876,7 @@ class PTS:
 
 class _OutlierDummyResult:
     """Mirror of smooth's outlierdummy return (it reads `.statistic`)."""
+
     def __init__(self, statistic, ids, type_, level):
         self.statistic = np.asarray(statistic, dtype=float)
         self.id = ids
@@ -737,6 +887,7 @@ class _OutlierDummyResult:
 class _PlotAdapter:
     """Duck-typed view of a fitted PTS exposing the attribute names that
     smooth.adam_general.core.plotting.plot_adam reads."""
+
     def __init__(self, m):
         self._m = m
         self.fitted = np.asarray(m._fitted, dtype=float)
@@ -748,16 +899,18 @@ class _PlotAdapter:
         self.distribution_ = "dnorm"
         self.model_name = m._model_label
         self.is_combined = False
-        self.holdout_data = (np.asarray(m._held, dtype=float)
-                             if m._held is not None else None)
+        self.holdout_data = np.asarray(m._held, dtype=float) if m._held is not None else None
         self._config = {}
         # states (n_states x T+1): the structural state columns of comp
         # (Level / Slope / Seasonal), excluding Error / Fit / Irregular.
         comp, names = m._comp, m._comp_names
-        struct = [i for i, n in enumerate(names)
-                  if n not in ("Error", "Fit", "Irregular")
-                  and not _is_outlier(n)
-                  and not n.startswith(("AR(", "MA(", "SAR(", "SMA(", "Beta"))]
+        struct = [
+            i
+            for i, n in enumerate(names)
+            if n not in ("Error", "Fit", "Irregular")
+            and not _is_outlier(n)
+            and not n.startswith(("AR(", "MA(", "SAR(", "SMA(", "Beta"))
+        ]
         S = comp[:, struct].T if struct else np.zeros((1, comp.shape[0]))
         self.states = np.hstack([S[:, :1], S])
         self._components = {
@@ -774,12 +927,12 @@ class _PlotAdapter:
 
     def outlierdummy(self, level=0.999, type="rstandard"):
         d = self._m.outlierdummy(level=level, type=type)
-        return _OutlierDummyResult(d["statistic"], d["id"], d["type"],
-                                   d["level"])
+        return _OutlierDummyResult(d["statistic"], d["id"], d["type"], d["level"])
 
 
 def _is_outlier(name: str) -> bool:
     import re
+
     return bool(re.match(r"^(AO|LS|SC)[0-9]+$", name))
 
 
@@ -815,8 +968,8 @@ def _build_comp(raw, names, v):
     vv = np.asarray(v, dtype=float)
     if vv.size < T:  # pad (engine v is in-sample length; comp may include h)
         vv = np.concatenate([vv, np.full(T - vv.size, np.nan)])
-    comp[:, 0] = vv[:T]               # Error
-    comp[:, 2:] = raw[:, ind0]        # structural columns
+    comp[:, 0] = vv[:T]  # Error
+    comp[:, 2:] = raw[:, ind0]  # structural columns
     comp[:, 1] = comp[:, 2:].sum(axis=1)  # Fit = rowSum(structural)
     col_names = ["Error", "Fit"] + [names[i] for i in ind0]
     return comp, col_names

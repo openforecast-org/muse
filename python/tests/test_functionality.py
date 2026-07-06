@@ -4,6 +4,7 @@ These check that the package *works* (shapes, finiteness, orderings,
 round-trips) without comparing against R -- so they run in CI with no R
 dependency and no reference dumps.  The R<->Python numeric parity lives in
 the separate test_*_parity.py scripts (not run in CI)."""
+
 import importlib.util
 
 import numpy as np
@@ -31,8 +32,7 @@ def _series(n=120, seed=0):
 
 Y = _series()
 
-SPECS = ["1NN", "1LN", "1LT", "1DT", "1GT", "1ND", "0LT", "0.5LT", "2LT",
-         "1ZN", "1ZZ"]
+SPECS = ["1NN", "1LN", "1LT", "1DT", "1GT", "1ND", "0LT", "0.5LT", "2LT", "1ZN", "1ZZ"]
 
 
 @pytest.mark.parametrize("spec", SPECS)
@@ -68,9 +68,9 @@ def test_prediction_intervals_ordered_and_nested():
     lo, up, mean = np.asarray(fc.lower), np.asarray(fc.upper), np.asarray(fc.mean)
     assert np.all(lo[:, 0] <= mean + 1e-6)
     assert np.all(up[:, 0] >= mean - 1e-6)
-    assert np.all(lo[:, 1] <= lo[:, 0] + 1e-6)   # 95% wider than 80%
+    assert np.all(lo[:, 1] <= lo[:, 0] + 1e-6)  # 95% wider than 80%
     assert np.all(up[:, 1] >= up[:, 0] - 1e-6)
-    assert np.all(lo >= -1e-6)                   # positive series, lambda>=0
+    assert np.all(lo >= -1e-6)  # positive series, lambda>=0
 
 
 def test_confidence_narrower_than_prediction():
@@ -98,8 +98,7 @@ def test_arma_orders_reported(ar, ma):
     assert np.all(np.isfinite(np.asarray(m.residuals)))
 
 
-@pytest.mark.parametrize("ar,ma", [([1, 1], [0, 0]), ([0, 0], [1, 1]),
-                                    ([1, 0], [0, 1])])
+@pytest.mark.parametrize("ar,ma", [([1, 1], [0, 0]), ([0, 0], [1, 1]), ([1, 0], [0, 1])])
 def test_sarma_orders(ar, ma):
     # seasonal lag comes from the top-level `lags`, not from `orders`
     m = PTS(model="1LT", lags=LAGS, orders={"ar": ar, "ma": ma}).fit(Y)
@@ -112,13 +111,11 @@ def test_sarma_orders(ar, ma):
 
 def test_lags_not_allowed_in_orders():
     with pytest.raises(ValueError):
-        PTS(model="1LT", lags=LAGS,
-            orders={"ar": 1, "ma": 0, "lags": [1, 12]}).fit(Y)
+        PTS(model="1LT", lags=LAGS, orders={"ar": 1, "ma": 0, "lags": [1, 12]}).fit(Y)
 
 
 def test_orders_select_within_caps():
-    m = PTS(model="1LT", lags=LAGS, ic="AICc",
-            orders={"ar": 2, "ma": 2, "select": True}).fit(Y)
+    m = PTS(model="1LT", lags=LAGS, ic="AICc", orders={"ar": 2, "ma": 2, "select": True}).fit(Y)
     assert m.orders["ar"] <= 2 and m.orders["ma"] <= 2
     assert m.orders["select"] is True
 
@@ -185,7 +182,7 @@ def test_pandas_series_input_infers_lags():
     pd = pytest.importorskip("pandas")
     idx = pd.date_range("2000-01-01", periods=len(Y), freq="MS")
     s = pd.Series(Y, index=idx)
-    m = PTS(model="1ZZ", h=12, holdout=True).fit(s)   # no lags passed
+    m = PTS(model="1ZZ", h=12, holdout=True).fit(s)  # no lags passed
     assert m._lags == 12
     assert isinstance(m.fitted, pd.Series)
     assert isinstance(m.actuals, pd.Series)
@@ -205,15 +202,14 @@ def test_invalid_inputs_raise():
 def test_auto_lambda_screen(spec):
     """Power 'Z' triggers the decomposition+Guerrero screen (needs smooth)."""
     m = PTS(model=spec, lags=LAGS, h=6, holdout=True).fit(Y)
-    assert 0.0 <= m.lambda_ <= 2.0          # screen clips lambda to [0, 2]
+    assert 0.0 <= m.lambda_ <= 2.0  # screen clips lambda to [0, 2]
     assert np.isfinite(m.log_lik)
     assert np.all(np.isfinite(np.asarray(m.predict(6, interval="none").mean)))
 
 
 @needs_smooth
 def test_auto_lambda_plus_select():
-    m = PTS(model="ZZZ", lags=LAGS, ic="AICc",
-            orders={"ar": 2, "ma": 2, "select": True}).fit(Y)
+    m = PTS(model="ZZZ", lags=LAGS, ic="AICc", orders={"ar": 2, "ma": 2, "select": True}).fit(Y)
     assert 0.0 <= m.lambda_ <= 2.0
     assert m.orders["ar"] <= 2 and m.orders["ma"] <= 2
 
@@ -223,19 +219,19 @@ def test_lambda_screen_handles_missing_values():
     """Missing values must not collapse the auto-lambda screen to 1.0 --
     msdecompose imputes the gaps and the block stats are nan-aware."""
     from muse.core.lambda_screen import guerrero_decomp_lambda
+
     rng = np.random.default_rng(3)
     t = np.arange(120)
     # multiplicative series -> screen picks lambda well below 1
     mult = np.maximum(
-        1.0, (40 + t) * (1 + 0.3 * np.sin(2 * np.pi * t / LAGS))
-        * (1 + rng.normal(0, 0.05, 120))
+        1.0, (40 + t) * (1 + 0.3 * np.sin(2 * np.pi * t / LAGS)) * (1 + rng.normal(0, 0.05, 120))
     )
     lam_clean = guerrero_decomp_lambda(mult, LAGS)
     yn = mult.copy()
     yn[40:43] = np.nan
     lam_na = guerrero_decomp_lambda(yn, LAGS)
-    assert lam_clean < 0.95            # screen is meaningful (not ~1)
-    assert lam_na != 1.0               # gaps did not force the bail-out
+    assert lam_clean < 0.95  # screen is meaningful (not ~1)
+    assert lam_na != 1.0  # gaps did not force the bail-out
     assert abs(lam_na - lam_clean) < 0.05
 
 
@@ -251,8 +247,7 @@ def test_biasadj_toggles_median_vs_mean():
     assert np.all(f1 >= f0 - 1e-8)
     assert f1.max() > f0.max()
     # predict() can override the stored biasadj.
-    fo = np.asarray(m0.predict(12, interval="none", biasadj=True).mean,
-                    dtype=float)
+    fo = np.asarray(m0.predict(12, interval="none", biasadj=True).mean, dtype=float)
     assert np.allclose(fo, f1, atol=1e-8)
     # Default is False (median).
     assert PTS(model="0NT", lags=LAGS).biasadj is False
@@ -279,9 +274,8 @@ def test_likelihood_lambda_no_explosion_on_zeros():
     rng = np.random.default_rng(1)
     seas = np.array([0, 0, 1, 5, 20, 60, 90, 60, 20, 5, 1, 0], dtype=float)
     y = np.maximum(0, np.round(np.tile(seas, 6) * (1 + 0.1 * rng.normal(size=72))))
-    m = PTS(model="ZND", lags=LAGS, h=12, holdout=True,
-            lambda_estim="likelihood").fit(y)
+    m = PTS(model="ZND", lags=LAGS, h=12, holdout=True, lambda_estim="likelihood").fit(y)
     f = np.asarray(m.predict(12, interval="none").mean, dtype=float)
     assert np.all(np.isfinite(f))
-    assert f.max() < 50 * y.max()       # not exploded
-    assert np.all(f >= 0)               # non-negative (lambda > 0)
+    assert f.max() < 50 * y.max()  # not exploded
+    assert np.all(f >= 0)  # non-negative (lambda > 0)
