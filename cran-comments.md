@@ -1,13 +1,22 @@
 ---
 title: "Cran Comments"
 author: "Ivan Svetunkov"
-date: "22 June 2026"
+date: "26 June 2026"
 output: html_document
 ---
 
 ## Update
 
-The title is updated as asked.
+This update addresses the two issues flagged in the previous CRAN review:
+
+* **Missing `\value`** -- the documentation for the exported S3 methods
+  (`man/pts-methods.Rd`) now includes a `\value` section describing what each
+  method returns.
+
+* **Modifying the global environment** -- the simulation code no longer leaves
+  the user's `.Random.seed` altered.  When a `seed` is supplied, the previous
+  value of `.Random.seed` is saved and restored on exit, so `.GlobalEnv` is
+  left unchanged.
 
 ## Submission
 

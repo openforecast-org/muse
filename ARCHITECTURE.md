@@ -4,7 +4,14 @@
 
 `muse` has one user-facing function — `pts()` in `R/pts.R` — and one C++ entry point — `UCompC()` in `src/musecpp2R.cpp`.  Every task (estimation, selection, forecasting, simulation, diagnostics) is driven by calling `UCompC()` with a different `command` string (`"all"`, `"forecastOnly"`, `"simulate"`, …).  `pts()` delegates immediately to `.pts_fit()` (`R/pts-internals.R`), which translates the user's 3-letter model string to a UC string via `pts_to_uc()` (`R/pts-translate.R`), marshals arguments into a flat list, and calls `UCompC()`.  The C++ side (`src/musecore.h` → `src/PTSmodel.h` → `src/SSpace.h`) runs the Kalman filter, quasi-Newton optimiser, and component extractor, then returns a named list which `.pts_fit()` post-processes into the `pts` object that `pts()` returns.  All in-sample residuals, fitted values in `$comp`, and innovations live on the **Box-Cox scale**; only `$fitted`, `$forecast`, and accuracy comparisons are back-transformed to the original scale via `.inv_box_cox()`.  One or more variance parameters may be **concentrated out** analytically (not via the optimiser); these appear in `$B` but have `NaN` rows/columns in `$vcov` — `$nParam` still counts them correctly for information criteria.
 
-**Box-Cox λ is chosen on the R side before the engine runs.**  When `model`'s power position is `Z`, `pts()` picks λ via a fast variance-stabilisation screen — classical decomposition (`smooth::msdecompose`, `smoother = "ma"`) followed by Guerrero coefficient-of-variation minimisation over the clipped range `[0, 2]` (`.pts_guerrero_decomp_lambda` in `R/pts-internals.R`) — then rewrites the spec with that numeric λ.  The engine therefore receives a fixed λ in the normal flow; its internal joint-λ BFGS and anchor-snap path (`{−2,−1,−0.5,0,0.5,1,2}`) survive only as a fallback for series too short to screen (`length(y) < 4`).  λ counts as one degree of freedom whenever the screen ran (`lambdaWasScreened`) or the engine estimated it (`lambdaEstimated`); `pts()` adds that DoF on the R side.  The default information criterion is **BICc**.
+**Box-Cox λ selection is controlled by `lambda_estim`.**  When `model`'s power position is `Z`, `pts()` chooses λ by one of three methods:
+- `"likelihood"` (default): leave `"Z"` in the spec so the **engine** estimates λ jointly with the structural parameters by maximum likelihood (its joint-λ BFGS + anchor-snap over `{−2,−1,−0.5,0,0.5,1,2}`).  The λ slot is **not** optimised directly: the BFGS carries an unconstrained `θ` and the objective maps `θ → λ = lo + (hi−lo)·logistic(θ)` (`boxcox.h::lambdaFromTheta`, with `hi = LAMBDA_BOUND_UPPER` and `lo = max(LAMBDA_BOUND_LOWER, lambdaLower)`).  This keeps λ smoothly inside its bounds with a gradient that never vanishes at the ends — a hard clamp (the former approach) flattened the objective beyond a bound and trapped the optimiser there, missing genuine interior optima.  The warm-start λ is mapped back to `θ` via `thetaFromLambda`; the reported λ is `lambdaFromTheta(p.back())`.  No R-side screen.
+- `"guerrero"`: the classical Guerrero (1993) variance-stabilisation screen on **raw** season-length blocks (`.pts_guerrero_classic_lambda`).
+- `"decomp-guerrero"`: Guerrero on an `smooth::msdecompose`-smoothed trend (`.pts_guerrero_decomp_lambda`, the former default).
+
+The two screens minimise a coefficient of variation over `[0, 2]` and rewrite the spec with the numeric λ; the likelihood path keeps `"Z"`.  All three share `.pts_guerrero_cv_lambda` (the CV optimiser) and `.pts_lambda_zero_floor`.  **Zero floor:** for a series with zeros, Box-Cox maps `y = 0` to `g(0) = −1/λ`, which at `λ ≤ 0` is `−Inf` and silently drops the observation — making the likelihood/AICc incomparable across λ.  `lambdaLower` is therefore set to `log(2)/log(max(y))` (not the old flat `1e-10`) so the joint-λ search stays in the finite-sample region.  λ counts as one DoF whenever a screen ran (`lambdaWasScreened`) or the engine estimated it (`lambdaEstimated`); folded into `nParamInternal` (see Key invariants).  The default information criterion is **AICc**.
+
+**Point-forecast back-transform (`biasadj`).**  Point forecasts are the back-transformed conditional **median** `g⁻¹(μ)` by default (`biasadj = FALSE`); `biasadj = TRUE` applies the second-order bias correction `.inv_box_cox_mean` for the conditional **mean** (matching `forecast::InvBoxCox(biasadj=TRUE)`).  The mean is not robust under a small-λ Box-Cox (heavy right tail), so the median is the default.  Prediction-interval quantiles are always median-style and never bias-corrected.
 
 S3 dispatch for `plot`, `AIC`, `BIC`, and several greybox generics falls through to the `"smooth"` tail of the class vector — no local implementations are needed for those.
 
@@ -117,7 +124,7 @@ Key slots:
 | `lambda` | double | — | Box-Cox λ (1 = no transform) |
 | `B` | named vec | — | Estimated parameter vector |
 | `vcov` | matrix | — | Parameter covariance (from Hessian) |
-| `nParam` | int | — | DoF count (structural params + λ if estimated) |
+| `nParam` | matrix | — | adam-style 2×5 DoF table (rows `Estimated`/`Provided` × cols `nParamInternal`/`nParamXreg`/`nParamOccurrence`/`nParamScale`/`nParamAll`); `nparam()` reads `[Estimated, nParamAll]`. Initials fold into `nParamInternal` |
 | `fitted` | ts/zoo | original | In-sample fitted values |
 | `residuals` | ts/zoo | BC | Innovations (BC scale, white-noise sequence) |
 | `comp` | matrix | BC | Additive decomposition: Error, Fit, Level, Slope?, Seasonal?, Irregular? |
@@ -224,14 +231,18 @@ pts()                                         R/pts.R
       ├─ .inv_box_cox(fittedBC, lambda) back-transform fitted values
       │
       └─ return list(modelUC, lambda, p, covp, yFor, comp, fitted,
-                     residuals, scale, logLik, lambdaEstimated, IC)
+                     residuals, scale, logLik, lambdaEstimated, nInitial, IC)
 
  pts() assembles the return object:
    states  = .pts_wrap_states(rbind(NA, comp[, structural cols]))
    ordersList = uc_to_arma(modelUC)
    out$B   = res$p
-   out$nParam = length(p) + as.integer(lambdaEstimated || lambdaWasScreened)
-                          + as.integer(grepl("^td/", modelUC))   # G drift slope
+   # adam-style 2x5 table; .pts_nparam_table() folds initials into Internal,
+   # peels one optimised param into Scale, regressors into Xreg.  Total
+   # (Estimated, nParamAll) = length(p) + nInitial + lambdaDoF + nXreg.
+   out$nParam = .pts_nparam_table(nP = length(p), nInitial = res$nInitial,
+                  lambdaDoF = as.integer(lambdaEstimated || lambdaWasScreened),
+                  nXreg = if (is.null(u)) 0L else nrow(u))
 ```
 
 ---
@@ -503,6 +514,24 @@ engine's original relative stiffness (LS = z × 2.5/2.3, SC = z ×
 3.0/2.3).  After detection the engine writes the (type, time) rows into
 `BSMmodel::typeOutliers` (engine codes: 0 = AO, 1 = LS, 2 = SC).
 
+**Auxiliary residuals (`auxFilter`, `smooth == 2`).**  The AO statistic is the
+standardised smoothed *observation* disturbance; LS / SC use the level / slope
+disturbances.  Each component's residual is standardised by its **own empirical
+SD** (per column), NOT via a single matrix `pinv()` across all components — a
+shared `pinv()` tolerance would treat any component whose variance is far below
+the largest (e.g. a near-zero observation variance) as singular and zero it,
+destroying the outlier signal exactly where it matters.  The per-step
+disturbance is left raw (`Q R' r_t`, no division by the smoothed-disturbance
+variance `Veta`, which is singular when an estimated variance collapses).
+
+**Acceptance.**  `estimOutlier` keeps an outlier through backward deletion only
+if its augmented-KF coefficient t-stat clears the `level` z-threshold, and then
+keeps the whole outlier model unless it failed to converge.  It does **not**
+revert on "IC worse than the no-outlier baseline": an over-fit baseline (the
+unbounded variance→0 likelihood singularity on short, flexible models) has an
+artificially good IC that no genuine outlier model can beat, which used to drop
+real, highly-significant outliers.
+
 ### Joint-λ + outlier-injection workaround
 
 The engine's outlier-injection refit path has a parameter-vector
@@ -548,6 +577,23 @@ ratio space before the dummies are injected), so the outlier-dummy
 rows in `coef(m)` get `NA` standard errors.  Information criteria
 (`AIC`, `BIC`, …) count the dummies correctly via `length(B) +
 lambdaEstimated`.
+
+**Covariance estimator (`BSMclass::parCov`, `PTSmodel.h`).**  The parameter
+covariance is built from the observed-information Hessian, evaluated on the
+*absolute* (non-concentrated, `bsmMatricesTrue`) scale at the optimum.  The
+Hessian (`hessLlik`, `SSpace.h`) uses **central second differences** with a
+per-parameter step `eps^(1/4)·max(|p|,1)` (not one-sided forward differences
+with a fixed step — that was biased and cancelled catastrophically in flat
+directions).  If the resulting Hessian submatrix is indefinite or numerically
+singular (`min eig ≤ 1e-8·max eig` — a boundary / weakly-identified variance,
+or an ARMA φ≈θ near-cancellation), `parCov` falls back to the **OPG / BHHH**
+estimator `Σ_t s_t s_tᵀ`, where `s_t = ∂/∂θ [0.5(log F_t + v_t²/F_t) −
+logJac_t]` are per-observation scores (central-differenced from the stored
+`inputs.v`/`inputs.F`).  OPG is PSD by construction, so the returned `vcov` is
+always a valid covariance.  **Caveat:** the augmented (xreg) path concentrates
+its regression coefficients in the augmented filter and stores no
+per-observation innovations, so OPG is unavailable there — augmented models
+keep the (improved) Hessian.
 
 ---
 
@@ -711,9 +757,68 @@ Covariance:   Cov(eta_t, eps_t) = S
 every time the optimiser proposes a new candidate.  Z and T are structurally fixed
 by the model type; only the variance entries of Q (and H) are free parameters.
 
+### Sparsity exploitation (high-lag performance)
+
+T is stored as a dense `arma::mat` but is **~98% zeros by design**: block-diagonal
+2×2 rotation blocks per trig harmonic (`[[c,s],[-s,c]]`), companion sub-diagonals
+for dummy-seasonal / ARMA.  At high seasonal lags (`m ≈ s`, e.g. 336) the dense
+`T·P·Tᵀ` Kalman products are the dominant O(m³) cost.  The hot loops therefore
+build a **local sparse view** `arma::sp_mat Tsp(system.T)` once per pass (the O(m²)
+conversion is negligible) and use it for every per-timestep product, turning
+`T·P·Tᵀ` into O(m²) (`sp_mat · mat → mat`):
+
+- **Forward filter** (`KFprediction`, `llik`/`auxFilter`/`forecast`/`KFinnovations`):
+  sparse-`T` overload; `P` stays dense (it fills in during filtering).  Triple
+  products are split into explicit binary products to stay on the dense-result path.
+- **Analytic gradient** (`gradLlik`): sparse `Tᵀ·Nt·T`, plus a **rank-1** expansion
+  of `Lt = I − K·Z` (`Lt'·Nt·Lt = Nt − w z' − z w' + (k'w) z z'`, `w = Nt·k`),
+  collapsing the O(m³) backward recursion to O(m²).
+
+**Gradient method & optimiser robustness.**  The model-setup logic
+(`PTSmodel.h`, ~`SSmodel::inputs.exact = …`) chooses the gradient method per
+model: the **analytic** disturbance-smoother gradient (`exact = true`) for pure
+structural models, and the **numerical** gradient (`exact = false`) for ARMA
+(AR coefs enter `T`, which the disturbance-smoother formula cannot
+differentiate), damped trend, cycle, and regressor (augmented-KF) models.  The
+analytic gradient must build its baseline `Q`/`H` at the **same point** the
+gradient is evaluated (`gradLlik` calls `userModel(p)` before `sysmatQ`) — the
+smoother accumulants are on the **absolute** scale (`iFt` is divided by
+`innVariance`), so leaving `Q`/`H` on the stale ratio scale makes `dQ` mix units
+and blow up by ~`1/innVariance`.  It also normalises by `nFinite = n − nMiss`
+(the same divisor `llik()` averages over), **not** `n − nMiss − d_t − 1`.
+Validate any change against a central-difference reference (the two must agree to
+~6 digits).  `quasiNewtonBSM` carries a **descent-direction safeguard**: if the
+BFGS inverse-Hessian yields `d` with `d·grad ≥ 0` it resets `iHess = I`
+(steepest descent) so the line search can always make progress instead of
+stalling at a non-stationary point.
+- **State smoother** (`auxFilter` under `inputs.stateOnly`, set by `components()`):
+  the entire backward `Nt` recursion and the O(m³) `P·Nt·P` smoothed-variance update
+  are **skipped** — those outputs (`data.P` → dead `compV`; outlier-mode
+  `rNrOut`/`rOut`/`NOut`) are never surfaced.  Smoothed *states* depend only on the
+  `rt` recursion, so they are unchanged.  The disturbance/outlier-detection path
+  (`smooth == 2/3`, `outliers = "use"`) keeps the full `Nt` recursion.
+
+Sparse-hostile setup ops (`eig_gen` stationarity, `schur`/`dlyap` diffuse init) keep
+a dense `T`; they run once per likelihood eval (~2% of cost), not per timestep.
+All of this is **numerically transparent**: point estimates are bit-identical, and
+`vcov`/`confint` now agree across the dense and sparse paths to floating-point
+tolerance.  (Earlier the finite-difference Hessian diverged by tens of percent on
+ill-conditioned models, because the one-sided forward differences amplified the
+~1e-10 sparse-reordering noise through a near-singular inverse; the central-
+difference + OPG covariance — see `parCov` below — removed that sensitivity.)
+
 ---
 
 ## Key invariants
+
+- **Variance floor.** `bsmMatrices` / `bsmMatricesTrue` clamp the variance
+  log-parameters (`typePar == 0`) so `exp(2*p) >= exp(-23) ≈ 1e-10` before
+  filling `Q`/`H`.  A variance that underflows to *exactly* 0 (a collapsed /
+  near-deterministic component) makes the Kalman innovation variance
+  `F_t = Z P Zᵀ + H` zero, the gain `K = P Zᵀ/F_t` becomes `0/0 = NaN`, and the
+  filtered/terminal state — hence any forecast — is `NaN`/explosive.  The floor
+  is applied only to genuine variance parameters; **structural zeros** (e.g.
+  seasonal/ARMA companion-state rows of `Q`) are set after and stay 0.
 
 - **BC scale vs original scale.** Residuals, innovations, and the `comp` matrix are
   all on the Box-Cox scale.  `fitted`, `forecast$mean`, and holdout comparisons are
@@ -784,13 +889,38 @@ by the model type; only the variance entries of Q (and H) are free parameters.
   snaps to a fixed anchor).  `pts()` adds `as.integer(lambdaEstimated ||
   lambdaWasScreened)`.  A fixed numeric λ in the spec (e.g. `"0.5LT"`) costs no DoF.
 
-- **G/td drift slope DoF.** The deterministic-trend (`G` → `td`) drift slope is
-  concentrated out as a regressor, so `BSMclass::parLabels()` emits no `Slope`
-  entry and it is absent from `length(B)`.  It is nonetheless an estimated DoF, so
-  the count is corrected in three coupled places that must stay in sync: the C++
-  `kFor` lambda in `BSMclass::estim()` (`+ (inputs.Drift ? 1 : 0)`), the R-side
-  selector `k_struct` in `.pts_select_pts_arma()` (`+ (tr == "G")`), and the
-  post-fit `nParam` in `pts()` (`+ grepl("^td/", modelUC)`).
+- **Estimated diffuse initials counted in k; adam-style `nParam` table.** The
+  estimated initial states — level, slope (for `L`/`G`/`D`), cycle, and seasonal
+  — are diffuse / profiled out and so are genuine degrees of freedom; charging
+  for them stops the IC under-penalising flexible seasonal and trend shapes.
+  The initial count is `nInitial = ns(0) + ns(1) + ns(2)` (trend + cycle +
+  seasonal state dimensions); the **stationary ARMA block `ns(3)` is excluded**
+  (its initial is the stationary distribution, not free — the ARMA *coefficients*
+  remain counted via `length(B)`).  Read from the engine's own state dimensions,
+  it is **lags-driven** and correct for multi-seasonal `lags = c(m1, m2, …)`
+  with no hard-coded period sizes; computed once in `runMuseCommand`
+  (`out.nInitial = ns(0)+ns(1)+ns(2)`) and surfaced over both bindings.
+
+  The user-facing `$nParam` is an **adam-style 2×5 matrix** (mirrors
+  `smooth::adam`): rows `Estimated`/`Provided` × columns `nParamInternal`,
+  `nParamXreg`, `nParamOccurrence`, `nParamScale`, `nParamAll`, built by
+  `.pts_nparam_table()` (R) / `_nparam_table()` (Python).  The **initials fold
+  into `nParamInternal`** (there is *no* separate `nInitial` slot); one optimised
+  parameter is peeled into `nParamScale` (the concentrated variance, loss is
+  always `likelihood`); regressors go to `nParamXreg`; `nParamOccurrence` is
+  always 0.  `nparam()` returns the `[Estimated, nParamAll]` cell =
+  `length(B) + nInitial + λDoF + nXreg`.
+
+  The count is added to k in **four coupled places that must stay in sync**: the
+  C++ `kFor` lambda in `BSMclass::estim()` (`+ nInitial + u.n_rows`, which drives
+  *engine model selection*), the post-fit `$nParam` table in `pts()` and
+  `PTS._post_process`, and the R/Python selector `k_struct`
+  (`+ struct$nInitial` / `+ st["n_initial"]`).  `nInitial` **subsumes the old
+  G/td drift term**: the deterministic drift *is* the initial slope, already
+  inside `ns(0) = 2`, so the former `+ (inputs.Drift ? 1 : 0)` / `+ (tr == "G")`
+  / `+ grepl("^td/", modelUC)` corrections were removed.  Note: `coef`, `vcov`,
+  and `confint` cover only the estimated coefficients (those with a covariance
+  row), so `length(coef) == nParam − nInitial − λ`, not `nParam`.
 
 - **MLE σ̂² and BCnorm consistency.**  Both `llik()` and `llikAug()` in
   `src/SSpace.h` use the **MLE divisor** `n_finite` (= total finite observations)

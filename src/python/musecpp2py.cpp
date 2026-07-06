@@ -149,6 +149,7 @@ static py::dict ucomp(std::string command,
     d["p0"]              = vec_to_np(out.p0Return);
     d["parNames"]        = out.parNames;     // std::vector<std::string>
     d["ns"]              = out.ns;
+    d["nInitial"]        = out.nInitial;
     d["criteria"]        = vec_to_np(out.criteria);
 
     if (out.hasValidate) {

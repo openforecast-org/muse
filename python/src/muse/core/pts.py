@@ -22,6 +22,31 @@ from .boxcox import inv_box_cox
 _TREND_OPTIONS = "rw/llt/srw/td"
 _SEASONAL_OPTIONS = "none/linear/equal"
 
+_NPARAM_ROWS = ["Estimated", "Provided"]
+_NPARAM_COLS = ["nParamInternal", "nParamXreg", "nParamOccurrence",
+                "nParamScale", "nParamAll"]
+
+
+def _nparam_table(n_p, n_initial, lam_dof, n_xreg):
+    """adam-style 2 x 5 parameter-count table (mirror of R .pts_nparam_table).
+
+    Rows ["Estimated", "Provided"]; columns ["nParamInternal", "nParamXreg",
+    "nParamOccurrence", "nParamScale", "nParamAll"].  One optimised parameter
+    is the concentrated scale (-> nParamScale); the remaining structural
+    parameters, the diffuse initials, and a free lambda fold into
+    nParamInternal, exactly as smooth::adam does.  PTS has no occurrence model.
+    """
+    import pandas as pd
+
+    m = np.zeros((2, 5), dtype=int)
+    scale = 1 if n_p >= 1 else 0
+    m[0, 0] = max(0, n_p - scale) + n_initial + lam_dof   # nParamInternal
+    m[0, 1] = n_xreg                                      # nParamXreg
+    m[0, 3] = scale                                       # nParamScale
+    m[0, 4] = int(m[0, :4].sum())                         # nParamAll (Estimated)
+    m[1, 4] = int(m[1, :4].sum())                         # nParamAll (Provided)
+    return pd.DataFrame(m, index=_NPARAM_ROWS, columns=_NPARAM_COLS)
+
 
 class PTS:
     def __init__(
@@ -29,9 +54,11 @@ class PTS:
         model: str = "ZZZ",
         lags: int | None = None,
         orders=None,
-        ic: str = "BICc",
+        ic: str = "AICc",
         outliers: str = "ignore",
         level: float = 0.99,
+        lambda_estim: str = "likelihood",
+        biasadj: bool = False,
         h: int = 0,
         holdout: bool = False,
         verbose: bool = False,
@@ -45,6 +72,13 @@ class PTS:
         if outliers not in ("ignore", "use"):
             raise ValueError("outliers must be 'ignore' or 'use'.")
         self.outliers = outliers
+        if lambda_estim not in ("likelihood", "guerrero", "decomp-guerrero"):
+            raise ValueError(
+                "lambda_estim must be 'likelihood', 'guerrero', "
+                "or 'decomp-guerrero'."
+            )
+        self.lambda_estim = lambda_estim
+        self.biasadj = bool(biasadj)
         if not (0 < level < 1):
             raise ValueError("level must be in (0, 1).")
         self.level = float(level)
@@ -95,17 +129,42 @@ class PTS:
             self._u_future = self._u[:, n_tr:]
             self._u = self._u[:, :n_tr]
 
-        # Box-Cox lambda screen for auto-lambda (power == "Z").  Mirrors
-        # pts(): decomposition + Guerrero CV over [0, 2], then rewrite the
-        # spec's power slot with the chosen numeric lambda (rounded to R's
-        # 7-significant-digit string round-trip) and flag the +1 DoF.
+        # Lower bound on lambda for the engine's joint-lambda BFGS (and the
+        # screens): 0 for negatives, the zero floor for zero-containing series
+        # (below it g(0) = -1/lambda is a pathological outlier / dropped at
+        # lambda <= 0, making the likelihood incomparable), else unbounded.
+        from .lambda_screen import lambda_zero_floor
+        if np.any(y < 0):
+            lambda_lower = 0.0
+        elif np.any(y == 0):
+            lambda_lower = lambda_zero_floor(y, 0.0)
+        else:
+            lambda_lower = -math.inf
+        self._lambda_lower = lambda_lower
+
+        # Box-Cox lambda selection for auto-lambda (power == "Z").  Mirrors
+        # pts(): lambda_estim picks the method --
+        #   "likelihood"      -> leave "Z" so the engine estimates lambda by ML
+        #   "guerrero"        -> classical Guerrero CV on raw season blocks
+        #   "decomp-guerrero" -> Guerrero on an msdecompose-smoothed trend
+        # For the screens the power slot is rewritten with the chosen numeric
+        # lambda (rounded to R's 7-sig-digit string round-trip) and the +1 DoF
+        # flagged; for "likelihood" the engine flags lambdaEstimated itself.
         nm = len(self.model)
         power = self.model[: nm - 2].lower()
         lambda_screened = False
         model_str = self.model
-        if power == "z" and len(y) >= 4:
-            from .lambda_screen import guerrero_decomp_lambda
-            best = guerrero_decomp_lambda(y, lags, lower=0.0, upper=2.0)
+        if power == "z" and self.lambda_estim != "likelihood" and len(y) >= 4:
+            lower_screen = max(0.0, lambda_lower if math.isfinite(lambda_lower)
+                               else 0.0)
+            if self.lambda_estim == "guerrero":
+                from .lambda_screen import guerrero_classic_lambda
+                best = guerrero_classic_lambda(y, lags, lower=lower_screen,
+                                               upper=2.0)
+            else:
+                from .lambda_screen import guerrero_decomp_lambda
+                best = guerrero_decomp_lambda(y, lags, lower=lower_screen,
+                                              upper=2.0)
             best = float(f"{best:.7g}")  # match R format(..., digits = 7)
             model_str = _fmt_lambda_str(best) + self.model[nm - 2 :]
             lambda_screened = True
@@ -136,7 +195,8 @@ class PTS:
         arma_tuple, irregular = translate.arma_spec(ar_v, ma_v, arma_lags)
         model_uc, lam = translate.pts_to_uc(model_str, arma_orders=arma_tuple)
         out = self._engine(y, self._u, model_uc, lam, lags, criterion,
-                           irregular, arma_ident=False, outlier=outlier_z)
+                           irregular, arma_ident=False, outlier=outlier_z,
+                           lambda_lower=lambda_lower)
         if out.get("model") == "error":
             raise RuntimeError("muse engine returned an error for this spec.")
 
@@ -185,7 +245,7 @@ class PTS:
         return u
 
     def _engine(self, y, u, model_uc, lam, lags, criterion, irregular,
-                arma_ident, outlier=0.0):
+                arma_ident, outlier=0.0, lambda_lower=-math.inf):
         periods = lags / np.arange(1, max(1, lags // 2) + 1)
         rhos = np.ones_like(periods)
         return _musecore.ucomp(
@@ -193,7 +253,7 @@ class PTS:
             False, criterion, periods, rhos, self.verbose, False,
             np.array([-9999.9]), bool(arma_ident), np.array([-9999.99]),
             float(lags), _TREND_OPTIONS, _SEASONAL_OPTIONS,
-            irregular, 1, 0, -math.inf,
+            irregular, 1, 0, float(lambda_lower),
         )
 
     def _arma_candidate(self):
@@ -259,18 +319,20 @@ class PTS:
         return np.asarray(out["simPaths"], dtype=float)
 
     def predict(self, h, X=None, interval="prediction", level=0.95, side="both",
-                cumulative=False, nsim=10000, seed=0, scenarios=False):
+                cumulative=False, nsim=10000, seed=0, scenarios=False,
+                biasadj=None):
         from .forecaster import forecast
         return forecast(self, h, X=X, interval=interval, level=level, side=side,
                         cumulative=cumulative, nsim=nsim, seed=seed,
-                        scenarios=scenarios)
+                        scenarios=scenarios, biasadj=biasadj)
 
     def update(self, **overrides):
         """Re-fit on the same data with selected spec changes (sklearn-clone
         style).  e.g. m.update(h=24) or m.update(model="1LT")."""
         kw = dict(
             model=self.model, lags=self.lags, orders=self._orders_arg,
-            ic=self.ic, h=self.h, holdout=self.holdout, verbose=self.verbose,
+            ic=self.ic, lambda_estim=self.lambda_estim, biasadj=self.biasadj,
+            h=self.h, holdout=self.holdout, verbose=self.verbose,
         )
         kw.update(overrides)
         return PTS(**kw).fit(self._y_full)
@@ -442,7 +504,9 @@ class PTS:
         """Lightweight no-ARMA fit used by the order selector's Pass 1."""
         model_uc, lam = translate.pts_to_uc(spec, arma_orders=(0, 0))
         out = self._engine(y, self._u, model_uc, lam, lags, criterion,
-                            "arma(0,0)", arma_ident=False)
+                            "arma(0,0)", arma_ident=False,
+                            lambda_lower=getattr(self, "_lambda_lower",
+                                                 -math.inf))
         if out.get("model") == "error":
             return None
         v = np.asarray(out["v"], dtype=float)
@@ -452,6 +516,7 @@ class PTS:
             "n_p": int(np.asarray(out["coef"], dtype=float).size),
             "lambda": float(out["lambda"]),
             "lambdaEstimated": bool(out.get("lambdaEstimated", False)),
+            "n_initial": int(out.get("nInitial", 0)),
         }
 
     # ---- post-processing (mirror .pts_fit + pts()) ----------------------
@@ -492,11 +557,31 @@ class PTS:
             math.sqrt(float(np.sum(res ** 2)) / ns) if ns > 0 else float("nan")
         )
 
-        # nParam = len(p) + (lambda estimated|screened) + (G/td drift slope)
+        # nParam: an adam-style breakdown table (mirror of smooth::adam and of
+        # the R pts() $nParam).  A 2 x 5 DataFrame, rows ["Estimated",
+        # "Provided"], columns ["nParamInternal", "nParamXreg",
+        # "nParamOccurrence", "nParamScale", "nParamAll"].  n_param returns the
+        # [Estimated, nParamAll] total, so the IC degrees of freedom is
+        # unchanged from a plain scalar -- only the presentation is richer.
+        #
+        # Estimated initials n_initial = ns(0)+ns(1)+ns(2) (level/slope + cycle
+        # + seasonal) come from the engine (lags-driven, multi-seasonal-correct,
+        # stationary ARMA states excluded) and are folded into nParamInternal,
+        # exactly as adam does.  They already include the G/td drift (= initial
+        # slope), so no separate td term.  The single concentrated variance is
+        # nParamScale; regressors are nParamXreg; PTS has no occurrence model.
+        # The engine adds the same quantities to its own selection k (kFor in
+        # BSMclass::estim), so selection and reporting agree.
         lam_dof = 1 if (bool(out.get("lambdaEstimated", False))
                         or lambda_screened) else 0
-        td_dof = 1 if self._model_uc.startswith("td/") else 0
-        self._nparam = int(self._p.size) + lam_dof + td_dof
+        n_initial = int(out.get("nInitial", 0))
+        # Real regressor count: the engine treats the (1, 2) all-zero dummy as
+        # "no xreg" (resizes it away), so mirror that rule here.
+        u = self._u
+        n_xreg = 0 if (u is None or tuple(u.shape) == (1, 2)) else int(u.shape[0])
+        self._nparam_table = _nparam_table(
+            int(self._p.size), n_initial, lam_dof, n_xreg)
+        self._nparam = int(self._nparam_table.loc["Estimated", "nParamAll"])
 
         self._vcov = np.asarray(out["covp"], dtype=float) if "covp" in out else None
 
@@ -562,7 +647,13 @@ class PTS:
 
     @property
     def n_param(self):
+        """Total estimated degrees of freedom ([Estimated, nParamAll])."""
         return self._nparam
+
+    @property
+    def n_param_table(self):
+        """adam-style 2 x 5 breakdown of the parameter count (DataFrame)."""
+        return self._nparam_table
 
     @property
     def log_lik(self):

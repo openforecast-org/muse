@@ -71,7 +71,8 @@ def select_pts_arma(
     """Pass 1 (structural shapes) + Pass 2 (cascaded ARMA on the winner).
 
     `fit_structural(model_spec)` must return a dict with keys
-    logLik, residuals, n_p (len of coef), lambda, lambdaEstimated.
+    logLik, residuals, n_p (len of coef), lambda, lambdaEstimated,
+    n_initial (engine ns(0)+ns(1)+ns(2)).
     Returns a dict: model_spec, lambda, trend, seasonal, ar, ma, lags.
     """
     n = len(model_template)
@@ -96,7 +97,10 @@ def select_pts_arma(
                 continue
             if st is None:
                 continue
-            k = st["n_p"] + int(bool(st["lambdaEstimated"])) + int(tr == "G")
+            # k = optimised params + lambda + estimated diffuse structural
+            # initials (engine ns(0)+ns(1)+ns(2)).  n_initial already includes
+            # the G/td drift (= initial slope), so no separate "tr == 'G'".
+            k = st["n_p"] + int(bool(st["lambdaEstimated"])) + st["n_initial"]
             sic = _ic_from_ll(st["logLik"], k, n_obs, ic)
             if not math.isfinite(sic):
                 continue

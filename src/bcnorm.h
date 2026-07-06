@@ -59,6 +59,16 @@ inline double bcnormLogJac(double y, double lambda){
 }
 
 // -----------------------------------------------------------------------
+// Vectorised log Jacobian: element-wise bcnormLogJac over a vector of y.
+// -----------------------------------------------------------------------
+inline arma::vec bcnormLogJac(const arma::vec& y, double lambda){
+    arma::vec out(y.n_elem);
+    for (arma::uword i = 0; i < y.n_elem; ++i)
+        out(i) = bcnormLogJac(y(i), lambda);
+    return out;
+}
+
+// -----------------------------------------------------------------------
 // Log BCnorm density for one observation.
 //
 //   y_raw   original (pre-BoxCox) observation
@@ -75,8 +85,19 @@ inline double bcnormLogDensityScalar(double y_raw, double mu,
     // <cmath> unless _USE_MATH_DEFINES is set before the include.
     static const double LN_SQRT_2PI = 0.5 * std::log(2.0 * arma::datum::pi);
 
-    if (y_raw <= 0.0 || !std::isfinite(y_raw) ||
-        !std::isfinite(mu) || sigma <= 0.0)
+    if (!std::isfinite(y_raw) || !std::isfinite(mu) || sigma <= 0.0)
+        return -std::numeric_limits<double>::infinity();
+    // Box-Cox domain.  g(y) = (y^lambda - 1)/lambda is finite for:
+    //   * y > 0          (all lambda),
+    //   * y == 0 with lambda > 0   (g(0) = -1/lambda, e.g. sqrt(0) = 0),
+    //   * any real y at lambda == 1 (identity).
+    // It is UNDEFINED only for y <= 0 with lambda <= 0 (log(0) at lambda 0,
+    // 0^negative -> Inf at lambda < 0).  y < 0 with fractional lambda gives a
+    // complex g, caught by the !isfinite(g) check below.  So reject only the
+    // genuinely-undefined corner here -- in particular do NOT reject y == 0 for
+    // lambda > 0, which is exactly the variance-stabilising case for
+    // intermittent / zero-containing series (sqrt etc.).
+    if (lambda <= 0.0 && y_raw <= 0.0)
         return -std::numeric_limits<double>::infinity();
 
     const double g = bcnormBoxCox(y_raw, lambda);
@@ -89,17 +110,19 @@ inline double bcnormLogDensityScalar(double y_raw, double mu,
 }
 
 // -----------------------------------------------------------------------
-// Vectorised log BCnorm density (kept for external / validation use).
-// q and mu must be the same length; sigma is a scalar.
+// Vectorised log BCnorm density.  q, mu and sigma are element-wise: each
+// observation has its OWN predictive standard deviation sigma(i) (the
+// state-space innovation sd sqrt(innVar * F_t) is heteroscedastic).  This is
+// the form the likelihood needs -- call it once over all observations and sum.
 // -----------------------------------------------------------------------
 inline arma::vec bcnormLogDensity(const arma::vec& q,
                                   const arma::vec& mu,
-                                  double sigma,
+                                  const arma::vec& sigma,
                                   double lambda){
     const arma::uword n = q.n_elem;
     arma::vec out(n);
     for (arma::uword i = 0; i < n; ++i)
-        out(i) = bcnormLogDensityScalar(q(i), mu(i), sigma, lambda);
+        out(i) = bcnormLogDensityScalar(q(i), mu(i), sigma(i), lambda);
     return out;
 }
 

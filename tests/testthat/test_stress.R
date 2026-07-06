@@ -40,8 +40,8 @@ test_that("pts fits across the spec x data grid with coherent invariants", {
             expect_true(all(c("Error", "Fit") %in% colnames(m$comp)), info = info)
             expect_equal(nrow(m$states), n_in + 1L, info = info)
             # nParam coherence: counts at least the free coefficients
-            expect_true(m$nParam >= length(coef(m)) - 1L, info = info)
-            expect_true(m$nParam >= 1L, info = info)
+            expect_true(nparam(m) >= length(coef(m)) - 1L, info = info)
+            expect_true(nparam(m) >= 1L, info = info)
         }
     }
 })
@@ -186,8 +186,10 @@ test_that("auto-lambda screen runs through missing values (not forced to 1)", {
     # imputes the gaps and the block stats use na.rm.
     yc <- AirPassengers
     yn <- yc; yn[41:43] <- NA
-    mc <- pts(yc, model = "ZZZ", h = 0)
-    mn <- pts(yn, model = "ZZZ", h = 0)
+    # Exercise the screen explicitly (it is opt-in now that the default lambda
+    # estimator is the engine's joint likelihood).
+    mc <- pts(yc, model = "ZZZ", h = 0, lambda_estim = "decomp-guerrero")
+    mn <- pts(yn, model = "ZZZ", h = 0, lambda_estim = "decomp-guerrero")
     expect_lt(mn$lambda, 0.5)                          # not collapsed to 1
     expect_lt(abs(mn$lambda - mc$lambda), 1e-3)        # matches the gap-free fit
     # residuals are finite except at the (3) missing observations
