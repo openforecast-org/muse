@@ -1,5 +1,71 @@
 # Internal helpers used by pts() and forecast.pts(). Not exported.
 
+# .pts_lambda_zero_floor: lower bound on the Box-Cox lambda for a series that
+# contains zeros.  Box-Cox maps y = 0 to g(0) = -1/lambda, which -> -Inf as
+# lambda -> 0 (at lambda = 0 exactly, log(0) = -Inf and the observation is
+# silently dropped -- so a likelihood at small lambda is computed on fewer
+# points and is NOT comparable across lambda).  To keep every zero finite and
+# no more extreme (in transformed space) than the transformed maximum we
+# require  |g(0)| <= |g(max)|  <=>  max^lambda >= 2  <=>  lambda >= log(2)/log(max).
+# Returns `base` unchanged when there are no zeros; capped at 1 for small-count
+# series (max <= 2).  This is the single source of truth for the zero floor,
+# shared by the Guerrero screens AND the engine's joint-lambda lower bound.
+.pts_lambda_zero_floor <- function(y, base = 0){
+    fin <- as.numeric(y); fin <- fin[is.finite(fin)]
+    if (!length(fin) || !any(fin == 0)) return(base)
+    mx <- max(fin[fin > 0], na.rm = TRUE)
+    floor <- if (is.finite(mx) && mx > 1) min(1, log(2) / log(mx)) else 1
+    max(base, floor)
+}
+
+# .pts_guerrero_cv_lambda: minimise the Guerrero coefficient-of-variation
+#   CV(lambda) = sd_i( sd_b[i] * mu_b[i]^(lambda-1) ) /
+#               mean_i( sd_b[i] * mu_b[i]^(lambda-1) )
+# over the clipped range [lambda_lower, lambda_upper], given per-block level
+# (mu_b) and dispersion (sd_b) vectors.  Shared by the classical and
+# decomposition Guerrero screens, which differ only in how mu_b / sd_b are
+# formed.  Falls back to 1 on any failure.
+.pts_guerrero_cv_lambda <- function(mu_b, sd_b, lambda_lower, lambda_upper){
+    ok   <- is.finite(mu_b) & is.finite(sd_b) & mu_b > 0 & sd_b > 0
+    mu_b <- mu_b[ok]; sd_b <- sd_b[ok]
+    if (length(mu_b) < 2L) return(1)
+    if (lambda_lower >= lambda_upper) return(lambda_lower)
+    obj <- function(L){
+        r <- sd_b * mu_b^(L - 1)
+        if (any(!is.finite(r))) return(Inf)
+        sd(r) / mean(r)
+    }
+    opt <- tryCatch(stats::optimize(obj, lower = lambda_lower,
+                                    upper = lambda_upper, tol = 1e-4),
+                    error = function(e) NULL)
+    if (is.null(opt) || !is.finite(opt$objective)) return(1)
+    opt$minimum
+}
+
+# .pts_guerrero_classic_lambda: the classical Guerrero (1993) Box-Cox screen.
+# Splits the series into non-overlapping season-length blocks and computes,
+# per block, the RAW mean (level) and RAW sd (dispersion); then minimises the
+# Guerrero CV.  Unlike the decomposition variant it does no trend smoothing --
+# this is the textbook method (e.g. forecast::BoxCox.lambda(method="guerrero")).
+.pts_guerrero_classic_lambda <- function(y, lags,
+                                         lambda_lower = 0,
+                                         lambda_upper = 2){
+    yv  <- as.numeric(y)
+    fin <- yv[is.finite(yv)]
+    if (length(fin) < 4L || any(fin < 0)) return(1)
+    lambda_lower <- .pts_lambda_zero_floor(yv, lambda_lower)
+    m <- as.integer(utils::tail(as.integer(lags), 1L))
+    if (length(m) == 0L || is.na(m) || m < 2L) return(1)
+    n <- length(yv)
+    if (n < 2L * m) return(1)
+    R    <- n %/% m
+    idx  <- rep(seq_len(R), each = m)
+    keep <- seq_len(R * m)
+    mu_b <- as.numeric(tapply(yv[keep], idx, mean, na.rm = TRUE))
+    sd_b <- as.numeric(tapply(yv[keep], idx, sd,   na.rm = TRUE))
+    .pts_guerrero_cv_lambda(mu_b, sd_b, lambda_lower, lambda_upper)
+}
+
 # .pts_guerrero_decomp_lambda: Box-Cox lambda screen via msdecompose +
 # Guerrero CV minimisation.  Used by pts() when the user requests
 # auto-lambda ("Z" in the model spec).  See the long comment in
@@ -12,13 +78,21 @@
                                         lambda_lower = 0,
                                         lambda_upper = 2){
     yv <- as.numeric(y)
-    # Disqualify only on a Box-Cox domain violation (non-positive values).
-    # NA / NaN are missing data, not a domain problem: msdecompose imputes
-    # them and the block statistics below use na.rm, so the screen runs
-    # normally on series with gaps.  (Filter to finite first; `NA <= 0` is
-    # NA, which would error inside `if`.)
+    # Disqualify only on a genuine Box-Cox domain violation: NEGATIVE values
+    # (y^lambda is complex for y < 0 at fractional lambda).  ZEROS are allowed:
+    # for lambda > 0 the transform is finite (sqrt(0) = 0, etc.), and a
+    # variance-stabilising lambda in (0, 1) is exactly what an intermittent /
+    # zero-heavy series wants -- it also makes the inverse transform
+    # non-negative, so forecasts can't go below zero.  The block CV below only
+    # needs positive block-average LEVELS (filtered at `mu_b > 0`), not
+    # positive individual observations.  NA / NaN are missing data, not a
+    # domain problem (msdecompose imputes them; the block stats use na.rm).
     fin <- yv[is.finite(yv)]
-    if (length(fin) < 4L || any(fin <= 0)) return(1)
+    if (length(fin) < 4L || any(fin < 0)) return(1)
+    # Zeros allowed, but keep lambda far enough from 0 that the transformed
+    # zero g(0) = -1/lambda does not become a huge outlier (see
+    # .pts_lambda_zero_floor).
+    lambda_lower <- .pts_lambda_zero_floor(yv, lambda_lower)
     m <- as.integer(utils::tail(as.integer(lags), 1L))
     if (length(m) == 0L || is.na(m) || m < 2L) return(1)
     n <- length(yv)
@@ -34,23 +108,10 @@
     R    <- n %/% m
     idx  <- rep(seq_len(R), each = m)
     keep <- seq_len(R * m)
-    mu_b <- as.numeric(tapply(mu_t[keep],            idx, mean, na.rm = TRUE))
-    sd_b <- as.numeric(tapply((yv - mu_t)[keep],     idx, sd,   na.rm = TRUE))
-    ok   <- is.finite(mu_b) & is.finite(sd_b) & mu_b > 0 & sd_b > 0
-    mu_b <- mu_b[ok]; sd_b <- sd_b[ok]
-    if (length(mu_b) < 2L) return(1)
-
-    if (lambda_lower >= lambda_upper) return(lambda_lower)
-    obj <- function(L){
-        r <- sd_b * mu_b^(L - 1)
-        if (any(!is.finite(r))) return(Inf)
-        sd(r) / mean(r)
-    }
-    opt <- tryCatch(stats::optimize(obj, lower = lambda_lower,
-                                    upper = lambda_upper, tol = 1e-4),
-                    error = function(e) NULL)
-    if (is.null(opt) || !is.finite(opt$objective)) return(1)
-    opt$minimum
+    # Block level = smoothed trend; block dispersion = swing+noise around it.
+    mu_b <- as.numeric(tapply(mu_t[keep],        idx, mean, na.rm = TRUE))
+    sd_b <- as.numeric(tapply((yv - mu_t)[keep], idx, sd,   na.rm = TRUE))
+    .pts_guerrero_cv_lambda(mu_b, sd_b, lambda_lower, lambda_upper)
 }
 
 
@@ -322,6 +383,63 @@
     out
 }
 
+# .inv_box_cox_mean: inverse Box-Cox of a forecast/fitted point, returning the
+# conditional MEAN rather than the median.  Back-transforming the BC-scale point
+# `mu_bc` with .inv_box_cox() gives g^{-1}(mu) = the conditional MEDIAN on the
+# original scale; because g^{-1} is convex for lambda < 1, the conditional MEAN
+# E[g^{-1}(z)] (z ~ N(mu, var) on the BC scale) is higher.  Apply the standard
+# second-order (delta-method) bias correction
+#   E[g^{-1}(z)]  ~=  g^{-1}(mu) * (1 + 0.5 * var * (1 - lambda) / (1 + lambda*mu)^2)
+# matching forecast::InvBoxCox(biasadj = TRUE).  Exact (factor 1) at lambda == 1.
+# `variance_bc` is the BC-scale forecast variance, same length as `mu_bc`.
+# Guards the near-support-boundary case 1 + lambda*mu <= 0 (and any non-finite
+# correction) by falling back to no correction there.
+.inv_box_cox_mean <- function(mu_bc, variance_bc, lambda){
+    med <- .inv_box_cox(mu_bc, lambda)
+    if (lambda == 1 || is.null(med) || length(med) == 0) return(med)
+    mu   <- as.numeric(mu_bc)
+    v    <- as.numeric(variance_bc)
+    base <- 1 + lambda * mu
+    corr <- 1 + 0.5 * v * (1 - lambda) / (base * base)
+    corr[!is.finite(corr) | base <= 0 | corr < 0] <- 1
+    med * corr
+}
+
+# .pts_nparam_table: assemble the adam-style parameter-count matrix stored in
+# pts()'s `$nParam`.  Mirrors smooth::adam's `$nParam`: a 2 x 5 matrix, rows
+# c("Estimated", "Provided"), columns c("nParamInternal", "nParamXreg",
+# "nParamOccurrence", "nParamScale", "nParamAll").  nparam.pts() reads the
+# [Estimated, nParamAll] cell, so the IC degrees of freedom is unchanged from a
+# plain scalar -- only the presentation is richer.
+#
+#   nP        -- length of the optimised parameter vector (all variances incl.
+#                the concentrated scale, ARMA coefs, damping).  Exactly one
+#                entry is the concentrated scale -> nParamScale; the remaining
+#                nP - 1 are structural -> nParamInternal.
+#   nInitial  -- estimated diffuse initials (level/slope + cycle + seasonal),
+#                folded into nParamInternal as adam does.
+#   lambdaDoF -- 1 when the Box-Cox lambda is a free DoF (folds into Internal).
+#   nXreg     -- regressor coefficients -> nParamXreg.
+#
+# PTS has no occurrence model, so nParamOccurrence is always 0; loss is always
+# "likelihood", so nParamScale is 1 whenever there is at least one parameter.
+.pts_nparam_table <- function(nP, nInitial, lambdaDoF, nXreg){
+    nP <- as.integer(nP); nInitial <- as.integer(nInitial)
+    lambdaDoF <- as.integer(lambdaDoF); nXreg <- as.integer(nXreg)
+    m <- matrix(0L, 2L, 5L,
+                dimnames = list(c("Estimated", "Provided"),
+                                c("nParamInternal", "nParamXreg",
+                                  "nParamOccurrence", "nParamScale",
+                                  "nParamAll")))
+    scale <- as.integer(nP >= 1L)                  # the concentrated variance
+    m[1L, "nParamInternal"] <- max(0L, nP - scale) + nInitial + lambdaDoF
+    m[1L, "nParamXreg"]     <- nXreg
+    m[1L, "nParamScale"]    <- scale
+    m[1L, "nParamAll"]      <- sum(m[1L, 1:4])
+    m[2L, "nParamAll"]      <- sum(m[2L, 1:4])
+    m
+}
+
 # .pts_build_comp: take the engine's component matrix and rebuild it in
 # the user-friendly column order  [Error, Fit, Level, Slope?, Seasonal?, ...].
 # Fit becomes the row-sum of the structural components (so users can plot
@@ -343,7 +461,8 @@
 # (now retired) PTSsetup + MSOEsetup + MSOE chain.
 .pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose,
                      ar = 0L, ma = 0L, armaLags = 1L, outlier = 0,
-                     lambdaLower = -Inf, B = NULL, uFuture = NULL){
+                     lambdaLower = -Inf, B = NULL, uFuture = NULL,
+                     biasadj = FALSE){
     # Flatten per-lag ar / ma vectors into the format pts_to_uc consumes:
     #   length-1 lags -> c(p, q)         (non-seasonal arma(p,q))
     #   length-2 lags -> c(p, q, P, Q, s) (sarma(p,q)(P,Q)_s)
@@ -427,7 +546,11 @@
     # BC scale so forecast.pts can compute intervals by endpoint transform.
     yFor_bc <- .pts_wrap_oos(out$yFor,  y)
     yForV   <- .pts_wrap_oos(out$yForV, y)
-    yFor    <- .inv_box_cox(yFor_bc, out$lambda)
+    # Point forecast back-transform.  biasadj = FALSE (default): the conditional
+    # MEDIAN g^{-1}(mu); biasadj = TRUE: the bias-corrected conditional MEAN
+    # (matches forecast.pts()$mean and forecast::InvBoxCox(biasadj = TRUE)).
+    yFor    <- if (isTRUE(biasadj)) .inv_box_cox_mean(yFor_bc, yForV, out$lambda)
+               else                 .inv_box_cox(yFor_bc, out$lambda)
     v       <- .pts_ts_innov   (out$v,     y)
 
     # Component matrix (raw + user-friendly rearrangement).  Components stay
@@ -515,6 +638,10 @@
         table        = out$table,
         logLik       = logLik,
         lambdaEstimated = lambdaEstimated,
+        # Estimated diffuse structural initials (level/slope + cycle + seasonal
+        # states); counted into nParam for the information criteria.  Comes
+        # straight from the engine's state dimensions so it is lags-driven.
+        nInitial     = if (is.null(out$nInitial)) 0L else as.integer(out$nInitial),
         IC           = if (length(crit) >= 4) crit[2:4]       else NA_real_,
         outliersDetected = outliersDetected,
         # Terminal-state cache for decoupled forecasting (NULL if unavailable).

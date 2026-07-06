@@ -24,7 +24,9 @@ extractSigma.pts <- function(object, ...) sigma.pts(object)
 extractScale.pts <- function(object, ...) object$scale
 
 #' @export
-nparam.pts <- function(object, ...) object$nParam
+# $nParam is an adam-style 2 x 5 matrix; the total estimated DoF is the
+# [Estimated, nParamAll] cell -- same convention as smooth::nparam.smooth.
+nparam.pts <- function(object, ...) object$nParam[1L, ncol(object$nParam)]
 
 #' @export
 actuals.pts <- function(object, all = TRUE, ...) object$data

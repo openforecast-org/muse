@@ -830,17 +830,15 @@ void BSMclass::estim(vec p, bool VERBOSE){
         // downstream consumers see an unclamped value (e.g. lambda=0
         // when y has zeros, which then crashes the snap-anchor / trig
         // seasonal init at lambda=0 -> log(0) = -Inf).
+        // p.back() is the unconstrained theta; recover lambda via the same
+        // logistic map the objective uses.  By construction it lies in
+        // (lo, hi) = (max(LAMBDA_BOUND_LOWER, lambdaLower), LAMBDA_BOUND_UPPER),
+        // so no clamp / slot-fixup is needed (the old hard-clamp version had to
+        // bump an out-of-bounds p.back() back up to lambdaLower here).
         double lambdaStar = lambdaWasEstimated
-                            ? std::max(LAMBDA_BOUND_LOWER,
-                                       std::min(LAMBDA_BOUND_UPPER,
-                                                p(p.n_elem - 1)))
+                            ? lambdaFromTheta(p(p.n_elem - 1),
+                                              SSmodel::inputs.lambdaLower)
                             : inputs.lambda;
-        if (lambdaWasEstimated &&
-            std::isfinite(SSmodel::inputs.lambdaLower) &&
-            lambdaStar < SSmodel::inputs.lambdaLower){
-                lambdaStar = SSmodel::inputs.lambdaLower;
-                p(p.n_elem - 1) = lambdaStar;  // keep BFGS slot consistent
-        }
         if (lambdaWasEstimated){
                 inputs.lambda          = lambdaStar;
                 SSmodel::inputs.lambda = lambdaStar;
@@ -886,13 +884,25 @@ void BSMclass::estim(vec p, bool VERBOSE){
                 return ic;
         };
         // k convention: optimised parameters (p.n_elem already counts the
-        // concentrated variance), outlier dummies, plus lambda when free,
-        // plus the deterministic-trend drift slope (G / td) which is
-        // concentrated out as a regressor and absent from pSize.
+        // concentrated variance and the ARMA coefficients), regressors, lambda
+        // when free, plus the estimated diffuse structural initials.
+        //
+        // nInitial = ns(0)+ns(1)+ns(2) -- level/slope + cycle + seasonal
+        // states.  These initial states are estimated (diffuse / profiled out)
+        // and so are genuine degrees of freedom; charging for them stops the
+        // IC under-penalising flexible seasonal / trend shapes.  ARMA states
+        // (ns(3)) are stationary -- their initial is the stationary
+        // distribution, not free -- so they are excluded (the ARMA *coefs*
+        // remain counted via pSize).  This subsumes the old +Drift term: the
+        // G/td deterministic drift IS the initial slope, already inside
+        // ns(0)=2.  Driven by the engine's state dimensions, so multi-seasonal
+        // lags and harmonic counts need no hard-coded sizes.
+        int nInitial = static_cast<int>(inputs.ns(0) + inputs.ns(1)
+                                        + inputs.ns(2));
         auto kFor = [&](uword pSize) -> int {
                 return static_cast<int>(pSize + SSmodel::inputs.u.n_rows
-                                              + (inputs.lambdaEstimated ? 1 : 0)
-                                              + (inputs.Drift ? 1 : 0));
+                                              + (inputs.lambdaEstimated ? 1 : 0))
+                                              + nInitial;
         };
 
         LLIK = computeLLIK(objFunValue);
@@ -1062,6 +1072,19 @@ void BSMclass::estim(vec p, bool VERBOSE){
 // variances or on irregular variances < 1e-6).  The actual user-supplied
 // parameters are then handed to this method.
 void BSMclass::setEstimatedParams(vec userParams){
+        // Incoming AR/SAR coefficients are in the standard (1 - phi B)
+        // convention (the reported convention -- see the output flip in
+        // runMuseCommand).  Convert them back to the engine's internal
+        // (1 + phi B) form (polyStationary negates, armaMatrices builds
+        // T = -col) before building the system matrices.  MA is already
+        // standard (armaMatrices uses R = +col), so it is left untouched.
+        if (inputs.ar > 0){
+                arma::vec ncum = arma::cumsum(inputs.nPar);
+                arma::uword a0 = (arma::uword)ncum(2) + 1;
+                arma::uword a1 = a0 + (arma::uword)inputs.ar - 1;
+                if (a1 < userParams.n_elem)
+                        userParams.rows(a0, a1) *= -1.0;
+        }
         SSmodel::inputs.userModel  = bsmMatricesTrue;
         SSmodel::inputs.cLlik      = false;
         SSmodel::inputs.userInputs = &inputs;
@@ -1768,8 +1791,18 @@ void BSMclass::estimOutlier(vec p0, bool VERBOSE){
                         obj(0) = SSmodel::inputs.criteria(1);
                         best(0) = bestSS.criteria(1);
                 }
-                if ((!obj.is_finite()) || (obj(0) > best(0))){
-                        // Model with outliers did not converge or is worse than initial
+                // Keep the outlier model unless it failed to converge.  The
+                // forward/backward step already retained only outliers whose
+                // augmented-KF coefficient is statistically significant (t >
+                // z-threshold), so the surviving set is justified on its own
+                // terms.  The earlier "IC worse than baseline -> revert" gate is
+                // unreliable: when the structural baseline overfits into the
+                // unbounded variance->0 likelihood singularity (flexible model
+                // on a short series), its IC is artificially good and no genuine
+                // outlier model can beat it, so real, highly-significant
+                // outliers were silently dropped.
+                if (!obj.is_finite()){
+                        // Model with outliers did not converge
                         SSmodel::inputs = bestSS;
                         inputs = bestBSM;
                 }
@@ -1787,7 +1820,12 @@ void BSMclass::estimOutlier(vec p0, bool VERBOSE){
 }
 // Components
 void BSMclass::components(){
+        // components consumes only smoothed states (inputs.a); inputs.P feeds
+        // the dead compV.  Request the fast state smoother (skips the O(m^3)
+        // backward Nt recursion + smoothed-variance work).
+        SSmodel::inputs.stateOnly = true;
         SSmodel::smooth(true);
+        SSmodel::inputs.stateOnly = false;
         int nCycles = sum(inputs.rhos < 0), k = SSmodel::inputs.u.n_rows;
         inputs.comp.set_size(4 + nCycles + k, SSmodel::inputs.yFit.n_rows);
         inputs.comp.fill(datum::nan);
@@ -1980,20 +2018,102 @@ mat BSMclass::parCov(vec& returnP){
         returnP = SSmodel::inputs.p;
         mat hess = hessLlik(&(SSmodel::inputs));
         hess *= 0.5 * (nn.n_elem);   // - SSmodel::inputs.nonStationaryTerms - reserveP.n_elem + 1);
-        SSmodel::inputs.cLlik = reserveCLLIK;
-        SSmodel::inputs.p = reserveP;
-        SSmodel::inputs.userModel = bsmMatrices;
+        // Index set that actually gets inverted: the concentrated-likelihood
+        // path inverts the unconstrained submatrix, the crude path the whole
+        // matrix.  (Mirrors the original cLlik branch.)
         mat iHess(k, k);
         iHess.fill(datum::nan);
         uvec indHess = find(inputs.constPar < 1);
-        if (hess.is_finite()){
-                if (SSmodel::inputs.cLlik){
-                        iHess.submat(indHess, indHess) = pinv(hess.submat(indHess, indHess));
-                } else {
-                        iHess = pinv(hess);
+        uvec ind = reserveCLLIK ? indHess : regspace<uvec>(0, k - 1);
+        if (ind.n_elem > 0){
+                // OPG / BHHH information over the requested parameter indices.
+                // Built from per-observation scores of the (absolute-scale)
+                //   nll_t = 0.5 (log F_t + v_t^2 / F_t) - logJac_t
+                // (cLlik off and bsmMatricesTrue active here), central-
+                // differenced from the stored innovations.  PSD by construction
+                // and -- crucially -- finite even when the second-difference
+                // Hessian is not (single, small perturbations, no inversion of a
+                // near-singular matrix).  Returns an empty matrix if it cannot be
+                // formed (too few usable obs, or non-finite scores).
+                auto tryOPG = [&]()->mat {
+                        uword n = SSmodel::inputs.y.n_rows;
+                        vec p0 = SSmodel::inputs.p;
+                        auto perObsNLL = [&](vec pp)->vec {
+                                llik(pp, &(SSmodel::inputs));
+                                vec vv = SSmodel::inputs.v, FF = SSmodel::inputs.F;
+                                double lam = SSmodel::inputs.lambda;
+                                bool haveRaw = (SSmodel::inputs.y_raw.n_elem == n);
+                                vec c(n); c.fill(datum::nan);
+                                for (uword t = 0; t < n; t++){
+                                        if (!std::isfinite(vv(t)) || !std::isfinite(FF(t)) || FF(t) <= 0)
+                                                continue;
+                                        double val = 0.5 * (std::log(FF(t)) + vv(t) * vv(t) / FF(t));
+                                        if (haveRaw)
+                                                val -= bcnormLogJac(SSmodel::inputs.y_raw(t), lam);
+                                        c(t) = val;
+                                }
+                                return c;
+                        };
+                        mat S(n, ind.n_elem, fill::zeros);
+                        for (uword c = 0; c < ind.n_elem; c++){
+                                uword idx = ind(c);
+                                double hh = std::pow(datum::eps, 1.0 / 3.0)
+                                            * std::max(std::abs(p0(idx)), 1.0);
+                                vec pp = p0; pp(idx) += hh;
+                                vec pm = p0; pm(idx) -= hh;
+                                S.col(c) = (perObsNLL(pp) - perObsNLL(pm)) / (2.0 * hh);
+                        }
+                        SSmodel::inputs.p = p0;
+                        llik(p0, &(SSmodel::inputs));        // restore v/F at the solution
+                        uvec good = find_finite(sum(S, 1));  // drop diffuse/missing obs
+                        if (good.n_elem < ind.n_elem) return mat();
+                        mat Sg = S.rows(good);
+                        mat opg = Sg.t() * Sg;
+                        if (!opg.is_finite()) return mat();
+                        return pinv(opg);
+                };
+                // Prefer the observed-information Hessian when it is finite,
+                // positive definite and not numerically singular.  Otherwise --
+                // indefinite (a boundary / weakly-identified variance), ill-
+                // conditioned, or outright non-finite (a degenerate optimum where
+                // the second differences blow up) -- fall back to OPG.  The
+                // augmented (xreg) path stores no per-obs v/F, so OPG is
+                // unavailable there; it keeps the Hessian (or NaN if non-finite).
+                mat H;
+                bool hessFinite = hess.is_finite();
+                bool hessUsable = false;
+                if (hessFinite){
+                        H = hess.submat(ind, ind);
+                        H = 0.5 * (H + H.t());           // symmetrise
+                        vec eval;
+                        bool eigok = eig_sym(eval, H);
+                        double emax = eval.n_elem ? eval.max() : 0.0;
+                        double emin = eval.n_elem ? eval.min() : 0.0;
+                        const double condTol = 1e-8;     // emin <= condTol*emax covers emin<=0
+                        hessUsable = eigok && (emin > condTol * std::max(emax, 1e-300));
                 }
-                iHess.diag() = abs(iHess.diag());
+                mat covSub;
+                bool haveCov = false;
+                if (hessUsable || SSmodel::inputs.augmented){
+                        if (hessFinite){ covSub = pinv(H); haveCov = true; }
+                } else {
+                        covSub = tryOPG();
+                        if (!covSub.is_empty()){
+                                haveCov = true;
+                        } else if (hessFinite){
+                                covSub = pinv(H);        // last resort
+                                haveCov = true;
+                        }
+                }
+                if (haveCov){
+                        iHess.submat(ind, ind) = covSub;
+                        iHess.diag() = abs(iHess.diag());
+                }
         }
+        // Restore the estimation-scale configuration.
+        SSmodel::inputs.cLlik = reserveCLLIK;
+        SSmodel::inputs.p = reserveP;
+        SSmodel::inputs.userModel = bsmMatrices;
         return iHess;
 }
 // Finding true parameter values out of transformed parameters
@@ -2573,6 +2693,18 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                 // Search direction
                 d = -iHess * gradNew;
                 d(find(inputs.constPar > 0)).fill(0);
+                // Descent-direction safeguard: a BFGS inverse-Hessian that has
+                // lost positive-definiteness (ill-conditioned / non-convex
+                // region) can yield d with d'grad >= 0, i.e. NOT a descent
+                // direction -- the line search then backtracks to its floor
+                // without decreasing and the optimiser stalls at a
+                // non-stationary point.  Reset to steepest descent so progress
+                // is guaranteed whenever the curvature estimate goes bad.
+                if (as_scalar(dot(d, gradNew)) >= 0){
+                        iHess.eye(nx, nx);
+                        d = -gradNew;
+                        d(find(inputs.constPar > 0)).fill(0);
+                }
                 if (counter < 6 && as_scalar(abs(d.t() * gradNew)) > 0.01)
                         diagHess = true;
                 // Line Search
@@ -2597,12 +2729,21 @@ int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
                 if (cLlik){
                         xUncon(isVar) = log(exp(2 * xNew(isVar)) * SSmodel::inputs.innVariance) / 2;
                 }
-                // Checking for zero variances.
-                // Both conditions must be satisfied simultaneously: the variance
-                // must be negligibly small (xUncon < -15, i.e. var < exp(-30) ≈ 9e-14)
-                // AND its gradient must be essentially zero (|grad| < 1e-6).
-                // The old thresholds (-10 / 1e-4) were too loose and prematurely
-                // pinned variances still in motion, producing a worse optimum.
+                // Checking for zero variances.  Pin a variance to zero (mark it
+                // deterministic, constPar = 2) when EITHER:
+                //   (a) it is negligibly small (xUncon < -15, var < exp(-30) ~
+                //       9e-14) AND its gradient is essentially flat (|grad| <
+                //       1e-6) -- a genuine boundary optimum; OR
+                //   (b) it has underflowed to an absurd value (xUncon < -25,
+                //       var < exp(-50) ~ 2e-22) REGARDLESS of the gradient.
+                // Without (b), a collapsing variance whose gradient never quite
+                // reaches the 1e-6 flat threshold keeps drifting to ~1e-117; an
+                // active component at that extreme corrupts the concentrated
+                // log-likelihood (the sum-log-F / diffuse terms blow up, giving
+                // a bogus +logLik while sigma stays sane).  Pinning it makes the
+                // component properly deterministic and keeps the likelihood
+                // well-conditioned.  Healthy variances (xUncon ~ -1..1) are far
+                // from both thresholds and unaffected.
                 zeroVar = find((((xUncon % (inputs.constPar == 0) % (inputs.typePar == 0)) < -15) +
                         ((abs(gradNew) % (inputs.constPar == 0)) % (inputs.typePar == 0) < 0.000001)) == 2);
                 if (zeroVar.n_elem > 0){
@@ -3417,12 +3558,24 @@ void BSMclass::initParBsm(){
                 }
         }
         // Section 9: Lambda parameter (joint estimation).
-        // When SSmodel::inputs.estimateLambda is true, lambda is appended as
-        // the last element of p (typePar=6 keeps it out of the concentrated-
-        // variance machinery; constPar=0 means it is a free parameter).
-        // inputs.lambda holds the warm-start value set by estimUCs or musecore.h.
+        // When SSmodel::inputs.estimateLambda is true, an UNCONSTRAINED theta is
+        // appended as the last element of p (typePar=6 keeps it out of the
+        // concentrated-variance machinery; constPar=0 means it is a free
+        // parameter).  The objective maps theta -> lambda via a logistic
+        // (boxcox.h::lambdaFromTheta), so seed the slot from the warm-start
+        // lambda via the inverse map.  inputs.lambda holds the warm-start value
+        // set by estimUCs or musecore.h.
         if (SSmodel::inputs.estimateLambda){
-                SSmodel::inputs.p0 = join_vert(SSmodel::inputs.p0, vec({inputs.lambda}));
+                double theta0 = thetaFromLambda(inputs.lambda,
+                                                SSmodel::inputs.lambdaLower);
+                // Keep the SEED out of the logistic's saturated tails, where
+                // d lambda/d theta ~ 0: there the (now correct) gradient is also
+                // ~0, so a warm-start landing in saturation (e.g. testBoxCox
+                // returning a bound value) would freeze lambda at that bound.
+                // The clamp is on the START only; the BFGS can still drive theta
+                // to a bound later if the likelihood genuinely wants it.
+                theta0 = std::max(-2.0, std::min(2.0, theta0));
+                SSmodel::inputs.p0 = join_vert(SSmodel::inputs.p0, vec({theta0}));
                 inputs.typePar = join_vert(inputs.typePar, vec({6.0}));
                 inputs.constPar = join_vert(inputs.constPar, vec({0.0}));
         }
@@ -3433,6 +3586,20 @@ void BSMclass::initParBsm(){
  // Variance matrices in standard BSM on top of fixed structure
  void bsmMatrices(vec p, SSmatrix* model, void* userInputs){
          BSMmodel* inp = (BSMmodel*)userInputs;
+         // Floor the variance log-parameters so exp(2*p) cannot underflow to
+         // EXACTLY zero.  A zero disturbance variance collapses the Kalman
+         // innovation variance F_t = Z P Z' + H to 0, so the gain K = P Z'/F_t
+         // becomes 0/0 = NaN and the filtered states -- and any forecast built
+         // from the terminal state -- blow up (observed as 1e12-scale forecasts
+         // when a flexible model's variances are driven to ~0).  typePar == 0
+         // marks the variance log-params; clamp to var >= exp(-23) ~ 1e-10,
+         // numerically "zero" for the model but keeping the filter well-defined.
+         // Structural zeros (companion states) are not touched.
+         if (inp->typePar.n_elem > 0){
+                 uword nv = std::min(inp->typePar.n_elem, p.n_elem);
+                 uvec vpos = find(inp->typePar.head(nv) == 0);
+                 if (vpos.n_elem > 0) p(vpos) = arma::clamp(p(vpos), -11.5, arma::datum::inf);
+         }
          // Lambda is no longer in p; no trailing element to shed.
          vec nsCum = cumsum(inp->ns);
          vec nparCum = cumsum(inp->nPar);
@@ -3551,6 +3718,18 @@ void BSMclass::initParBsm(){
 // Variance matrices in standard BSM on top of fixed structure for true parameters
 void bsmMatricesTrue(vec p, SSmatrix* model, void* userInputs){
         BSMmodel* inp = (BSMmodel*)userInputs;
+        // Floor the variance parameters at a small POSITIVE value.  NOTE: unlike
+        // bsmMatrices (where p holds log-params and Q = exp(2*p)), here p holds
+        // the absolute variances directly (Q(i,i) = p(i)), so the floor must be
+        // a variance, not a log-param.  This both (a) keeps a collapsed variance
+        // from making F_t = Z P Z' + H exactly zero, and (b) guards against a
+        // negative variance leaking in (it can, when the concentrated scale
+        // innVariance is corrupted by a non-PSD filter state upstream).
+        if (inp->typePar.n_elem > 0){
+                uword nv = std::min(inp->typePar.n_elem, p.n_elem);
+                uvec vpos = find(inp->typePar.head(nv) == 0);
+                if (vpos.n_elem > 0) p(vpos) = arma::clamp(p(vpos), std::exp(2.0 * -11.5), arma::datum::inf);
+        }
         vec nsCum = cumsum(inp->ns);
         vec nparCum = cumsum(inp->nPar);
         // Trend

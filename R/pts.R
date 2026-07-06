@@ -73,10 +73,25 @@
 #' the engine's relative stiffness (LS ~= 1.087*z, SC ~= 1.304*z).
 #' Ignored when \code{outliers = "ignore"}.
 #' @param ic information criterion for automatic model selection; one of
-#' \code{"BICc"} (default), \code{"AICc"}, \code{"BIC"}, \code{"AIC"}.
-#' Matches the adam option set.  BICc is the default because its stiffer
-#' complexity penalty guards against runaway-trend candidates whose
-#' likelihood beats simpler shapes by only a couple of units.
+#' \code{"AICc"} (default), \code{"BICc"}, \code{"BIC"}, \code{"AIC"}.
+#' Matches the adam option set; AICc is the default, as in \code{adam}.
+#' @param lambda_estim how the Box-Cox power \eqn{\lambda} is chosen when the
+#' power slot of \code{model} is \code{"Z"}; one of:
+#' \itemize{
+#'   \item \code{"likelihood"} (default) -- estimate \eqn{\lambda} jointly with
+#'     the structural parameters by maximum likelihood in the engine.
+#'   \item \code{"guerrero"} -- the classical Guerrero (1993) variance-
+#'     stabilisation screen on raw season-length blocks.
+#'   \item \code{"decomp-guerrero"} -- Guerrero on an \code{msdecompose}-smoothed
+#'     trend (the former default).
+#' }
+#' Ignored when a numeric power is supplied (e.g. \code{"0.5ZZ"}).
+#' @param biasadj logical (default \code{FALSE}).  Point forecasts are the
+#' back-transformed conditional \emph{median} \eqn{g^{-1}(\mu)}.  When
+#' \code{TRUE}, a second-order bias correction is applied so the point forecast
+#' approximates the conditional \emph{mean} (as in
+#' \code{forecast::InvBoxCox(biasadj = TRUE)}).  Prediction-interval quantiles
+#' are unaffected.  Has no effect at \eqn{\lambda = 1}.
 #' @param h forecast horizon. If \code{h > 0} a forecast is computed at fit
 #' time and cached on the object; \code{forecast(object, h)} can later
 #' recompute for a different horizon cheaply.
@@ -99,7 +114,13 @@
 #' \itemize{
 #'   \item Inputs / spec: \code{y, model, modelUC*, lags, lambda*}
 #'   \item Parameters: \code{B} (estimated parameter vector), \code{covp*}
-#'     (parameter covariance), \code{nParam}
+#'     (parameter covariance), \code{nParam} -- an adam-style 2 x 5 matrix
+#'     (rows \code{Estimated} / \code{Provided}; columns
+#'     \code{nParamInternal}, \code{nParamXreg}, \code{nParamOccurrence},
+#'     \code{nParamScale}, \code{nParamAll}).  \code{nparam()} returns the
+#'     \code{[Estimated, nParamAll]} cell.  Estimated structural initials
+#'     (level/slope, cycle, seasonal states) are folded into
+#'     \code{nParamInternal}, exactly as \code{smooth::adam} does
 #'   \item In-sample fit: \code{fitted, residuals, states} plus
 #'     pts-specific \code{comp*} (additive BC-scale decomposition with
 #'     Error/Fit columns)
@@ -137,7 +158,9 @@ pts <- function(data,
                 regressors = c("use"),
                 outliers   = c("ignore", "use", "select"),
                 level      = 0.99,
-                ic         = c("BICc", "AICc", "BIC", "AIC"),
+                ic         = c("AICc", "BICc", "BIC", "AIC"),
+                lambda_estim = c("likelihood", "guerrero", "decomp-guerrero"),
+                biasadj    = FALSE,
                 h          = 0,
                 holdout    = FALSE,
                 verbose    = FALSE,
@@ -146,6 +169,8 @@ pts <- function(data,
     tic <- proc.time()
     regressors <- match.arg(regressors)
     ic         <- match.arg(ic)
+    lambda_estim <- match.arg(lambda_estim)
+    biasadj    <- isTRUE(biasadj)
     outliers   <- match.arg(outliers)
     if (outliers == "select")
         stop("`outliers = 'select'` is not yet supported; use 'use'.",
@@ -189,13 +214,20 @@ pts <- function(data,
     y      <- parsed$y
     u      <- parsed$u
 
-    # Lower bound on lambda for the engine's joint-BFGS:
-    #   * any(y < 0)  -> lambdaLower = 0     (BC undefined for negatives)
-    #   * any(y == 0) -> lambdaLower = 1e-10 (BC at lambda <= 0 is +/-Inf)
-    # Otherwise unbounded.  The bound is enforced inside `llik()` in the
-    # C++ engine; no R-side rewrites of the model spec.
+    # Lower bound on lambda for the engine's joint-BFGS (and the Guerrero
+    # screens).  Enforced inside the C++ joint-lambda optimiser; no R-side
+    # rewrites of the model spec.
+    #   * any(y < 0)  -> 0   : Box-Cox is undefined for negatives.
+    #   * any(y == 0) -> the zero floor log(2)/log(max(y)): below it the zero
+    #     g(0) = -1/lambda becomes a pathological outlier, and at lambda <= 0 it
+    #     is -Inf and silently dropped -- which makes the likelihood (and so the
+    #     AICc used for joint-lambda estimation) incomparable across lambda.
+    #     A flat 1e-10 floor (the old value) did NOT prevent this; the proper
+    #     zero floor does, so likelihood-based lambda selection stays in the
+    #     finite-sample region and finds the true optimum.
+    #   * otherwise -> unbounded.
     lambdaLower <- if (any(y < 0, na.rm = TRUE)) 0
-                   else if (any(y == 0, na.rm = TRUE)) 1e-10
+                   else if (any(y == 0, na.rm = TRUE)) .pts_lambda_zero_floor(y, 0)
                    else -Inf
     # Negative-y safety: Box-Cox throws for any lambda != 1 when y has
     # negatives, so warn the user and pin the spec to lambda = 1 by
@@ -272,17 +304,33 @@ pts <- function(data,
     #   * m < 2 (no seasonal structure to decompose by).
     #   * msdecompose fails or every block has sd_b = 0.
     #
-    # The "Z" lambda slot is rewritten with the resulting numeric value,
-    # so the downstream structural ident runs at fixed lambda (no joint
-    # BFGS for lambda).  nParam is incremented by one when the screen
-    # runs since lambda was estimated from data.
+    # Box-Cox lambda selection (only when the power slot is "Z").  `lambda_estim`
+    # picks the method:
+    #   * "likelihood" (default): leave "Z" in the spec so the engine estimates
+    #     lambda JOINTLY with the structural parameters by maximising the
+    #     concentrated likelihood (its joint-lambda BFGS + anchor snap), bounded
+    #     below by `lambdaLower`.  No R-side screen.
+    #   * "guerrero": the classical Guerrero (1993) variance-stabilisation screen
+    #     on raw season-length blocks.
+    #   * "decomp-guerrero": Guerrero on an msdecompose-smoothed trend (the
+    #     former default).
+    # For the two screens the "Z" slot is rewritten with the chosen numeric
+    # lambda, so the structural ident then runs at fixed lambda.  Either way
+    # lambda costs one DoF (lambdaWasScreened here, or lambdaEstimated from the
+    # engine for the likelihood path).
     lambdaWasScreened <- FALSE
     nm <- nchar(model)
-    if (toupper(substr(model, 1L, nm - 2L)) == "Z" && length(y) >= 4){
-        bestLambda <- .pts_guerrero_decomp_lambda(y, lags = lags,
-                                                  lambda_lower = max(0,
-                                                                     if (is.finite(lambdaLower)) lambdaLower else 0),
-                                                  lambda_upper = 2)
+    if (toupper(substr(model, 1L, nm - 2L)) == "Z" &&
+        lambda_estim != "likelihood" && length(y) >= 4){
+        lowerScreen <- max(0, if (is.finite(lambdaLower)) lambdaLower else 0)
+        bestLambda <- if (lambda_estim == "guerrero")
+            .pts_guerrero_classic_lambda(y, lags = lags,
+                                         lambda_lower = lowerScreen,
+                                         lambda_upper = 2)
+        else
+            .pts_guerrero_decomp_lambda(y, lags = lags,
+                                        lambda_lower = lowerScreen,
+                                        lambda_upper = 2)
         model <- paste0(format(bestLambda, scientific = FALSE,
                                drop0trailing = TRUE),
                         substr(model, nm - 1L, nm))
@@ -309,7 +357,8 @@ pts <- function(data,
                                     arma_lags = ordersUC$lags,
                                     ic        = ic,
                                     criterion = criterion,
-                                    verbose   = verbose)
+                                    verbose   = verbose,
+                                    lambdaLower = lambdaLower)
         # Lock the structural spec down (lambda + trend + seasonal letters)
         # so the final fit doesn't re-ident.
         model <- sel$model_spec
@@ -354,6 +403,7 @@ pts <- function(data,
                     lambdaLower = lambdaLower,
                     B         = B,
                     uFuture   = u_held,   # future xreg for the auto-forecast
+                    biasadj   = biasadj,
                     verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).
     # When h == 0 we still populate $forecast with a 1-period NA placeholder
@@ -430,21 +480,41 @@ pts <- function(data,
         betaAug    = res$betaAug,
         vcov       = res$covp,          # parameter covariance, computed by the
                                         # C++ "all" command at no extra cost
-        # Count the Box-Cox lambda as one additional DoF when the user
-        # asked the engine to estimate it (model spec started with "Z").
-        # Two paths can produce an estimated lambda: (a) the engine's
-        # joint-BFGS path returning lambdaEstimated = TRUE; (b) the
-        # R-side Brent screen above replacing "Z" with a numeric value
-        # before the structural ident runs.  Either way costs +1 DoF.
-        # Matches greybox::alm at alm.R:2148 for distribution = "dbcnorm".
-        # G (deterministic) trend: drift slope is concentrated out as a
-        # regressor (PTSmodel.h:3246), so parLabels() does not push a
-        # "Slope" entry and length(res$p) misses it.  Still an estimated
-        # DoF -- add it back here.
-        nParam     = length(res$p) +
-                     as.integer(isTRUE(res$lambdaEstimated) ||
-                                lambdaWasScreened) +
-                     as.integer(grepl("^td/", res$modelUC)),
+        # nParam: an adam-style breakdown table (mirrors smooth::adam's
+        # `$nParam`).  A 2 x 5 matrix, rows c("Estimated", "Provided"),
+        # columns c("nParamInternal", "nParamXreg", "nParamOccurrence",
+        # "nParamScale", "nParamAll").  nparam() / logLik() / the ICs read the
+        # [Estimated, nParamAll] cell, so the total degrees of freedom is
+        # unchanged from a scalar count -- only the presentation is richer.
+        #
+        # Column mapping for PTS:
+        #   nParamInternal -- structural parameters: the relative variances
+        #     (all variances except the one concentrated scale), ARMA coefs,
+        #     trend damping, the Box-Cox lambda when free, AND the estimated
+        #     diffuse initials (level/slope + cycle + seasonal states).  As in
+        #     adam, the initials are folded in here, not split out.  The
+        #     initial count res$nInitial = ns(0)+ns(1)+ns(2) is engine-computed
+        #     (lags-driven, correct for multi-seasonal lags; stationary ARMA
+        #     states excluded) and already includes the G/td drift (= initial
+        #     slope), so no separate "^td/" correction is needed.
+        #   nParamXreg     -- regressor coefficients (one per xreg row).
+        #   nParamOccurrence -- always 0 (PTS has no intermittent/occurrence
+        #     model).
+        #   nParamScale    -- 1: the concentrated innovation variance (the
+        #     scale of the dbcnorm likelihood; loss is always "likelihood").
+        #
+        # lambda DoF: counted when the engine estimated it (joint-BFGS,
+        # lambdaEstimated) OR when the R-side Brent screen replaced "Z" with a
+        # numeric value before the structural ident (lambdaWasScreened).  Folds
+        # into nParamInternal.  Matches greybox::alm for distribution =
+        # "dbcnorm".  The engine adds the same quantities to its own selection
+        # k (kFor in BSMclass::estim), so selection and reporting agree.
+        nParam     = .pts_nparam_table(
+                         nP        = length(res$p),
+                         nInitial  = res$nInitial,
+                         lambdaDoF = as.integer(isTRUE(res$lambdaEstimated) ||
+                                                lambdaWasScreened),
+                         nXreg     = if (is.null(u)) 0L else nrow(u)),
         ## --- in-sample ---
         fitted     = res$fitted,        # original scale (back-transformed)
         residuals  = res$residuals,     # BC scale (engine innovations)
@@ -452,6 +522,8 @@ pts <- function(data,
         states     = statesMat,         # adam-aligned structural state evolution
         ## --- forecast convenience cache (NULL when pts is called with h = 0) ---
         forecast     = cachedFor,
+        biasadj      = biasadj,          # point forecast: mean (TRUE) vs median
+        lambda_estim = lambda_estim,     # how lambda was chosen
         ## --- likelihood + diagnostics ---
         logLik       = res$logLik,
         lossValue    = -as.numeric(res$logLik),  # adam: CFValue

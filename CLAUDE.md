@@ -2,6 +2,23 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Testing discipline — there are NO "pre-existing issues"
+
+The maintainer keeps the test suite **pristine green** at all times and tests
+every change.  Therefore: **if a test is failing, you broke it** — do not
+dismiss it as "pre-existing", "unrelated", "flaky", or "a separate deferred
+issue".  Investigate the root cause and fix it before considering the work
+done.  A red test is never acceptable to leave behind.
+
+Before declaring any change complete, run **all** of:
+
+- **R**: `Rscript -e 'devtools::test()'` — must be `FAIL 0`.
+- **Python tests**: `cd python && .venv/bin/python -m pytest tests/ -q` — all pass.
+- **Python lint**: `cd python && .venv/bin/ruff check .` (and `ruff format --check .`).
+- **Python types**: `cd python && .venv/bin/mypy src/` — clean.
+
+If any of these is red, the change is not finished.
+
 ## Package overview
 
 `muse` ("Multiple Unobserved Sources of Error") is an R package implementing the PTS (Power / Trend / Seasonal) state-space model for time-series analysis and forecasting. It depends on `Rcpp`, `RcppArmadillo`, `greybox`, and `smooth`. License: LGPL-2.1.

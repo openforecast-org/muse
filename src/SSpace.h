@@ -68,7 +68,11 @@ struct SSinputs{
         verbose,          // intermediate output verbose on / off
         cleanInnovations = false, // cleaning innovations on/off
         augmented = false, // Augmented KF estimation on / off
-        estimateLambda = false; // true when lambda is last element of p
+        estimateLambda = false, // true when lambda is last element of p
+        stateOnly = false; // fast state smoother: skip the O(m^3) backward Nt
+                           // recursion + smoothed-variance work (data.P/F,
+                           // disturbance, outlier) when only smoothed STATES
+                           // (data.a) are consumed -- e.g. components().
    // Lower bound on Box-Cox lambda during joint-BFGS estimation.  In
    // llik() the value pulled from p.back() is clamped to >= lambdaLower
    // before computing BoxCox(y_raw, lam); the clamp creates a flat
@@ -147,6 +151,7 @@ void KFcorrection(bool, bool, bool, bool, SSinputs*, mat, mat&, vec&,
 void llikCompute(bool, mat, mat, mat, mat, mat&, mat&, mat&);
 // Prediction stage in KF (llik)
 void KFprediction(bool steadyState, bool colapsed, mat& T, mat& RQRt, vec& at, mat& Pt, mat& Pinft);
+void KFprediction(bool steadyState, bool colapsed, const arma::sp_mat& T, mat& RQRt, vec& at, mat& Pt, mat& Pinft);
 // Compute log-likelihood
 double llik(vec&, void*);
 // Compute log-likelihood with eXogenous inputs
@@ -255,6 +260,7 @@ void SSmodel::forecast(){
     // }
     mat P0 = Pt;
     mat Z = inputs.system.Z.row(0);
+    arma::sp_mat Tsp(inputs.system.T);   // sparse view for the h-step recursion
     uword t = inputs.y.n_elem;
     bool TVP = (inputs.system.Z.n_rows > 1);
     if (k > 0 && inputs.system.Z.n_rows == 1){
@@ -274,7 +280,7 @@ void SSmodel::forecast(){
           inputs.yFor.row(i) += inputs.system.D * SSmodel::inputs.u.col(n + i);
       }
       inputs.FFor.row(i) = Z * Pt * Z.t() + CHCt;
-      KFprediction(false, true, inputs.system.T, RQRt, at, Pt, P0);
+      KFprediction(false, true, Tsp, RQRt, at, Pt, P0);
     }
     // if (abs(inputs.innVariance - 1) < 1e-4){
     //   inputs.FFor *= inputs.innVariance;
@@ -513,6 +519,25 @@ void KFprediction(bool steadyState, bool colapsed, mat& T, mat& RQRt, vec& at, m
     Pinft = T * Pinft * T.t();
   }
 }
+// Sparse-T overload (Phase 1 of the sparse-matrix refactor).  T is the
+// transition matrix, which is ~98% zeros at high lags (block-diagonal 2x2
+// rotation blocks / companion sub-diagonals).  With T as a sp_mat, T*Pt and
+// Pt*T.t() are sp*dense / dense*sp -> dense, O(nnz(T)*m) = O(m^2) instead of
+// the dense O(m^3).  Pt/Pinft stay DENSE (they fill in during filtering);
+// triple products are split into explicit binary products to guarantee the
+// dense-result path.  RQRt stays dense in this phase.
+void KFprediction(bool steadyState, bool colapsed, const arma::sp_mat& T, mat& RQRt, vec& at, mat& Pt, mat& Pinft){
+  at = T * at;
+  if (!steadyState){
+    mat TPt = T * Pt;
+    Pt = TPt * T.t();
+    Pt += RQRt;
+  }
+  if (!colapsed){
+    mat TPinf = T * Pinft;
+    Pinft = TPinf * T.t();
+  }
+}
 // Compute log-likelihood
 double llik(vec& p, void* opt_data){
   // Converting void* to SSinputs*
@@ -524,13 +549,12 @@ double llik(vec& p, void* opt_data){
   // Joint-lambda: re-apply BoxCox at the current lambda (p.back()) so
   // the KF always runs on the correctly transformed series.
   if (data->estimateLambda) {
-    double lam = p(p.n_elem - 1);
-    // Clamp lambda to the user-supplied lower bound (default -inf =
-    // no bound).  Required when y has zeros so BoxCox(0, lam<=0) =
-    // +/-Inf doesn't poison the KF.  The unclamped p.back() stays as
-    // the BFGS internal parameter; we just propagate the clamped lam
-    // to data->lambda (read by downstream consumers) and to BoxCox.
-    if (lam < data->lambdaLower) lam = data->lambdaLower;
+    // p.back() is an UNCONSTRAINED theta; map it to lambda in (lo, hi) via a
+    // logistic (boxcox.h::lambdaFromTheta) so the gradient never flattens at
+    // the bounds.  lo respects data->lambdaLower (the zero floor on zero
+    // series); hi = LAMBDA_BOUND_UPPER.  Replaces the old hard clamp, whose
+    // flat region trapped the optimiser at a bound.
+    double lam = lambdaFromTheta(p(p.n_elem - 1), data->lambdaLower);
     data->lambda = lam;
     data->y = BoxCox(data->y_raw, lam);
   }
@@ -564,6 +588,11 @@ double llik(vec& p, void* opt_data){
   v2F.fill(0);
   n = data->y.n_rows;
   data->d_t = n;
+  // Per-observation mask: 1 where llikCompute() takes the v^2/F (non-diffuse)
+  // branch, 0 where it takes the diffuse log|Finf| branch (or the obs is
+  // missing).  Captured here so the central BCnorm likelihood below splits the
+  // observations exactly as llikCompute() did.
+  vec nonDiffuseMask = zeros(n);
   // Kfinit
   KFinit(data->system.T, RQRt, ns, at, Pt, Pinft);
   oldPt.zeros(ns, ns);
@@ -580,6 +609,11 @@ double llik(vec& p, void* opt_data){
   bool TVP = false;
   if (data->system.Z.n_rows > 1)
       TVP = true;
+  // Phase-1 sparse PoC: build a sparse view of the (dense-stored) transition
+  // matrix once per likelihood evaluation; the per-timestep prediction below
+  // then uses the O(m^2) sparse path.  KFinit above keeps the dense T (its
+  // eig_gen/schur stationarity machinery is sparse-hostile).
+  arma::sp_mat Tsp(data->system.T);
   // KF loop
   for (uword t = 0; t < n; t++){
     // Data missing
@@ -598,10 +632,15 @@ double llik(vec& p, void* opt_data){
                  Finft, vt, data->system.D(0, 0), Ft, iFt, at, Pt, Pinft,
                  Kt, t, auxFinf, auxKinf, Z);
     // llik calculation
-    if (!miss && t < n)
+    if (!miss && t < n){
       llikCompute(colapsed, Finft, vt, Ft, iFt, v2F, logF, llikValue);
-    // Prediction
-    KFprediction(steadyState, colapsed, data->system.T, RQRt, at, Pt, Pinft);
+      // Same branch condition as llikCompute(): non-diffuse iff collapsed or
+      // the diffuse innovation variance is already negligible.
+      if (colapsed || Finft(0, 0) < 1e-8)
+        nonDiffuseMask(t) = 1.0;
+    }
+    // Prediction (sparse-T path)
+    KFprediction(steadyState, colapsed, Tsp, RQRt, at, Pt, Pinft);
     // Storing final state and covariance for forecasting
    if (t == n - 1){
      data->PEnd = Pt;
@@ -669,9 +708,43 @@ double llik(vec& p, void* opt_data){
   }
   if (data->cLlik){         // Concentrated Likelihood (MLE)
       data->innVariance = v2F(0, 0) / nFinite;
-      llikValue = log(data->innVariance) + 1
-                  + (llikValue + logF) / nFinite
-                  - 2.0 * data->logJac / nFinite;
+      const double s2 = data->innVariance;
+      // Objective = the BCnorm log-likelihood (the C++ analogue of adam()'s
+      // loss = "likelihood": the concentrated scale s2 is plugged straight into
+      // the per-observation predictive sd).  The reported logLik / IC derive
+      // from this same objFunValue (PTSmodel.h::computeLLIK), so bcnorm is the
+      // single source.
+      const double diffuseTerm = llikValue(0, 0);   // Sum_{diffuse} log Finf
+      const bool haveRaw = (data->y_raw.n_elem == n);
+      vec yr     = haveRaw ? data->y_raw : data->y;
+      double lam = haveRaw ? data->lambda : 1.0;    // !haveRaw => identity
+      uvec finiteIdx = find_finite(data->y);
+      vec maskFin = nonDiffuseMask.elem(finiteIdx);
+      // Non-diffuse observations: full BCnorm data density in ONE vectorised
+      // call, each with its own predictive sd sqrt(s2 * F_t).
+      uvec ndIdx = finiteIdx.elem(find(maskFin > 0.5));
+      double LL = sum(bcnormLogDensity(
+                          yr.elem(ndIdx),
+                          data->y.elem(ndIdx) - data->v.elem(ndIdx),
+                          sqrt(s2 * data->F.elem(ndIdx)), lam));
+      // Diffuse observations are consumed estimating the diffuse initial state:
+      // they carry no data-fit term, only the log|Finf| determinant (==
+      // diffuseTerm) plus their BoxCox Jacobian.  The determinant is NOT scaled
+      // by the concentrated variance s2 -- the exact-diffuse likelihood
+      // convention (Durbin-Koopman): only the n - d_t non-diffuse observations
+      // carry the s2 scale.  The previous form added -0.5*nDiff*log(s2), which
+      // is harmless near s2 ~ 1 but, when the optimiser drives s2 to an extreme
+      // corner (a degenerate trend whose observation variance has collapsed),
+      // injected a large spurious +likelihood -- the +986 "positive logLik" on
+      // strongly seasonal series.
+      uvec dIdx = finiteIdx.elem(find(maskFin < 0.5));
+      if (!dIdx.is_empty()){
+          double nDiff = (double)dIdx.n_elem;
+          LL += sum(bcnormLogJac(yr.elem(dIdx), lam))
+                - 0.5 * nDiff * std::log(2.0 * datum::pi)
+                - 0.5 * diffuseTerm;
+      }
+      llikValue(0, 0) = -2.0 * LL / nFinite - std::log(2.0 * datum::pi);
   } else {                  // Crude Likelihood (forecast-only path)
       llikValue = (llikValue + v2F + logF - 2.0 * data->logJac) / nFinite;
   }
@@ -716,10 +789,17 @@ double llikAug(vec& p, void* opt_data){
       iFt(1),
       viFt(1),
       logF(1),
-      v2F(1),
-      snBeta(1);
+      v2F(1);
   rowvec Vt(k),
          Xt(k);
+  // Per-step cache for a cancellation-free residual sum of squares.  beta_hat
+  // is only known after the full pass, so we store the innovation v_t, the
+  // augmented sensitivity V_t and the weight 1/F_t at every step and form the
+  // GLS residual r_t = v_t - V_t·beta_hat afterwards.  iFtStore is left 0 at
+  // missing / steady-state-skipped steps so they contribute nothing.
+  mat Vstore(k, n, fill::zeros);
+  vec vStore(n, fill::zeros),
+      iFtStore(n, fill::zeros);
   bool miss = false,
        steadyState = false;
   at.fill(0);
@@ -773,6 +853,10 @@ double llikAug(vec& p, void* opt_data){
       Sn += Vt.t() * iFt * Vt;
       v2F += vt * viFt;
       logF += log(Ft);
+      // Cache for the cancellation-free RSS reduction below.
+      vStore(t) = vt(0);
+      iFtStore(t) = iFt(0);
+      Vstore.col(t) = Vt.t();
     }
     // Checking steady state
     if (!steadyState && t > ns){
@@ -813,11 +897,49 @@ double llikAug(vec& p, void* opt_data){
         }
     }
     data->logJac = logJac;
-    snBeta = sn.t() * beta;
-    data->innVariance = (v2F(0, 0) - snBeta(0)) / nFinite;
-    llikValue = log(data->innVariance) + 1
-                + (log(det(Sn)) + logF) / nFinite
-                - 2.0 * logJac / nFinite;
+    // Concentrated variance = residual sum of squares / n.  The textbook form
+    //   RSS = v2F - sn'beta = Sum v_t^2/F_t - sn'Sn^{-1}sn
+    // is the projection identity (total weighted SS minus the part explained by
+    // the augmented states = diffuse initial states + regressors).  It is a sum
+    // of squares, hence >= 0 -- but computing it as that subtraction is the
+    // classic unstable move: at a near-interpolating fit v2F and sn'beta are
+    // huge and nearly equal, so every significant digit cancels and the result can
+    // come out negative, poisoning innVariance, the displayed variances and the
+    // parameter covariance.
+    //
+    // Instead form the residual explicitly: r_t = v_t - V_t·beta_hat, and
+    //   RSS = Sum r_t^2 / F_t,
+    // a sum of non-negative terms.  This is structurally >= 0 in floating point
+    // (no subtraction of large near-equal numbers) so the negative-variance
+    // artifact cannot occur, however degenerate the fit.  (A genuinely
+    // interpolating fit still gives RSS ~ 0; that is the separate degeneracy
+    // handled by the disturbance-variance bound, not a numerical defect here.)
+    vec r = vStore - Vstore.t() * beta;     // GLS residual r_t = v_t - V_t·beta
+    double rss = dot(square(r), iFtStore);  // Sum r_t^2 / F_t (iFtStore==0 at
+                                            // missing / steady-skipped steps)
+    // Guard only against log(0) at an exactly-interpolating fit (RSS == 0); this
+    // is the unavoidable log-domain guard, not a sign fix.
+    double rssFloor = arma::datum::eps * v2F(0, 0);
+    if (rss < rssFloor) rss = rssFloor;
+    data->innVariance = rss / nFinite;
+    // Objective via the BCnorm density (single source, exactly as llik()).  The
+    // GLS residual r_t has predictive sd sqrt(innVar * F_t); summing
+    // bcnormLogDensity over the observations gives the data likelihood, and the
+    // augmented-state determinant -0.5*log|Sn| (the diffuse initial states +
+    // regressors integrated under a flat prior) is the single correction term --
+    // the augmented analogue of llik()'s log|Finf| diffuse correction.  Packed
+    // so LL_BCnorm = -0.5*(nFinite*log(2pi) + nFinite*objFunValue), from which
+    // computeLLIK() derives the reported logLik / IC.
+    const bool haveRaw = (data->y_raw.n_elem == n);
+    vec yr     = haveRaw ? data->y_raw : data->y;
+    double lam = haveRaw ? data->lambda : 1.0;   // !haveRaw => identity
+    vec mu = data->y - r;                         // g(y_t) - r_t
+    vec sd = sqrt(data->innVariance / iFtStore);  // sqrt(innVar * F_t)
+    uvec finiteIdx = find_finite(data->y);
+    double LL = sum(bcnormLogDensity(yr.elem(finiteIdx), mu.elem(finiteIdx),
+                                     sd.elem(finiteIdx), lam))
+                - 0.5 * std::log(det(Sn));
+    llikValue(0, 0) = -2.0 * LL / nFinite - std::log(2.0 * datum::pi);
     data->objFunValue = llikValue(0, 0);
     data->betaAug = beta;
     data->betaAugVarMat = data->innVariance * iSn;
@@ -843,6 +965,28 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
   if (p.has_nan()){
     grad.fill(datum::nan);
     return grad;
+  }
+  // Lambda gradient FIRST, from the CLEAN state left by the preceding
+  // objFun(p) call.  Lambda (theta) affects y via BoxCox, not Q/H, so the
+  // analytic disturbance-smoother formula gives zero -- a numerical step is
+  // needed.  But the smoother pass and the structural-gradient loop below
+  // mutate persistent state that llik() reads (a fresh llik(p) taken AFTER
+  // them differs from objFun(p) by ~1), and the passed-in `llikValue` is not a
+  // reliable f(p) either -- so a difference taken there is garbage (it slammed
+  // theta to a bound and froze lambda).  Here, before anything is perturbed,
+  // llik() is idempotent, so a CENTRAL difference is clean and O(h^2); restore
+  // state to p afterwards for the smoother below.
+  double gradLambda = 0.0;
+  const bool estLambda = data->estimateLambda;
+  if (estLambda){
+    uword li = p.n_elem - 1;
+    double hL = 1e-4 * std::max(1.0, std::abs(p(li)));
+    vec pU = p, pD = p; pU(li) += hL; pD(li) -= hL;
+    double fU = data->llikFUN(pU, opt_data);
+    double fD = data->llikFUN(pD, opt_data);
+    gradLambda = (fU - fD) / (2.0 * hL);
+    data->llikFUN(p, opt_data);   // restore the clean state at p
+    nFuns += 3;
   }
   if (data->exact){  // Analytical derivative
     int ns = data->system.T.n_rows,
@@ -886,6 +1030,9 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     Nt = GammaQ;
     rt.fill(0);
     Inew.eye();
+    // Sparse view of T for the backward recursion (T'*rt, T'*Nt*T).
+    arma::sp_mat Tsp(data->system.T);
+    arma::sp_mat TspT = Tsp.t();
     // Main Loop
     for (int t = n - 1; t >= 0; t--){
       if (t <= data->d_t){
@@ -904,46 +1051,62 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
         D.fill(0);
         nMiss += 1;
       } else if (colapsed || Finft< 1e-8) {
-        e = vt * iFt - Kt.t() * rt;
-        D = 1 * iFt + Kt.t() * Nt * Kt;
-        Lt = Inew - Kt * Z;
-        Z_Ft = Z.t() * iFt(0, 0);
-        rt = Z_Ft * vt + Lt.t() * rt;
-        Nt = Z_Ft * Z + Lt.t() * Nt * Lt;
+        // Lt = I - Kt*Z is identity minus rank-1, so Lt'*Nt*Lt and Lt'*rt
+        // collapse to O(m^2)/O(m) rank updates (no dense triple product):
+        //   Lt'*Nt*Lt = Nt - w z' - z w' + (k'w) z z'   with w = Nt*Kt
+        //   Lt'*rt    = rt - z (Kt'*rt)
+        vec w = Nt * Kt;                       // O(m^2)
+        double kw  = dot(Kt, w);
+        double ktr = dot(Kt, rt);
+        double if0 = iFt(0, 0);
+        vec zc = Z.t();
+        e(0) = if0 * vt(0) - ktr;
+        D(0) = if0 + kw;
+        rt += zc * e(0);                       // = z*(iFt*vt) + (rt - z*Kt'rt)
+        Nt += (if0 + kw) * (zc * zc.t()) - w * zc.t() - zc * w.t();
       } else {
-        e = -Kinft.t() * rt;
-        D = Kinft.t() * Nt * Kinft;
+        vec w = Nt * Kinft;
+        double kr = dot(Kinft, rt);
+        e(0) = -kr;
+        D(0) = dot(Kinft, w);
         if (Finft >= 1e-8){   // Finf not singular
-          Lt = Inew - Kinft * Z;
-          rt = Lt.t() * rt;
-          Nt = Lt.t() * Nt * Lt;
+          vec zc = Z.t();
+          rt -= zc * kr;
+          Nt += D(0) * (zc * zc.t()) - w * zc.t() - zc * w.t();
         }
       }
       GammaD += e * e - D;
       RR = rt * rt.t() - Nt;
       GammaQ += RR;
-      rt = data->system.T.t() * rt;
-      Nt = data->system.T.t() * Nt * data->system.T;
+      rt = TspT * rt;
+      mat NtT = TspT * Nt;   // sp*dense -> dense
+      Nt = NtT * Tsp;        // dense*sp -> dense
     }
-    // Derivatives of RQRt and CHCt
+    // Derivatives of RQRt and CHCt.  The smoother accumulants (Gamma) are in
+    // ABSOLUTE units (iFt was divided by innVariance above), so the baseline
+    // system matrices must also be built at the point p where the gradient is
+    // evaluated -- NOT left at the stale ratio-scale Q/H from the last objFun()
+    // call.  Otherwise dQt = (Qt - sysmatQ)/inc mixes absolute and ratio units
+    // and blows up by ~1/innVariance when the concentrated variance is small.
+    data->userModel(p, &data->system, data->userInputs);
     sysmatQ.submat(0, 0, cQ - 1, cQ - 1) = data->system.Q;
     sysmatQ.submat(cQ, cQ, cQ, cQ) = data->system.H;
     sysmatR.submat(0, 0, ns - 1, cQ - 1) = data->system.R;
     sysmatR.submat(ns, cQ, ns, cQ) = data->system.C;
     Gamma.submat(0, 0, ns - 1, ns - 1) = GammaQ;
     Gamma.submat(ns, ns, ns, ns) = GammaD;
-    int nn = n - nMiss - data->d_t - 1;
+    // Normalise by the same sample size objFun()/llik() averages over
+    // (nFinite = n - nMiss); the old "- d_t - 1" diffuse subtraction made the
+    // gradient ~2-3% too large on seasonal models (large d_t) and broke the
+    // match with the finite-difference reference.
+    int nn = n - nMiss;
     for (int i = 0; i < nPar; i++){
       // Lambda is the last element when jointly estimated.  It affects y
       // via BoxCox, not Q/H, so the analytic disturbance-smoother formula
       // gives zero.  Use a numerical step through the full llik() instead.
       if (data->estimateLambda && i == nPar - 1){
-        p0 = p;
-        p0.row(i) += inc(i);
-        double f1 = data->llikFUN(p0, opt_data);
-        grad.row(i) = (f1 - llikValue) / inc(i);
-        data->userModel(p, &data->system, data->userInputs);  // restore Q/H
-        nFuns += 1;
+        // Computed cleanly at the top of gradLlik (see gradLambda).
+        grad.row(i) = gradLambda;
         continue;
       }
       p0 = p;
@@ -966,50 +1129,61 @@ vec gradLlik(vec& p, void* opt_data, double llikValue, int& nFuns){
     grad = (F1 - llikValue) / inc;
     nFuns += nPar;
   }
+  // Lambda slot: use the clean central difference from the top, not the
+  // llikValue-based forward difference above.
+  if (estLambda) grad(p.n_elem - 1) = gradLambda;
   return grad;
 }
-// Llik hessian (for parameter covariances)
+// Llik hessian (for parameter covariances).
+//
+// Central second differences with a per-parameter, magnitude-scaled step.
+// The previous scheme used ONE-SIDED forward differences with a fixed
+// absolute step (1e-5) for every parameter: truncation error O(h) (biased),
+// and for weakly-identified directions the tiny fixed step caused
+// catastrophic cancellation (rounding floor ~eps*|llik|/h^2 ~ 1e-2 per
+// entry), which on a near-singular Hessian flipped small eigenvalues and
+// produced indefinite, non-reproducible covariances.
+//
+// Central differences are unbiased to O(h^2); the step h_i = eps^(1/4) *
+// max(|p_i|, 1) (~1.22e-4 at unit scale) is the standard near-optimal choice
+// for 3-/4-point second derivatives, balancing truncation against rounding
+// and scaling with the parameter so flat directions are differenced cleanly.
 mat hessLlik(void* optData){
   SSinputs* inputs = (SSinputs*)optData;
   uword nPar = inputs->p.n_elem;
-  vec grad(nPar), p0 = inputs->p, inc(nPar);
-  mat Hess(nPar, nPar);
-  vec grad0 = inputs->grad;
-  inc.fill(1e-5);
-  double llikValue2 = 0, llikValue0;  // = inputs->objFunValue;
-  if (inputs->augmented){
-    llikValue0 = llikAug(p0, inputs);
-  } else {
-    llikValue0 = llik(p0, inputs);
-  }
-  Hess.fill(0);
+  vec p0 = inputs->p;
+  mat Hess(nPar, nPar, fill::zeros);
+  // Per-parameter step, scaled by magnitude (relative for |p|>1, absolute floor 1).
+  const double h0 = std::pow(datum::eps, 0.25);   // ~1.22e-4
+  vec h(nPar);
+  for (uword i = 0; i < nPar; i++)
+    h(i) = h0 * std::max(std::abs(p0(i)), 1.0);
+  // Evaluate the (negative, averaged) log-likelihood at an arbitrary point.
+  auto f = [&](vec pp)->double {
+    return inputs->augmented ? llikAug(pp, inputs) : llik(pp, inputs);
+  };
+  double f0 = f(p0);
+  // Diagonal: [f(p+h) - 2 f(p) + f(p-h)] / h^2
   for (uword i = 0; i < nPar; i++){
-    p0 = inputs->p;
-    p0.row(i) += inc(i);
-    // grad0(i) = inputs->llikFUN(p0, inputs);
-    if (inputs->augmented){
-      grad0(i) = llikAug(p0, inputs);
-    } else {
-      grad0(i) = llik(p0, inputs);
+    vec pp = p0; pp(i) += h(i);
+    vec pm = p0; pm(i) -= h(i);
+    Hess(i, i) = (f(pp) - 2.0 * f0 + f(pm)) / (h(i) * h(i));
+  }
+  // Off-diagonal: [f(++) - f(+-) - f(-+) + f(--)] / (4 h_i h_j)
+  for (uword i = 0; i < nPar; i++){
+    for (uword j = i + 1; j < nPar; j++){
+      vec ppp = p0; ppp(i) += h(i); ppp(j) += h(j);
+      vec ppm = p0; ppm(i) += h(i); ppm(j) -= h(j);
+      vec pmp = p0; pmp(i) -= h(i); pmp(j) += h(j);
+      vec pmm = p0; pmm(i) -= h(i); pmm(j) -= h(j);
+      double val = (f(ppp) - f(ppm) - f(pmp) + f(pmm)) / (4.0 * h(i) * h(j));
+      Hess(i, j) = val;
+      Hess(j, i) = val;
     }
   }
-  for (uword i = 0; i < nPar; i++){
-    for (uword j = i; j < nPar; j++){
-      p0 = inputs->p;
-      p0.row(i) += inc(i);
-      p0.row(j) += inc(j);
-      if (inputs->augmented){
-        llikValue2 = llikAug(p0, inputs);
-      } else {
-        llikValue2 = llik(p0, inputs);
-      }
-      Hess(i, j) = as_scalar((llikValue2 - grad0.row(i) - grad0.row(j) + llikValue0)
-                               / inc(i) / inc(j));
-    }
-  }
-  if (nPar > 1){
-    Hess = Hess + trimatu(Hess, 1).t();
-  }
+  // Leave inputs->v / inputs->F at the solution for downstream consumers
+  // (OPG fallback in parCov reads them).
+  f(p0);
   return Hess;
 }
 // True filter/smooth/disturb function
@@ -1073,6 +1247,7 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   bool TVP = false;
   if (data.system.Z.n_rows > 1)
       TVP = true;
+  arma::sp_mat Tsp(data.system.T);   // sparse view for the forward recursion
   // KF loop
   for (uword t = 0; t < n; t++){
     if (TVP)
@@ -1134,8 +1309,8 @@ void auxFilter(unsigned int smooth, SSinputs& data){
       data.a.col(t) = at;
       data.P.col(t) = Pt.diag();
     }
-    // Prediction
-    KFprediction(steadyState, colapsed, data.system.T, RQRt, at, Pt, Pinft);
+    // Prediction (sparse-T path)
+    KFprediction(steadyState, colapsed, Tsp, RQRt, at, Pt, Pinft);
     // Checking colapsed
     if (!colapsed && all(all(abs(Pinft) < 1e-6))){
         colapsed = true;
@@ -1187,6 +1362,12 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     rt.fill(0);
     rinft = rt;
     Inew.eye();
+    // Fast state smoother: when only smoothed STATES (data.a) are consumed
+    // (e.g. components()), skip the entire backward Nt recursion and the
+    // O(m^3) smoothed-variance work (data.P/F, disturbance, outlier) -- those
+    // outputs are not surfaced.  The state recursion (rt/rinft) is independent
+    // of Nt, so smoothed states stay identical.
+    bool needNt = !data.stateOnly;
     // Main Loop
     int intN = n;
     for (int t = n - 1; t >= 0; t--){
@@ -1210,11 +1391,13 @@ void auxFilter(unsigned int smooth, SSinputs& data){
           Lt = data.system.T - data.system.T * Kt * Z;
           Z_Ft = Z.t() * iFt(0);
           rt = Z_Ft * vt + Lt.t() * rt;
-          Nt = Z_Ft * Z + Lt.t() * Nt * Lt;
+          if (needNt) Nt = Z_Ft * Z + Lt.t() * Nt * Lt;
           if (!colapsed){
               rinft = data.system.T.t() * rinft;
-              N2t = data.system.T.t() * N2t * data.system.T;
-              Ninft = data.system.T.t() * Ninft * Lt;
+              if (needNt){
+                N2t = data.system.T.t() * N2t * data.system.T;
+                Ninft = data.system.T.t() * Ninft * Lt;
+              }
           }
         } else if (Finft(0, 0) >= 1e-8) {
             Lt = data.system.T - data.system.T * Kinft * Z;
@@ -1222,11 +1405,13 @@ void auxFilter(unsigned int smooth, SSinputs& data){
             Z_Finft = Z.t() * iFt(0, 0);  //  / Finft(0, 0);
             rinft = Z_Finft * vt + Lt.t() * rinft + Linft.t() * rt;
             rt = Lt.t() * rt;
-            LinftNt = Lt.t() * Ninft * Linft;
-            N2t = -Z_Finft * Z_Finft.t() * Ft(0, 0) + Linft.t() * Nt * Linft +
-                LinftNt + LinftNt.t() + Lt.t() * N2t * Lt;
-            Ninft = Z_Finft * Z + Lt.t() * Ninft * Lt + Linft.t() * Nt * Lt;
-            Nt = Lt.t() * Nt * Lt;
+            if (needNt){
+              LinftNt = Lt.t() * Ninft * Linft;
+              N2t = -Z_Finft * Z_Finft.t() * Ft(0, 0) + Linft.t() * Nt * Linft +
+                  LinftNt + LinftNt.t() + Lt.t() * N2t * Lt;
+              Ninft = Z_Finft * Z + Lt.t() * Ninft * Lt + Linft.t() * Nt * Lt;
+              Nt = Lt.t() * Nt * Lt;
+            }
         }
       } else {
         miss = true;
@@ -1235,11 +1420,14 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         // data.a.col(t) is computed below, so the smoothed state at this
         // missing observation uses r_{t-1} rather than the stale r_t.
         rt = data.system.T.t() * rt;
-        Nt = data.system.T.t() * Nt * data.system.T;
-        if (!colapsed){
+        if (!colapsed)
           rinft = data.system.T.t() * rinft;
-          Ninft = data.system.T.t() * Ninft * data.system.T;
-          N2t = data.system.T.t() * N2t * data.system.T;
+        if (needNt){
+          Nt = data.system.T.t() * Nt * data.system.T;
+          if (!colapsed){
+            Ninft = data.system.T.t() * Ninft * data.system.T;
+            N2t = data.system.T.t() * N2t * data.system.T;
+          }
         }
       }
       Pt = cP.slice(t);
@@ -1249,23 +1437,34 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         data.a.col(t) += Pinft * rinft;
       }
       data.yFit.row(t) = Z * data.a.col(t) + Dt(t); // + data.system.D;
-      Pt -= Pt * Nt * Pt;
-      if (!colapsed){
-        PPinf = Pinft * Ninft * Pt;
-        Pt = Pt - PPinf - PPinf.t() - Pinft * N2t * Pinft;
-      }
-      data.F.row(t) = Z * Pt * Z.t() + CHCt;
-      data.P.col(t) = Pt.diag();
-      //Disturbance smoother
-      if (smooth == 2 && t < intN - data.h){
-        Veta = data.system.Q - QRt * Nt * QRt.t();
-        data.eta.col(t) = QRt * rt / sqrt(Veta.diag());
-      }
-      // Storing for outlier detection
-      if (smooth == 3){
-        data.rNrOut.row(t) = rt.t() * pinv(Nt) * rt;
-        data.rOut.col(t) = rt;
-        data.NOut.slice(t) = Nt;
+      if (needNt){
+        Pt -= Pt * Nt * Pt;
+        if (!colapsed){
+          PPinf = Pinft * Ninft * Pt;
+          Pt = Pt - PPinf - PPinf.t() - Pinft * N2t * Pinft;
+        }
+        data.F.row(t) = Z * Pt * Z.t() + CHCt;
+        data.P.col(t) = Pt.diag();
+        //Disturbance smoother
+        if (smooth == 2 && t < intN - data.h){
+          // Raw smoothed disturbance E[eta_t | y] = Q R' r_t.  The
+          // theoretical per-step standardisation by sqrt(diag(Veta)) with
+          // Veta = Q - Q R' N_t R Q is SINGULAR when a disturbance variance
+          // collapses (Veta.diag -> 0, e.g. an estimated variance near zero):
+          // it produces inf/nan that the empirical re-standardisation below
+          // then discards, ZEROING the very component carrying an outlier.
+          // Leave the disturbance raw here; the cov/pinv block after the loop
+          // standardises each component to a finite, unit-variance auxiliary
+          // residual, so a spike survives as a large t-stat regardless of the
+          // variance regime.
+          data.eta.col(t) = QRt * rt;
+        }
+        // Storing for outlier detection
+        if (smooth == 3){
+          data.rNrOut.row(t) = rt.t() * pinv(Nt) * rt;
+          data.rOut.col(t) = rt;
+          data.NOut.slice(t) = Nt;
+        }
       }
     }
   }
@@ -1321,13 +1520,19 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   //   data.v = data.v.rows(min(ind), max(ind));
   //   data.v = data.v / sqrt(data.F);
   // }
-  // Disturbances
+  // Disturbances: standardise each component to a unit-variance auxiliary
+  // residual (Harvey-Koopman diagnostic).  Do it PER COLUMN, dividing by the
+  // component's own empirical SD -- a single matrix pinv() applies one
+  // tolerance across all components and silently zeroes any whose variance is
+  // far below the largest (e.g. a near-zero observation/level variance when
+  // another component dominates), which destroys the outlier signal there.
   if (smooth == 2){
-    data.eta = data.eta.t();
-    mat covEta = diagmat(cov(data.eta, 1));
-    uvec ind = find_finite(covEta.diag());
-    mat icovEta = pinv(sqrt(covEta(ind, ind)));
-    data.eta.cols(ind) = (data.eta.cols(ind) * icovEta);
+    data.eta = data.eta.t();   // n x rQ
+    for (uword j = 0; j < data.eta.n_cols; j++){
+      double s = stddev(data.eta.col(j));
+      if (s > 0 && std::isfinite(s)) data.eta.col(j) /= s;
+      else                           data.eta.col(j).zeros();
+    }
     data.eta = data.eta.t();
     data.eta.replace(datum::nan, 0);
     data.eta.replace(datum::inf, 0);
@@ -1371,6 +1576,7 @@ vec KFinnovations(SSinputs& data) {
 
     mat Z = data.system.Z.row(0);
     bool TVP = (data.system.Z.n_rows > 1);
+    arma::sp_mat Tsp(data.system.T);   // sparse view for the forward recursion
 
     // Inputs exógenos
     int k = data.u.n_rows;
@@ -1427,7 +1633,7 @@ vec KFinnovations(SSinputs& data) {
         // ----- PREDICCIÓN -----
         KFprediction(steadyState,
                      colapsed,
-                     data.system.T,
+                     Tsp,
                      RQRt,
                      at,
                      Pt,

@@ -1,6 +1,246 @@
 muse v0.1.0
 =======
 
+* Joint maximum-likelihood Box-Cox lambda estimation: corrected the lambda
+  gradient.  The optimiser's lambda derivative was a forward difference using
+  the optimiser's cached objective value, but that value is not a reliable
+  f(p) at the gradient point -- the backward smoother and the structural-
+  gradient loop that run first mutate persistent Kalman-filter state that the
+  likelihood reads, so a fresh evaluation at the same p differs by ~1.  The
+  stale baseline produced a gradient of ~1e6 that drove lambda hard to a bound
+  and froze it at the warm-start (e.g. a monthly series settled at PTS(-2,D,N),
+  AICc 525, instead of the near-optimal PTS(2,G,D), AICc 282).  The lambda
+  gradient is now taken as a central difference at the TOP of the gradient
+  routine, from the clean state the objective leaves, before anything is
+  perturbed; and the warm-start seed is kept out of the logistic's saturated
+  tails.  Shared C++ engine, so identical in R and Python.
+
+* Joint maximum-likelihood Box-Cox lambda estimation
+  (`lambda_estim = "likelihood"`) now finds interior optima reliably.  The
+  engine optimised lambda against a hard clamp to its `[lower, upper]` bounds;
+  the clamp made the likelihood flat beyond a bound, so the optimiser's
+  gradient there was exactly zero and it got trapped at the bound -- pinning
+  lambda at the floor / cap and missing the true optimum (e.g. a 74%-zero
+  series settled at the zero floor 0.078, where the prediction interval
+  exploded, instead of the likelihood optimum ~0.18).  The lambda slot is now
+  an unconstrained parameter mapped to `(lower, upper)` through a logistic, so
+  the gradient stays informative everywhere; the optimiser locates interior
+  optima and still goes to a bound only when the profile genuinely wants it.
+  Shared C++ engine, so identical in R and Python.
+
+* New `lambda_estim` argument to `pts()` selects how the Box-Cox power is
+  estimated when the power slot is `"Z"`: `"likelihood"` (new default --
+  estimate lambda jointly with the structural parameters by maximum likelihood
+  in the engine), `"guerrero"` (the classical Guerrero (1993) variance-
+  stabilisation screen on raw season-length blocks), or `"decomp-guerrero"`
+  (Guerrero on an `msdecompose`-smoothed trend, the former default).  The
+  Guerrero screens minimise a coefficient of variation and ignore the
+  likelihood, so they can pick a poor lambda -- on a zero-heavy series they may
+  steer into the small-lambda region where the back-transform explodes.  The
+  likelihood estimator avoids this; it is now the default.
+
+* Zero-containing series no longer break joint lambda estimation.  Box-Cox maps
+  `y = 0` to `g(0) = -1/lambda`, which at `lambda = 0` is `-Inf` and silently
+  drops the observation -- so the likelihood (and AICc) at small lambda was
+  computed on fewer points and was not comparable across lambda, luring a
+  likelihood search toward a degenerate small lambda.  The joint-lambda lower
+  bound is now the proper zero floor `log(2)/log(max(y))` (was a flat `1e-10`),
+  keeping the search in the comparable, finite-sample region.  On an
+  intermittent tourism series this changed the auto lambda from ~0.09 (forecast
+  blew up to ~2e5 against actuals ~7e3) to ~0.25 (forecast ~8e3).
+
+* New `biasadj` argument to `pts()` / `forecast()` (default `FALSE`).  Point
+  forecasts are now the back-transformed conditional MEDIAN by default; with
+  `biasadj = TRUE` a second-order bias correction yields the conditional MEAN
+  (as in `forecast::InvBoxCox(biasadj = TRUE)`).  The mean is not robust under a
+  small-lambda Box-Cox (its heavy right tail makes it explode), so the median is
+  the safer default.  Prediction-interval quantiles are unaffected.
+
+* The default information criterion for automatic model selection is now
+  `AICc` (was `BICc`), matching `smooth::adam`.
+
+* Information criteria now charge for the estimated structural initial states,
+  and `$nParam` is now an adam-style breakdown table.  The initial level, slope
+  (for local / global / damped trend), cycle, and seasonal states are diffuse /
+  profiled out and so are genuine degrees of freedom; they were previously free
+  in the IC, which let BICc / AICc under-penalise flexible seasonal and trend
+  shapes.  The estimated-initials count `ns(0) + ns(1) + ns(2)` is taken
+  straight from the engine, so it is driven by `lags` (correct for
+  multi-seasonal `lags = c(m1, m2, ...)`) with no hard-coded period sizes; the
+  stationary ARMA states are excluded (their initial is the stationary
+  distribution, not a free parameter; the ARMA *coefficients* are still
+  counted).  The engine adds the same quantity to its own model-selection
+  criterion, so `pts(model = "ZZZ")` selection and the reported `nParam` agree.
+
+  `$nParam` is now a 2 x 5 matrix mirroring `smooth::adam` -- rows
+  `Estimated` / `Provided`, columns `nParamInternal`, `nParamXreg`,
+  `nParamOccurrence`, `nParamScale`, `nParamAll`.  `nparam()` returns the
+  `[Estimated, nParamAll]` cell (the total DoF, unchanged).  The estimated
+  initials fold into `nParamInternal` exactly as adam does (there is no separate
+  `nInitial` slot); the concentrated variance is `nParamScale = 1`; regressors
+  are `nParamXreg`.  Note `coef()` / `vcov()` / `confint()` still cover only the
+  estimated coefficients, so `length(coef)` is smaller than `nparam()`.  Shared
+  C++ engine, so identical in R and Python.
+
+* Point forecasts (and the in-sample point forecast) are now the conditional
+  MEAN under a Box-Cox transform, not the median.  Back-transforming the
+  Box-Cox-scale point forecast g^{-1}(mu) returns the conditional MEDIAN on the
+  original scale; for lambda < 1 the inverse transform is convex so the MEDIAN
+  is below the MEAN, and the reported `$mean` / forecast(...)$mean systematically
+  under-forecast (e.g. ~8% low on a lambda = 0.43 series).  A second-order
+  bias correction is now applied,
+    mean ~= g^{-1}(mu) * (1 + 0.5 * var * (1 - lambda) / (1 + lambda*mu)^2),
+  with `var` the Box-Cox-scale forecast variance (matching
+  forecast::InvBoxCox(biasadj = TRUE)).  Prediction-interval quantiles are
+  unchanged -- they are exact quantiles of the back-transformed distribution
+  and must not be bias-corrected.  At lambda = 1 there is no change.  Shared
+  logic, so R and Python agree.
+
+* Series containing zeros can now be variance-stabilised (and forecast
+  non-negatively).  Previously any zero forced lambda = 1 (raw scale): the
+  msdecompose + Guerrero lambda screen bailed to 1 on `any(y <= 0)`, and even
+  a user-supplied lambda != 1 returned a NaN log-likelihood, so zero-heavy /
+  intermittent series were fit on the raw scale and routinely forecast
+  negative values.  Two fixes:
+    - The BCnorm density now rejects only the genuinely-undefined corner
+      (y <= 0 with lambda <= 0); y == 0 with lambda > 0 is finite
+      (g(0) = -1/lambda, e.g. sqrt(0) = 0) and is allowed.
+    - The lambda screen now runs on zero-containing series (it disqualifies
+      only on NEGATIVE values), with a floor lambda >= log(2)/log(max(y)) so
+      the transformed zero is no more extreme than the transformed maximum.
+  A power transform in (0, 1) both fits intermittent series far better and
+  guarantees non-negative forecasts (the inverse BoxCox can't go below zero).
+  E.g. eurostat tourism series 267 moves from PTS(1,G,D) with a forecast
+  dipping to -101, to PTS(0.13,N,D) forecasting in [0, 15].  Shared C++ engine
+  for the density; the R and Python lambda screens are kept in parity.
+
+* AR / SAR coefficients are now reported in the standard Box-Jenkins
+  convention (1 - phi B) y_t = (1 + theta B) e_t, matching stats::arima and
+  the forecasting literature.  The engine stores them internally in the
+  (1 + phi B) form (which makes the seasonal convolution and the state-space
+  companion work out), so the reported coefficient was the NEGATIVE of the
+  standard one (e.g. a +0.7 AR(1) signal was reported as -0.7).  The reported
+  AR/SAR coefficients (and their covariance) are now flipped to the standard
+  sign at the output boundary, and flipped back when a fitted object's
+  coefficients are reused for forecasting, so the round-trip is exact and
+  forecasts are unchanged.  MA / SMA coefficients were already standard and
+  are unaffected.  Shared C++ engine, so identical in R and Python.
+
+* Strongly seasonal series no longer get a spurious large POSITIVE
+  log-likelihood (and the resulting explosive forecast / wrong model
+  selection).  The concentrated likelihood was scaling the diffuse-
+  initialisation determinant by the concentrated variance sigma^2.  That is
+  harmless near sigma^2 ~ 1, but when the optimiser reaches a degenerate
+  corner -- a local-linear-trend whose observation variance collapses, so
+  sigma^2 underflows to ~1e-117 -- the d_t diffuse terms injected ~ +1600 of
+  bogus likelihood (e.g. logLik +986 on a series the model actually fits with
+  sigma ~ 0.6, picking an exp-trend forecast that blows up to ~3.6e7).  The
+  diffuse determinant is now left UNSCALED by sigma^2 -- the exact-diffuse
+  likelihood convention (Durbin-Koopman): only the n - d_t non-diffuse
+  observations carry the variance scale.  Such series now report a sane
+  negative logLik (~ -737) and select a sensible seasonal model.  logLik /
+  information criteria of models with diffuse initialisation shift by a small
+  amount (the diffuse determinant is now scale-free).  Shared C++ engine, so
+  identical to Python.
+
+* Concentrated variance can no longer come out negative (NaN standard
+  errors / negative displayed variances).  In the augmented Kalman
+  likelihood (`llikAug`) the concentrated innovation variance is the
+  residual sum of squares (after projecting out the diffuse initial states
+  and regressors) divided by `n`.  It used to be formed as the projection
+  identity `RSS = v2F - sn'Sn^{-1}sn`, a subtraction of two large nearly
+  equal numbers at a near-interpolating fit -- the classic unstable way to
+  compute a sum of squares -- which lost all precision (catastrophic
+  cancellation) and could flip NEGATIVE, making `innVariance`, the
+  displayed variances (`ratio * innVariance`) and the parameter covariance
+  non-positive.  The RSS is now formed directly as the sum of squared GLS
+  residuals `Sum (v_t - V_t·beta_hat)^2 / F_t`, a sum of non-negative terms
+  that is structurally `>= 0` in floating point, so the negative-variance
+  artifact cannot occur however degenerate the fit.  (A genuinely
+  interpolating fit still drives RSS toward 0; that residual degeneracy is
+  a modelling matter for the disturbance-variance control, not a numerical
+  defect.)
+
+* Forecasts no longer blow up when a disturbance variance collapses to
+  zero.  With the corrected optimiser, a flexible model on some series
+  drives a variance log-parameter very negative, so `exp(2*p)` underflows
+  to EXACTLY 0 in the system matrices.  A zero disturbance variance makes
+  the Kalman innovation variance `F_t = Z P Z' + H` zero, the gain `K = P
+  Z'/F_t` becomes `0/0 = NaN`, the terminal state is `NaN`, and the
+  forecast explodes (e.g. ~1e12 on a series whose data maxes near 1e6).
+  The variance log-parameters (`typePar == 0`) are now floored at
+  `var >= exp(-23) ~ 1e-10` inside `bsmMatrices` / `bsmMatricesTrue` --
+  numerically "zero" for the model but keeping the filter well-defined.
+  Structural zeros (companion states) are untouched; well-identified
+  models (variances far above the floor) are unaffected.
+
+* Outlier detection (`outliers = "use"`) fixed.  Two bugs are addressed:
+    - The disturbance smoother standardised the auxiliary residuals with a
+      single matrix `pinv()` across all components; its tolerance treated any
+      component whose variance was far below the largest (e.g. a near-zero
+      observation variance) as singular and ZEROED it -- destroying the
+      outlier signal there, so spikes went undetected.  The smoother now emits
+      the raw smoothed disturbance and standardises each component by its own
+      empirical SD, which is scale-robust.
+    - The forward/backward outlier search dropped a detected outlier whenever
+      the no-outlier baseline had a "better" information criterion.  When the
+      baseline overfits a short series (the unbounded variance->0 likelihood
+      singularity), its IC is artificially good and no genuine outlier model
+      can beat it, so real, highly-significant outliers were silently removed.
+      Acceptance now relies on the per-outlier significance test (the
+      backward-deletion step already keeps only outliers whose augmented-KF
+      coefficient t-stat clears the `level` z-threshold); the model with
+      outliers is kept unless it fails to converge.
+
+* Estimation gradient corrected; models converge to better optima.  The
+  analytic log-likelihood gradient (`gradLlik`) used by the quasi-Newton
+  optimiser was wrong for structural models: it left the baseline `Q`/`H`
+  on the stale ratio scale from the previous objective call while building
+  the perturbed `Q`/`H` on the absolute scale, so the finite-difference
+  `dQ` mixed units and exploded by ~1/innVariance whenever the
+  concentrated variance was small (e.g. log / near-deterministic data).
+  It also normalised by `n - nMiss - d_t - 1` instead of the `nFinite`
+  the objective averages over (a few-percent error on seasonal models).
+  Both are fixed; the analytic gradient now matches a central-difference
+  reference to ~6 digits across structural specs.
+  Separately, the optimiser gained a **descent-direction safeguard**: when
+  the BFGS inverse-Hessian loses positive-definiteness and yields a
+  non-descent direction, it resets to steepest descent instead of stalling
+  at a non-stationary point.  Together these make estimation converge to
+  materially higher likelihoods (e.g. on AirPassengers: PTS(0,N,T) +129,
+  PTS(1,N,T) +94, PTS(1,L,T) +15 log-lik; every structural spec improved,
+  none regressed).  Models that previously appeared "degenerate" (the
+  optimiser quitting after ~2 iterations with `Q-Newton: Unable to decrease`
+  and near-zero variances) now fit properly.  ARMA / damped / regressor /
+  cycle models already used the numerical gradient and are unaffected by
+  the analytic fix; they also benefit from the descent safeguard.
+
+* Parameter covariance (`vcov`, and hence `confint` / printed standard
+  errors) is now reliable for weakly-identified and ill-conditioned
+  models.  Two changes:
+    - the observed-information Hessian is computed with central second
+      differences and a per-parameter, magnitude-scaled step (was
+      one-sided forward differences with a fixed 1e-5 step for every
+      parameter).  This removes a first-order truncation bias and the
+      catastrophic cancellation that made the Hessian noisy and
+      irreproducible in flat directions.
+    - when the observed Hessian is indefinite, numerically singular, or
+      non-finite at the optimum -- typically a boundary / weakly-identified
+      variance (e.g. a near-zero local-linear-trend variance) or an ARMA
+      phi~theta near-cancellation -- the covariance falls back to the
+      OPG / BHHH estimator (sum_t s_t s_t', the per-observation outer
+      product of scores), which is positive semidefinite by construction.
+      (For a fully degenerate fit, where the disturbance variances collapse
+      to ~0 and the Kalman innovation variances are non-positive, neither
+      estimator is defined and `vcov` stays NaN.)
+  Previously such models could return a non-PSD "covariance" (implied
+  correlations outside +/-1) and standard errors that swung by tens of
+  percent under negligible floating-point reordering.  Point estimates,
+  logLik, and information criteria are unchanged.  The OPG fallback is not
+  yet available for models with external regressors (the augmented filter
+  concentrates the regression coefficients and stores no per-observation
+  innovations); those keep the improved Hessian.
+
 * Decoupled fit and forecast.  A fitted `pts` object now caches the
   terminal state (final state, its covariance, the innovation variance,
   and the augmented-KF state for regressor models), so `forecast()` /
@@ -17,6 +257,22 @@ muse v0.1.0
   used the estimation-device concentrated state; the forecast method
   re-filtered in absolute scale).  They are now identical, and holdout
   accuracy uses the same canonical forecast.
+
+* Performance: high-lag models (e.g. `lags = 336`) are dramatically
+  faster.  The state-space engine now exploits the sparsity of the
+  transition matrix (block-diagonal rotation / companion blocks, ~98%
+  zeros) in the Kalman filter, the analytic gradient, and the smoother:
+    - forward filter `T P T'` uses sparse `T` (O(m^2) vs O(m^3));
+    - the analytic-gradient backward recursion uses sparse `T` plus a
+      rank-1 expansion of the `Lt = I - K Z` term (O(m^2));
+    - the state smoother (`components()`) skips the O(m^3) backward
+      covariance recursion entirely, since its smoothed-variance output
+      was never surfaced (fast state smoother).
+  Point forecasts, fitted values, components, coefficients, ICs and
+  parameter standard errors are unchanged to floating-point tolerance.
+  (The dense/sparse Hessian now agrees because the covariance uses
+  central differences with an OPG fallback -- see the `vcov` entry above;
+  previously the cruder Hessian could diverge on ill-conditioned models.)
 
 * `pts()` auto-lambda screen replaced.  The previous Brent-on-LT-AIC
   search (which fitted ~20 proxy state-space models per series) is

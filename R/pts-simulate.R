@@ -63,7 +63,20 @@ simulate.pts <- function(object, nsim = 1, seed = NULL,
 # Same engine as simulate.pts but uses the "simulate" command (= aEnd
 # seed) and anchors the result one period after the last observation.
 .pts_forecast_paths <- function(object, nsim, h, seed = NULL){
-    if (!is.null(seed)) set.seed(seed)
+    # Armadillo, linked against R, delegates randn() to R's RNG, so
+    # reproducibility goes through R.  Set the seed for this call only and
+    # restore the user's .Random.seed on exit -- never leave .GlobalEnv
+    # modified (CRAN policy).
+    if (!is.null(seed)){
+        old <- if (exists(".Random.seed", envir = globalenv()))
+                   get(".Random.seed", envir = globalenv())
+               else NULL
+        on.exit({
+            if (is.null(old)) rm(".Random.seed", envir = globalenv())
+            else assign(".Random.seed", old, envir = globalenv())
+        }, add = TRUE)
+        set.seed(seed)
+    }
     args      <- .pts_forecast_inputs(object, as.integer(h))
     args$nsim <- as.integer(nsim)
     args$seed <- 0L

@@ -18,6 +18,41 @@
 #' @param all logical; if \code{TRUE} the holdout sample is included in
 #'   the observation count.  Default \code{FALSE}.
 #' @param ... further arguments passed to underlying generics.
+#' @return The methods return the following:
+#' \itemize{
+#'   \item \code{fitted}, \code{predict} -- the in-sample fitted values as a
+#'     \code{ts} / numeric vector on the original (back-transformed) scale.
+#'   \item \code{residuals} -- the model residuals as a \code{ts} / numeric
+#'     vector on the Box-Cox scale.
+#'   \item \code{coef} -- a named numeric vector of the estimated parameters
+#'     (structural variances plus any ARMA / damping coefficients).
+#'   \item \code{vcov} -- the parameter variance-covariance \code{matrix}.
+#'   \item \code{nobs} -- an integer, the number of in-sample observations
+#'     (plus the holdout when \code{all = TRUE}).
+#'   \item \code{nparam} -- an integer, the number of estimated parameters
+#'     (the degrees of freedom used by the information criteria).
+#'   \item \code{logLik} -- an object of class \code{"logLik"}: the maximised
+#'     log-likelihood, with \code{df} and \code{nobs} attributes.
+#'   \item \code{sigma}, \code{extractSigma} -- a numeric scalar, the residual
+#'     standard deviation; \code{extractScale} -- the maximum-likelihood scale
+#'     of the assumed distribution.
+#'   \item \code{actuals} -- the original response series.
+#'   \item \code{modelType} -- a character string with the PTS model code (e.g.
+#'     \code{"PTS(0,N,T)"}); \code{modelName} -- a human-readable description;
+#'     \code{errorType} -- the character error type (\code{"A"}, additive on
+#'     the Box-Cox scale).
+#'   \item \code{lags} -- the integer seasonal period; \code{orders} -- a
+#'     \code{list} of the irregular ARMA orders (\code{ar}, \code{ma},
+#'     \code{lags}); \code{initials} -- a named numeric vector of the estimated
+#'     initial structural-state values.
+#'   \item \code{forecast} -- an object of class \code{"pts.forecast"}: a
+#'     \code{list} with the point forecast \code{$mean} and the interval bounds
+#'     \code{$lower} / \code{$upper} (original scale), together with the
+#'     forecast variance, level, and interval metadata.
+#'   \item \code{print} and \code{plot} are called for their side effects
+#'     (console output and a diagnostic plot, respectively) and invisibly
+#'     return their first argument.
+#' }
 #' @examples
 #' model <- pts(AirPassengers, model = "1LT", h = 12, holdout = TRUE)
 #' print(model)
@@ -294,7 +329,7 @@ nobs.pts <- function(object, all = FALSE, ...){
 #' @export
 logLik.pts <- function(object, ...){
     out <- as.numeric(object$logLik)
-    attr(out, "df")   <- object$nParam
+    attr(out, "df")   <- nparam(object)   # [Estimated, nParamAll] of $nParam
     attr(out, "nobs") <- nobs(object)
     class(out) <- "logLik"
     out
@@ -345,6 +380,9 @@ predict.pts <- function(object, newdata = NULL, ...){
 #'   (default \code{10000}).
 #' @param scenarios if \code{TRUE} and \code{interval = "simulated"},
 #'   return the simulated path matrix as \code{$scenarios}.
+#' @param biasadj point-forecast back-transform: \code{FALSE} (median,
+#'   the default) or \code{TRUE} (bias-corrected mean).  Defaults to the
+#'   value the model was fitted with (\code{object$biasadj}).
 #' @export
 forecast.pts <- function(object, h = 10, newdata = NULL,
                          interval = c("prediction", "confidence",
@@ -354,9 +392,13 @@ forecast.pts <- function(object, h = 10, newdata = NULL,
                          cumulative = FALSE,
                          nsim = NULL,
                          scenarios = FALSE,
+                         biasadj = NULL,
                          ...){
     if (!is.numeric(h) || length(h) != 1 || h < 1)
         stop("`h` must be a positive integer.", call. = FALSE)
+    # Point forecast: bias-corrected MEAN (TRUE) vs MEDIAN (FALSE).  Defaults to
+    # the value the model was fitted with (object$biasadj), overridable here.
+    if (is.null(biasadj)) biasadj <- isTRUE(object$biasadj)
     interval <- match.arg(interval)
     side     <- match.arg(side)
     if (!is.numeric(level) || any(level <= 0) || any(level >= 1))
@@ -380,7 +422,12 @@ forecast.pts <- function(object, h = 10, newdata = NULL,
     yFor_bc   <- .pts_wrap_oos(as.numeric(out$yFor),  object$data)
     yForVpred <- .pts_wrap_oos(as.numeric(out$yForV), object$data)
     lambda    <- args$lambda
-    mean_out  <- .inv_box_cox(yFor_bc, lambda)
+    # Point forecast.  biasadj = FALSE (default): conditional MEDIAN g^{-1}(mu);
+    # biasadj = TRUE: bias-corrected conditional MEAN.  Either way the interval
+    # quantiles below stay median-style (exact quantiles of the back-transformed
+    # distribution -- they must NOT be bias-corrected).
+    mean_out  <- if (isTRUE(biasadj)) .inv_box_cox_mean(yFor_bc, yForVpred, lambda)
+                 else                 .inv_box_cox(yFor_bc, lambda)
     # Confidence variance = prediction variance minus the obs-noise
     # contribution.  For a SSM y_t = Z a_t + eps with var(eps) = sigma^2,
     # var(E[y_{t+h}|obs]) = var(y_{t+h}|obs) - sigma^2.  In PTS the
