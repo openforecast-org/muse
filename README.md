@@ -6,10 +6,18 @@
 
 <!-- badges: start -->
 
+## R
+
 [![R-CMD-check](https://github.com/config-i1/muse/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/config-i1/muse/actions/workflows/R-CMD-check.yaml)
 [![CRAN_Status_Badge](http://www.r-pkg.org/badges/version/muse)](https://cran.r-project.org/package=muse)
 [![Downloads](http://cranlogs.r-pkg.org/badges/muse)](https://cran.r-project.org/package=muse)
 <!-- badges: end -->
+
+## Python
+
+[![Python versions](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Python CI](https://github.com/config-i1/muse/actions/workflows/python-check.yaml/badge.svg)](https://github.com/config-i1/muse/actions/workflows/python-check.yaml)
+[![License: LGPL-2.1](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html)
 
 **muse** is an R package implementing the **PTS** (*Power / Trend / Seasonal*) state-space family of models for time-series analysis and for forecasting. The estimation engine is written in C++ (Rcpp & RcppArmadillo), wrapping a Kalman filter/smoother around a Multiple Source of Error (MSOE) model whose components are selected analogously to the
 ETS taxonomy.
