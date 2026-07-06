@@ -4,6 +4,7 @@ Branch convention matches the C++ engine exactly: lambda == 0 -> exp,
 lambda == 1 -> identity, otherwise the general (1 + lambda*x)^(1/lambda)
 with support-boundary handling for arguments <= 0.
 """
+
 from __future__ import annotations
 
 import numpy as np

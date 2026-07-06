@@ -5,6 +5,7 @@ Two sequential passes: rank PTS structural shapes by IC (Pass 1), then run a
 cascaded ARMA grid on the winning structural's residuals (Pass 2).  ARMA
 candidates are scored by the shared engine via _musecore.ucomp_arma.
 """
+
 from __future__ import annotations
 
 import math
@@ -51,9 +52,7 @@ def select_arma_at_lag(residuals, ar_max, ma_max, lag, ic):
             if lag == 1:
                 res = _musecore.ucomp_arma(r, _ivec(p), _ivec(q), _ivec(1))
             else:
-                res = _musecore.ucomp_arma(
-                    r, _ivec([0, p]), _ivec([0, q]), _ivec([1, lag])
-                )
+                res = _musecore.ucomp_arma(r, _ivec([0, p]), _ivec([0, q]), _ivec([1, lag]))
             if not res.get("succeed", False):
                 continue
             val = res.get(ic, math.inf)
@@ -65,9 +64,7 @@ def select_arma_at_lag(residuals, ar_max, ma_max, lag, ic):
     return best
 
 
-def select_pts_arma(
-    y, model_template, lags, ar_max, ma_max, arma_lags, ic, fit_structural
-):
+def select_pts_arma(y, model_template, lags, ar_max, ma_max, arma_lags, ic, fit_structural):
     """Pass 1 (structural shapes) + Pass 2 (cascaded ARMA on the winner).
 
     `fit_structural(model_spec)` must return a dict with keys
@@ -106,8 +103,12 @@ def select_pts_arma(
                 continue
             if sic < best["struct_ic"]:
                 best = {
-                    "struct_ic": sic, "model_spec": spec, "lambda": st["lambda"],
-                    "trend": tr, "seasonal": se, "resid": st["residuals"],
+                    "struct_ic": sic,
+                    "model_spec": spec,
+                    "lambda": st["lambda"],
+                    "trend": tr,
+                    "seasonal": se,
+                    "resid": st["residuals"],
                 }
     if not math.isfinite(best["struct_ic"]):
         raise RuntimeError("PTS+ARMA selection: no finite structural candidate.")
@@ -146,7 +147,11 @@ def select_pts_arma(
         out_lags = [arma_lags[i] for i in keep]
 
     return {
-        "model_spec": best["model_spec"], "lambda": best["lambda"],
-        "trend": best["trend"], "seasonal": best["seasonal"],
-        "ar": out_ar, "ma": out_ma, "lags": out_lags,
+        "model_spec": best["model_spec"],
+        "lambda": best["lambda"],
+        "trend": best["trend"],
+        "seasonal": best["seasonal"],
+        "ar": out_ar,
+        "ma": out_ma,
+        "lags": out_lags,
     }

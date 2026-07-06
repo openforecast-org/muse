@@ -6,6 +6,7 @@ screen minimises the coefficient of variation of sigma_b * mu_b^(lambda-1)
 across non-overlapping seasonal blocks (raw block mean/sd); the decomposition
 variant uses an msdecompose-smoothed trend for the block level.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -57,9 +58,8 @@ def _guerrero_cv(mu_b, sd_b, lower: float, upper: float) -> float:
         return r.std(ddof=1) / r.mean()
 
     from scipy.optimize import minimize_scalar
-    res = minimize_scalar(
-        cv, bounds=(lower, upper), method="bounded", options={"xatol": 1e-4}
-    )
+
+    res = minimize_scalar(cv, bounds=(lower, upper), method="bounded", options={"xatol": 1e-4})
     if not res.success or not np.isfinite(res.fun):
         return 1.0
     return float(res.x)
@@ -110,6 +110,7 @@ def guerrero_decomp_lambda(y, lags, lower: float = 0.0, upper: float = 2.0) -> f
 
     try:
         from smooth import msdecompose
+
         decomp = msdecompose(y, lags=[m], type="additive", smoother="ma")
     except Exception:
         return 1.0
@@ -120,7 +121,7 @@ def guerrero_decomp_lambda(y, lags, lower: float = 0.0, upper: float = 2.0) -> f
     keep = R * m
     block = np.repeat(np.arange(R), m)
     mu_blk = mu_t[:keep]
-    dev_blk = (y[:keep] - mu_t[:keep])
+    dev_blk = y[:keep] - mu_t[:keep]
     # nan-aware to match R's tapply(..., na.rm = TRUE): the centred-MA level
     # is NaN over the boundary half-blocks, but those blocks still
     # contribute finite stats from their non-NaN half.

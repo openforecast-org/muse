@@ -5,15 +5,23 @@ DatetimeIndex the seasonal period is inferred from its frequency (mirroring
 smooth's convention -- never expose a `frequency` parameter), and the index
 is carried through to fitted / residuals / forecast outputs.
 """
+
 from __future__ import annotations
 
 import numpy as np
 
 # freq prefix -> seasonal period (mirrors smooth.adam_general ... sma.py)
 _FREQ_MAP = {
-    "MS": 12, "ME": 12, "M": 12,
-    "QS": 4, "QE": 4, "Q": 4,
-    "W": 52, "D": 7, "h": 24, "H": 24,
+    "MS": 12,
+    "ME": 12,
+    "M": 12,
+    "QS": 4,
+    "QE": 4,
+    "Q": 4,
+    "W": 52,
+    "D": 7,
+    "h": 24,
+    "H": 24,
 }
 
 
@@ -21,6 +29,7 @@ def parse_input(y):
     """Return (values, index, inferred_lags).  index is None for plain arrays."""
     try:
         import pandas as pd
+
         if isinstance(y, pd.Series):
             values = y.to_numpy(dtype=float).ravel()
             index = y.index
@@ -45,6 +54,7 @@ def future_index(index, h):
         return None
     try:
         import pandas as pd
+
         if isinstance(index, pd.DatetimeIndex):
             freq = index.freq or pd.infer_freq(index)
             return pd.date_range(index[-1], periods=h + 1, freq=freq)[1:]
@@ -66,6 +76,7 @@ def wrap(values, index):
         return values
     try:
         import pandas as pd
+
         return pd.Series(values, index=index[: len(values)])
     except ImportError:
         return values
