@@ -1,0 +1,115 @@
+% ---------------------------------------------------------------------------
+% References on Box-Cox power-transformation (lambda) estimation
+%
+% Collected for the PTS lambda-estimation work in `muse`.  All DOIs were
+% checked against the publishers' landing pages (Wiley, Oxford Academic,
+% Taylor & Francis, Elsevier, Project Euclid, JStatSoft) in June 2026.
+%
+% Grouping:
+%   * Foundational Box-Cox theory ......... boxcox1964, bickel1981, sakia1992
+%   * Variance-stabilising lambda for time series / forecasting
+%                                ........... guerrero1993, proietti2013
+%   * Extensions / modern review .......... yeojohnson2000, atkinson2021
+%   * Bounded-parameter reparameterisation (the sigmoid trick)
+%                                ........... carpenter2017stan   (see note below)
+% ---------------------------------------------------------------------------
+
+@article{boxcox1964,
+  author  = {Box, George E. P. and Cox, David R.},
+  title   = {An Analysis of Transformations},
+  journal = {Journal of the Royal Statistical Society: Series B (Methodological)},
+  year    = {1964},
+  volume  = {26},
+  number  = {2},
+  pages   = {211--252},
+  doi     = {10.1111/j.2517-6161.1964.tb00553.x}
+}
+
+@article{guerrero1993,
+  author  = {Guerrero, Victor M.},
+  title   = {Time-Series Analysis Supported by Power Transformations},
+  journal = {Journal of Forecasting},
+  year    = {1993},
+  volume  = {12},
+  number  = {1},
+  pages   = {37--48},
+  doi     = {10.1002/for.3980120104}
+}
+
+@article{bickel1981,
+  author  = {Bickel, Peter J. and Doksum, Kjell A.},
+  title   = {An Analysis of Transformations Revisited},
+  journal = {Journal of the American Statistical Association},
+  year    = {1981},
+  volume  = {76},
+  number  = {374},
+  pages   = {296--311},
+  doi     = {10.1080/01621459.1981.10477649}
+}
+
+@article{sakia1992,
+  author  = {Sakia, Remi M.},
+  title   = {The Box-Cox Transformation Technique: A Review},
+  journal = {Journal of the Royal Statistical Society: Series D (The Statistician)},
+  year    = {1992},
+  volume  = {41},
+  number  = {2},
+  pages   = {169--178},
+  doi     = {10.2307/2348250}
+}
+
+@article{yeojohnson2000,
+  author  = {Yeo, In-Kwon and Johnson, Richard A.},
+  title   = {A New Family of Power Transformations to Improve Normality or Symmetry},
+  journal = {Biometrika},
+  year    = {2000},
+  volume  = {87},
+  number  = {4},
+  pages   = {954--959},
+  doi     = {10.1093/biomet/87.4.954}
+}
+
+@article{proietti2013,
+  author  = {Proietti, Tommaso and L{\"u}tkepohl, Helmut},
+  title   = {Does the Box-Cox Transformation Help in Forecasting Macroeconomic Time Series?},
+  journal = {International Journal of Forecasting},
+  year    = {2013},
+  volume  = {29},
+  number  = {1},
+  pages   = {88--99},
+  doi     = {10.1016/j.ijforecast.2012.06.001}
+}
+
+@article{atkinson2021,
+  author  = {Atkinson, Anthony C. and Riani, Marco and Corbellini, Aldo},
+  title   = {The Box-Cox Transformation: Review and Extensions},
+  journal = {Statistical Science},
+  year    = {2021},
+  volume  = {36},
+  number  = {2},
+  pages   = {239--255},
+  doi     = {10.1214/20-STS778}
+}
+
+% Note on the sigmoid (logistic) reparameterisation of lambda.
+%
+% There is no dedicated publication for "estimate lambda via a sigmoid".
+% What `muse` does -- map an unconstrained optimiser variable theta to a
+% box-constrained lambda via
+%       lambda = lo + (hi - lo) * logistic(theta)
+% -- is the standard lower-and-upper-bounded scalar reparameterisation used
+% to turn a constrained optimisation/inference problem into an unconstrained
+% one.  The canonical documented reference for this transform (with its
+% Jacobian) is the Stan reference, Section "Lower and Upper Bounded Scalar".
+@article{carpenter2017stan,
+  author  = {Carpenter, Bob and Gelman, Andrew and Hoffman, Matthew D. and
+             Lee, Daniel and Goodrich, Ben and Betancourt, Michael and
+             Brubaker, Marcus A. and Guo, Jiqiang and Li, Peter and Riddell, Allen},
+  title   = {Stan: A Probabilistic Programming Language},
+  journal = {Journal of Statistical Software},
+  year    = {2017},
+  volume  = {76},
+  number  = {1},
+  pages   = {1--32},
+  doi     = {10.18637/jss.v076.i01}
+}
