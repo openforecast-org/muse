@@ -21,7 +21,7 @@
 **muse** is an R package implementing the **PTS** (*Power / Trend / Seasonal*) state-space family of models for time-series analysis and for forecasting. The estimation engine is written in C++ (Rcpp & RcppArmadillo), wrapping a Kalman filter/smoother around a Multiple Source of Error (MSOE) model whose components are selected analogously to the
 ETS taxonomy.
 
-The package shares conventions with [`smooth`](https://github.com/config-i1/smooth) and [`greybox`](https://github.com/config-i1/greybox): the returned object inherits from `c("pts", "smooth")` so generics such as `forecast()`, `accuracy()`, `plot()`, `AIC()`, and `BIC()` work out of the box.
+The package shares conventions with [`smooth`](https://github.com/openforecast-org/smooth) and [`greybox`](https://github.com/openforecast-org/greybox): the returned object inherits from `c("pts", "smooth")` so generics such as `forecast()`, `accuracy()`, `plot()`, `AIC()`, and `BIC()` work out of the box.
 
 ## Installation
 
