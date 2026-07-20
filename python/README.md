@@ -71,8 +71,8 @@ sudo apt-get install libarmadillo-dev liblapack-dev libblas-dev
 
 | Feature | Needs | Notes |
 |---|---|---|
-| Auto Box-Cox `λ` (power `"Z"`) | [`smooth`](https://github.com/config-i1/smooth) | uses `msdecompose` for the variance-stabilisation screen |
-| `accuracy()` error measures | [`greybox`](https://github.com/config-i1/greybox) | uses `measures` |
+| Auto Box-Cox `λ` (power `"Z"`) | [`smooth`](https://github.com/openforecast-org/smooth) | uses `msdecompose` for the variance-stabilisation screen |
+| `accuracy()` error measures | [`greybox`](https://github.com/openforecast-org/greybox) | uses `measures` |
 | `plot()` | `smooth`, `matplotlib` | reuses the `smooth` diagnostic plots |
 
 `numpy`, `scipy`, and `pandas` are installed automatically.
@@ -174,9 +174,9 @@ forecasts and intervals, diagnostics, the summary table) matches the R
 ## See also
 
 - [muse on GitHub](https://github.com/openforecast-org/muse) — R + Python sources
-- [smooth](https://github.com/config-i1/smooth) — the ADAM / ETS / ARIMA family
+- [smooth](https://github.com/openforecast-org/smooth) — the ADAM / ETS / ARIMA family
   (the Python API muse mirrors)
-- [greybox](https://github.com/config-i1/greybox) — distributions, information
+- [greybox](https://github.com/openforecast-org/greybox) — distributions, information
   criteria, and error measures
 
 ## Acknowledgements
