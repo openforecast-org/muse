@@ -14,7 +14,7 @@ Currently, the package only implements the PTS model, which is a multiple-source
 
 - **Single entry point** — the `PTS` class. Spec in the constructor, data into `.fit()`, results via properties and `.predict()` (scikit-learn style).
 - **Compact model strings** — `"PTS"` = *Power / Trend / Seasonal*, e.g. `"ZZZ"`, `"0LT"`, `"0.5GD"` (see [Model specification](#model-specification)).
-- **Automatic model selection** — `"Z"` in any position auto-selects the Box-Cox power (variance-stabilisation screen), the trend, the seasonal type, and (optionally) the ARMA orders of the irregular component, by information criterion (AICc / AIC / BIC / **BICc**, the default).
+- **Automatic model selection** — `"Z"` in any position auto-selects the Box-Cox power (variance-stabilisation screen), the trend, the seasonal type, and (optionally) the ARMA orders of the irregular component, by information criterion (**AICc**, the default / BICc / BIC / AIC).
 - **Box-Cox transform** — fixed (`"0"`, `"0.5"`, `"1"`, …) or estimated (`"Z"`), with proper back-transformation of fitted values and forecasts.
 - **ARMA / SARMA irregular** — non-seasonal `orders={"ar": p, "ma": q}`, or seasonal `orders={"ar": [p, P], "ma": [q, Q]}` (the seasonal lag comes from the top-level `lags`, not from `orders`), or an automatic `select=True` order search.
 - **Forecasts with intervals** — prediction, confidence, simulated, or none; one- or two-sided; vector confidence levels; cumulative forecasts.
@@ -87,7 +87,7 @@ from muse import PTS
 # monthly series with a DatetimeIndex -> seasonal period inferred (12)
 y = pd.Series(my_values, index=pd.date_range("2010-01-01", periods=120, freq="MS"))
 
-# fully automatic: Box-Cox power, trend, seasonal type all selected by BICc
+# fully automatic: Box-Cox power, trend, seasonal type all selected by AICc
 model = PTS(model="ZZZ", h=12, holdout=True).fit(y)
 
 model.summary()                 # coefficient table + variance proportions
@@ -140,7 +140,7 @@ discrete seasonal).
 ## API at a glance
 
 ```python
-PTS(model="ZZZ", lags=None, orders=None, ic="BICc",
+PTS(model="ZZZ", lags=None, orders=None, ic="AICc",
     outliers="ignore", level=0.99, h=0, holdout=False, verbose=False)
 ```
 
