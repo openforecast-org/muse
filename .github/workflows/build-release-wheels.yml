@@ -205,7 +205,7 @@ jobs:
 
             ```bash
             pip install pypi-attestations
-            pypi-attestations verify pypi --repository https://github.com/config-i1/muse muse_py-*.whl
+            pypi-attestations verify pypi --repository https://github.com/openforecast-org/muse muse_py-*.whl
             ```
 
             ## What's Changed

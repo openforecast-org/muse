@@ -1,10 +1,10 @@
 # muse
 
 [![Python versions](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Python CI](https://github.com/config-i1/muse/actions/workflows/python-check.yaml/badge.svg)](https://github.com/config-i1/muse/actions/workflows/python-check.yaml)
+[![Python CI](https://github.com/openforecast-org/muse/actions/workflows/python-check.yaml/badge.svg)](https://github.com/openforecast-org/muse/actions/workflows/python-check.yaml)
 [![License: LGPL-2.1](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html)
 
-<img src="https://github.com/config-i1/muse/raw/main/man/figures/muse-purple-light-web.png" alt="muse logo" width="220" align="right" />
+<img src="https://github.com/openforecast-org/muse/raw/main/man/figures/muse-purple-light-web.png" alt="muse logo" width="220" align="right" />
 
 Python implementation of the **muse** package (**M**ultiple **U**nobserved **S**ources of **E**rror) for the MSOE state-space models for time series analysis and forecasting.
 
@@ -43,13 +43,13 @@ from muse import PTS
 > built on install):
 
 ```bash
-pip install "git+https://github.com/config-i1/muse.git@python#subdirectory=python"
+pip install "git+https://github.com/openforecast-org/muse.git@python#subdirectory=python"
 ```
 
 Or from a local checkout:
 
 ```bash
-git clone https://github.com/config-i1/muse.git
+git clone https://github.com/openforecast-org/muse.git
 pip install ./muse/python
 ```
 
@@ -173,7 +173,7 @@ forecasts and intervals, diagnostics, the summary table) matches the R
 
 ## See also
 
-- [muse on GitHub](https://github.com/config-i1/muse) — R + Python sources
+- [muse on GitHub](https://github.com/openforecast-org/muse) — R + Python sources
 - [smooth](https://github.com/config-i1/smooth) — the ADAM / ETS / ARIMA family
   (the Python API muse mirrors)
 - [greybox](https://github.com/config-i1/greybox) — distributions, information
