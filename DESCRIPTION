@@ -9,8 +9,8 @@ Authors@R: c(person("Diego J.", "Pedregal", role = c("aut", "ctb"),
            person("Ivan", "Svetunkov", email = "ivan@svetunkov.com", role = c("aut", "cre"),
                   comment = c("Senior Lecturer at Centre for Marketing Analytics and Forecasting, Lancaster University, UK",
                               ORCID = "0000-0001-7826-0281")))
-URL: https://github.com/config-i1/muse
-BugReports: https://github.com/config-i1/muse/issues
+URL: https://github.com/openforecast-org/muse
+BugReports: https://github.com/openforecast-org/muse/issues
 Language: en-GB
 Description: Implements the Power / Trend / Seasonal (PTS) model, a unified
     state-space framework based on the Multiple Source of Error (MSOE) model. It brings
