@@ -99,6 +99,11 @@
 #' observations of \code{data} are withheld from estimation and returned in
 #' \code{$holdout} for later accuracy assessment.
 #' @param verbose logical: print intermediate optimisation output.
+#' @param componentVariance logical (default \code{FALSE}).  When \code{TRUE}
+#'   the fitted object gains a \code{$compV} matrix of two-sided \emph{smoothed}
+#'   state variances \eqn{P_{t|T}} (for component confidence bands), obtained by
+#'   running the full backward smoother.  When \code{FALSE} the cheaper filtered
+#'   variances are returned in \code{$compV} instead.
 #' @param ... advanced / undocumented passthroughs.  Supported keys:
 #' \itemize{
 #'   \item \code{B} - numeric vector of starting values for the optimiser

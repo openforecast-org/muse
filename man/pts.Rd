@@ -9,7 +9,7 @@ pts(data, model = "ZZZ", lags = stats::frequency(data), orders = list(ar
   outliers = c("ignore", "use", "select"), level = 0.99, ic = c("AICc",
   "BICc", "BIC", "AIC"), lambda_estim = c("likelihood", "guerrero",
   "decomp-guerrero"), biasadj = FALSE, h = 0, holdout = FALSE,
-  verbose = FALSE, ...)
+  verbose = FALSE, componentVariance = FALSE, ...)
 }
 \arguments{
 \item{data}{response series.  Either a univariate \code{ts} / \code{zoo} /
@@ -117,6 +117,12 @@ observations of \code{data} are withheld from estimation and returned in
 \code{$holdout} for later accuracy assessment.}
 
 \item{verbose}{logical: print intermediate optimisation output.}
+
+\item{componentVariance}{logical (default \code{FALSE}).  When \code{TRUE}
+the fitted object gains a \code{$compV} matrix of two-sided \emph{smoothed}
+state variances \eqn{P_{t|T}} (for component confidence bands), obtained by
+running the full backward smoother.  When \code{FALSE} the cheaper filtered
+variances are returned in \code{$compV} instead.}
 
 \item{...}{advanced / undocumented passthroughs.  Supported keys:
 \itemize{
