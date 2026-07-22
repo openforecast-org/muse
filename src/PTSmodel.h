@@ -1072,19 +1072,10 @@ void BSMclass::estim(vec p, bool VERBOSE){
 // variances or on irregular variances < 1e-6).  The actual user-supplied
 // parameters are then handed to this method.
 void BSMclass::setEstimatedParams(vec userParams){
-        // Incoming AR/SAR coefficients are in the standard (1 - phi B)
-        // convention (the reported convention -- see the output flip in
-        // runMuseCommand).  Convert them back to the engine's internal
-        // (1 + phi B) form (polyStationary negates, armaMatrices builds
-        // T = -col) before building the system matrices.  MA is already
-        // standard (armaMatrices uses R = +col), so it is left untouched.
-        if (inputs.ar > 0){
-                arma::vec ncum = arma::cumsum(inputs.nPar);
-                arma::uword a0 = (arma::uword)ncum(2) + 1;
-                arma::uword a1 = a0 + (arma::uword)inputs.ar - 1;
-                if (a1 < userParams.n_elem)
-                        userParams.rows(a0, a1) *= -1.0;
-        }
+        // Incoming AR (1 - phi B) and MA (1 + theta B) coefficients are the
+        // reported convention, which is now also the engine's internal one:
+        // armaMatricesTrue builds T = +col and R = +col directly, so no sign
+        // conversion is needed here.
         SSmodel::inputs.userModel  = bsmMatricesTrue;
         SSmodel::inputs.cLlik      = false;
         SSmodel::inputs.userInputs = &inputs;
@@ -3418,17 +3409,20 @@ void BSMclass::initParBsm(){
                         }
                 }
                 // Converting to estimation space
-                // AR pars
+                // AR pars.  beta0ARMA holds the standard (1 - phi B) AR
+                // coefficients (from the sample PACF); polyStationary/
+                // invPolyStationary now use that same convention, so the seed
+                // maps straight into estimation space with no sign flip.
                 if (inputs.ar > 0){
                         beta0aux = inputs.beta0ARMA(arma::span(0, inputs.ar - 1));
-                        beta0aux1 = -beta0aux;
                         // Correction for non-stationary polynomial
+                        beta0aux1 = beta0aux;
                         arToPacf(beta0aux1);
                         ind = find(abs(beta0aux1) >= 1);
                         if (ind.n_elem > 0){
                                 beta0aux1(ind) = sign(beta0aux1(ind)) * 0.96;
                                 pacfToAr(beta0aux1);
-                                beta0aux = -beta0aux1;
+                                beta0aux = beta0aux1;
                         }
                         invPolyStationary(beta0aux);
                         beta0aux.elem(find_nonfinite(beta0aux)).zeros();
@@ -3441,7 +3435,22 @@ void BSMclass::initParBsm(){
                         // Bringing MA polynomial to invertibility
                         maInvert(beta0aux);
                         inputs.beta0ARMA(arma::span(inputs.ar, inputs.ar + inputs.ma - 1)) = beta0aux;
-                        // Parameterising polynomial to be invertible
+                        // Guard invPolyStationary the same way the AR seed does:
+                        // maInvert makes the (1 + theta B) polynomial invertible,
+                        // but arToPacf() (inside invPolyStationary) treats the coefs
+                        // as a (1 - phi B) AR polynomial, whose partial-autocorr
+                        // recursion divides by (1 - phi^2) and blows up at the unit
+                        // boundary.  Clamp any |PACF| >= 1 to 0.96 before mapping to
+                        // estimation space (a bad SARMA seed then just starts a bit
+                        // inside the invertible region instead of crashing).
+                        beta0aux1 = beta0aux;
+                        arToPacf(beta0aux1);
+                        ind = find(abs(beta0aux1) >= 1);
+                        if (ind.n_elem > 0){
+                                beta0aux1(ind) = sign(beta0aux1(ind)) * 0.96;
+                                pacfToAr(beta0aux1);
+                                beta0aux = beta0aux1;
+                        }
                         invPolyStationary(beta0aux);
                         aux = regspace<uvec>(ini + inputs.ar, 1, ini + inputs.ar + inputs.ma - 1);
                         SSmodel::inputs.p0(aux) = beta0aux;

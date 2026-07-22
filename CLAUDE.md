@@ -129,6 +129,45 @@ Header-only, all included from `src/musecpp2R.cpp`:
 - **Regressor matrix orientation.** User supplies (n × k); internally and in C++ it is (k × n).  The transpose happens once in `.pts_parse_data()` for training data and once in `.pts_forecast_inputs()` for `newdata`.
 - **Harmonic periods.** `lagsAll = lags / (1 : floor(lags/2))`.  The C++ engine may select a subset, but `lagsAll` always stores the full candidate set that was passed in.
 
+### Diffuse concentrated likelihood + the ARMA sign convention (the AR-on-irregular saga)
+
+Two coupled things, both settled — read before touching `llik()` (`src/SSpace.h`)
+or `polyStationary`/`invPolyStationary` (`src/ARMAmodel.h`).
+
+**1. The diffuse term is the exact-diffuse concentrated BCnorm likelihood.**
+`llik()`'s diffuse block carries `-0.5*nDiff*(log(2pi) + log(s2)) - 0.5*diffuseTerm`
+AND the Box-Cox Jacobian over all `n` observations.  The `-0.5*nDiff*log(s2)`
+piece is REQUIRED: the KF runs in concentrated (ratio) units, so each diffuse
+obs' determinant is `log|Finf,t| = log(s2) + log(Finf*,t)`; `s2 = SSR/n` is the
+MLE for this (all-`n`) form.  Dropping `log(s2)` (or the diffuse Jacobian) leaves
+a dangling monotone-in-lambda term that drove the joint Box-Cox lambda MLE to a
+bound (iid N(1000,50) -> lambda=2 not 1; Nile -> lambda=2 + spurious trend).
+As `s2 -> 0` on a degenerate short-series fit this term -> +Inf ("+986 positive
+logLik"); a weakly-informative inverse-gamma ridge on `s2`
+(`s2 = (SSR + nu0*s0sq)/(n+nu0)`, `nu0=1`, `s0sq = 1e-4*Var(g(y))`) bounds it.
+
+**2. The AR sign flip was an INIT/CONVENTION bug, not the likelihood.**
+On stationary AR(1)=+phi data, `pts(y, model="1NN", orders=list(ar=1))` used to
+return `AR(1) ~ -phi` with a non-collapsed `$B["Level"]`.  Cause: the ARMA seed
+(sample PACF, standard `(1 - phi B)`) was fed to `invPolyStationary`, which then
+used the internal `(1 + phi B)` form, so a correct `+phi` seed landed in the
+`-phi` basin.  For pure-structural models the optimiser escaped it; under the
+(correct) diffuse `log(s2)` term that basin is a local min it can't leave, so the
+RW level stays active and the AR flips (the RW-level-vs-AR identification
+manifold: over-detrending a positively-autocorrelated series induces negative
+lag-1 autocorrelation -- `arima(diff(y),c(1,0,0))` confirms it).
+
+**The fix (do NOT revert):** `polyStationary`/`invPolyStationary` now work in the
+STANDARD conventions -- AR `(1 - phi B)`, MA `(1 + theta B)` -- so the internal
+parameter equals the reported coefficient.  Consequences kept in sync:
+`armaMatrices` builds `T = +col` (AR) and `R = +col` (MA); `musecore.h` reporting
+and `parameterValues` emit the coefs with no sign flip; `setEstimatedParams` does
+no AR flip.  The MA seed clamps its `arToPacf` input to the invertible region
+(`|PACF| < 1`) exactly like the AR seed -- without it a 2-block SARMA MA seed
+crashes in `invPolyStationary` (division by `1 - phi^2` at the unit boundary).
+Verified: AR(1)=0.7 -> +0.67, MA(1)=+0.5 -> +0.4x, ARMA(2,2) signs correct, all
+matching `arima`; R + Python parity intact.
+
 ### Documentation generation
 
 `man/` is generated from roxygen comments — never edit `.Rd` files by hand. Shared roxygen fragments live in `man-roxygen/` (e.g. `authors.R`, `keywords.R`) and are included via `@template authors`. `DESCRIPTION` sets `Roxygen: list(old_usage = TRUE)`, so generated usage sections use the legacy style — don't switch it.
