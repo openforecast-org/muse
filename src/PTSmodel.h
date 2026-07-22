@@ -139,7 +139,7 @@ public:
         // Check whether re-estimation is necessary
         void checkModel(uvec);
         // Components
-        void components();
+        void components(bool smoothedVar = false);
         // Covariance of parameters (inverse of hessian)
         mat parCov(vec&);
         // Finding true parameter values out of transformed parameters
@@ -1819,11 +1819,17 @@ void BSMclass::estimOutlier(vec p0, bool VERBOSE){
         // SSmodel::inputs.u = bestU;
 }
 // Components
-void BSMclass::components(){
-        // components consumes only smoothed states (inputs.a); inputs.P feeds
-        // the dead compV.  Request the fast state smoother (skips the O(m^3)
-        // backward Nt recursion + smoothed-variance work).
-        SSmodel::inputs.stateOnly = true;
+void BSMclass::components(bool smoothedVar){
+        // components consumes the smoothed states (inputs.a) and, into compV,
+        // the state variances from inputs.P.
+        //   smoothedVar = false (default): fast state smoother (stateOnly) --
+        //     skips the O(m^3) backward Nt recursion, so inputs.P holds the
+        //     one-sided FILTERED state variances.  Cheap; enough to show e.g.
+        //     the prediction variance widening over a missing block.
+        //   smoothedVar = true: run the FULL smoother so the Nt recursion fills
+        //     inputs.P with the two-sided SMOOTHED variances P_{t|T} (used for
+        //     component confidence bands).  O(m^3), hence gated behind the flag.
+        SSmodel::inputs.stateOnly = !smoothedVar;
         SSmodel::smooth(true);
         SSmodel::inputs.stateOnly = false;
         int nCycles = sum(inputs.rhos < 0), k = SSmodel::inputs.u.n_rows;

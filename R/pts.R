@@ -164,6 +164,7 @@ pts <- function(data,
                 h          = 0,
                 holdout    = FALSE,
                 verbose    = FALSE,
+                componentVariance = FALSE,
                 ...){
     cl  <- match.call()
     tic <- proc.time()
@@ -404,6 +405,7 @@ pts <- function(data,
                     B         = B,
                     uFuture   = u_held,   # future xreg for the auto-forecast
                     biasadj   = biasadj,
+                    compVarSmoothed = isTRUE(componentVariance),
                     verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).
     # When h == 0 we still populate $forecast with a 1-period NA placeholder
@@ -519,6 +521,7 @@ pts <- function(data,
         fitted     = res$fitted,        # original scale (back-transformed)
         residuals  = res$residuals,     # BC scale (engine innovations)
         comp       = res$comp,          # pts-specific BC-scale additive decomposition
+        compV      = res$compV,         # component state variances (filtered, or smoothed if componentVariance=TRUE)
         states     = statesMat,         # adam-aligned structural state evolution
         ## --- forecast convenience cache (NULL when pts is called with h = 0) ---
         forecast     = cachedFor,
