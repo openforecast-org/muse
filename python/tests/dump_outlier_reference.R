@@ -14,7 +14,7 @@ for (cs in cases) {
              outliers = "use", level = cs$level)
     out[[cs$name]] <- list(
         model     = m$model,
-        nParam    = m$nParam,
+        nParam    = nparam(m),
         logLik    = as.numeric(logLik(m)),
         coefNames = names(coef(m)),
         coef      = as.numeric(coef(m)),

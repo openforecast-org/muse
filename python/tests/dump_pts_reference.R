@@ -53,7 +53,7 @@ for (sp in specs) {
         AICc     = as.numeric(greybox::AICc(m)),
         BICc     = as.numeric(greybox::BICc(m)),
         nobs     = nobs(m),
-        nParam   = m$nParam,
+        nParam   = nparam(m),
         sigma    = as.numeric(sigma(m)),
         fitted   = as.numeric(fitted(m)),
         residuals = as.numeric(residuals(m)),
