@@ -54,6 +54,10 @@ struct MuseInputs {
     // R-side guard (set to 1e-10 when y has zeros).  Plumbed straight
     // into SSinputs::lambdaLower.
     double       lambdaLower = -arma::datum::inf;
+    // When true, components() runs the full backward smoother so compV holds
+    // the two-sided SMOOTHED state variances P_{t|T} (for component confidence
+    // bands).  Default false = fast state smoother, filtered variances only.
+    bool         compVarSmoothed = false;
     // Terminal-state cache (forecastOnly): when aEndIn is non-empty, the
     // engine reuses it (and PEndIn / innVarIn / betaAugIn) instead of
     // re-filtering the whole series -- so forecast.pts / predict() are O(h)
@@ -117,6 +121,7 @@ struct MuseOutputs {
     // components / all
     bool                    hasComponents = false;
     arma::mat               comp;
+    arma::mat               compV;   // state variances (filtered, or smoothed if requested)
     int                     m = 0;
     std::string             compNames;
 
@@ -365,14 +370,14 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
 
     // -- components (part of "all") --
     if (command == "all"){
-        sysBSM.components();
+        sysBSM.components(in.compVarSmoothed);
         inputs2 = sysBSM.getInputs();
         string compNames = inputs2.compNames;
         if (iniObs > 0){
             inputs = sysBSM.SSmodel::getInputs();
             uvec missing = find_nonfinite(inputs.y.rows(0, iniObs));
             sysBSM.interpolate(iniObs);
-            sysBSM.components();
+            sysBSM.components(in.compVarSmoothed);
             inputs2 = sysBSM.getInputs();
             uvec rowI(1); rowI(0) = 0;
             if (compNames.find("Level")    != string::npos) rowI++;
@@ -384,6 +389,7 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         }
         out.hasComponents = true;
         out.comp      = inputs2.comp;
+        out.compV     = inputs2.compV;
         out.m         = static_cast<int>(inputs2.comp.n_rows);
         out.compNames = compNames;
     }

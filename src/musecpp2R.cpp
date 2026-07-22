@@ -26,7 +26,8 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
             SEXP trendOptionss, SEXP seasonalOptionss,
             SEXP irregularOptionss,
             SEXP nsims, SEXP seeds, SEXP lambdaLowers,
-            SEXP aEndIns, SEXP PEndIns, SEXP innVarIns, SEXP betaAugIns){
+            SEXP aEndIns, SEXP PEndIns, SEXP innVarIns, SEXP betaAugIns,
+            SEXP compVarSmootheds){
 
     // --- Marshall SEXP -> MuseInputs (no engine logic in this file) ---
     MuseInputs in;
@@ -58,6 +59,7 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
     in.nsim             = as<int>(nsims);
     in.seed             = static_cast<unsigned>(as<int>(seeds));
     in.lambdaLower      = as<double>(lambdaLowers);   // -Inf sentinel = no bound
+    in.compVarSmoothed  = as<bool>(compVarSmootheds); // TRUE => smoothed compV bands
     // Terminal-state cache (empty aEnd => no cache => full re-filter).
     in.aEndIn           = vec(aEndr.begin(), aEndr.size(), false);
     in.PEndIn           = mat(PEndr.begin(), PEndr.nrow(), PEndr.ncol(), false);
@@ -102,6 +104,7 @@ SEXP UCompC(SEXP commands, SEXP ys, SEXP us, SEXP models, SEXP hs,
     }
     if (out.hasComponents){
         output("comp")      = out.comp;
+        output("compV")     = out.compV;
         output("m")         = out.m;
         output("compNames") = out.compNames;
     }

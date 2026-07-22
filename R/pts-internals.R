@@ -159,7 +159,8 @@
                            verbose, armaIdent,
                            irregularOptions = "arma(0,0)",
                            outlier = 0,
-                           lambdaLower = -Inf){
+                           lambdaLower = -Inf,
+                           compVarSmoothed = FALSE){
     # u: NULL -> sentinel matrix; vector -> row matrix; otherwise pass through
     if (is.null(u)){
         u_mat <- matrix(0, 1, 2)
@@ -192,7 +193,8 @@
         trendOptions     = "rw/llt/srw/td",
         seasonalOptions  = "none/linear/equal",
         irregularOptions = irregularOptions,
-        lambdaLower      = as.numeric(lambdaLower)
+        lambdaLower      = as.numeric(lambdaLower),
+        compVarSmoothed  = isTRUE(compVarSmoothed)
     )
 }
 
@@ -212,7 +214,10 @@
            if (is.null(args$aEnd)) numeric(0) else as.numeric(args$aEnd),
            if (is.null(args$PEnd)) matrix(0, 0, 0) else as.matrix(args$PEnd),
            if (is.null(args$innVar)) -1 else as.numeric(args$innVar),
-           if (is.null(args$betaAug)) numeric(0) else as.numeric(args$betaAug))
+           if (is.null(args$betaAug)) numeric(0) else as.numeric(args$betaAug),
+           # compVarSmoothed: TRUE => full backward smoother for two-sided
+           # smoothed component variances (bands); FALSE => fast filtered.
+           isTRUE(args$compVarSmoothed))
 }
 
 # .pts_resolve_class: mirror adam's input-class resolution at
@@ -462,7 +467,7 @@
 .pts_fit <- function(y, u, model, lags, h, criterion, armaIdent, verbose,
                      ar = 0L, ma = 0L, armaLags = 1L, outlier = 0,
                      lambdaLower = -Inf, B = NULL, uFuture = NULL,
-                     biasadj = FALSE){
+                     biasadj = FALSE, compVarSmoothed = FALSE){
     # Flatten per-lag ar / ma vectors into the format pts_to_uc consumes:
     #   length-1 lags -> c(p, q)         (non-seasonal arma(p,q))
     #   length-2 lags -> c(p, q, P, Q, s) (sarma(p,q)(P,Q)_s)
@@ -479,7 +484,8 @@
                                .pts_arma_candidates(ar, ma, armaLags,
                                                     armaIdent),
                            outlier = outlier,
-                           lambdaLower = lambdaLower)
+                           lambdaLower = lambdaLower,
+                           compVarSmoothed = compVarSmoothed)
     # Override the default sentinel (-9999.9) when the caller supplied an
     # explicit starting vector via `B` (adam-style internal hatch, passed
     # through pts(... , B = ...) and used by the loss-surface experiment
@@ -559,6 +565,14 @@
     rawComp <- .pts_ts_comp(out$comp, out$m, y, h)
     colnames(rawComp) <- strsplit(out$compNames, "/")[[1]]
     comp <- .pts_build_comp(rawComp, v)
+    # Component state variances (filtered by default; smoothed P_{t|T} when
+    # compVarSmoothed=TRUE was requested).  Same layout as the raw component
+    # matrix, so reshape identically and label with the component names.
+    compV <- if (!is.null(out$compV) && length(out$compV) > 0L){
+        cv <- .pts_ts_comp(out$compV, out$m, y, h)
+        colnames(cv) <- strsplit(out$compNames, "/")[[1]]
+        cv
+    } else NULL
     # fitted on the original scale (back-transformed from comp[, "Fit"]).
     # residuals stay as the engine's BC-scale innovations -- they are the
     # white-noise sequence used by the validation table's diagnostics.
@@ -631,6 +645,7 @@
         yFor         = yFor,           # original scale (length h, possibly 0)
         v            = v,
         comp         = comp,           # BC scale, additive
+        compV        = compV,          # component state variances (BC scale) or NULL
         fitted       = fitted,         # original scale
         residuals    = residuals,      # BC scale (engine innovations)
         scale        = scale,          # MLE sigma on the BC scale
