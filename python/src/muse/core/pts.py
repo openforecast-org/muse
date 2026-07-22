@@ -62,6 +62,7 @@ class PTS:
         h: int = 0,
         holdout: bool = False,
         verbose: bool = False,
+        component_variance: bool = False,
     ):
         self.model = model
         self.lags = lags
@@ -82,6 +83,9 @@ class PTS:
         self.h = int(h)
         self.holdout = bool(holdout)
         self.verbose = bool(verbose)
+        # When True, components carry SMOOTHED state variances P_{t|T} (for
+        # confidence bands); default False = fast filtered variances.
+        self.component_variance = bool(component_variance)
         self._fit = None  # populated by fit()
 
     # ---- fit ------------------------------------------------------------
@@ -187,13 +191,30 @@ class PTS:
             arma_lags = [int(v) for v in np.atleast_1d(sel["lags"])]
 
         # outlier detection threshold (adam-style level -> two-sided z).
-        # The lambda screen above already pins lambda to a number before the
-        # engine runs, so R's joint-lambda + outlier workaround is moot here.
         from scipy.stats import norm
 
         outlier_z = 0.0 if self.outliers == "ignore" else float(norm.ppf((1 + self.level) / 2))
 
+        # Mirror R's joint-lambda + outlier workaround (pts.R): the engine's
+        # outlier-injection refit has a parameter-vector dimensionality bug when
+        # it is ALSO jointly estimating lambda -- the extra lambda slot doesn't
+        # survive the dummy injection and the BFGS aborts (4x1 vs 3x1).  A
+        # numeric lambda screen already pins lambda, but the default
+        # lambda_estim="likelihood" leaves the "Z" power for the engine, so when
+        # outliers are requested with an auto-lambda power we pin lambda first
+        # from a quick no-outlier fit, then rewrite the spec with that number.
         arma_tuple, irregular = translate.arma_spec(ar_v, ma_v, arma_lags)
+        nm_s = len(model_str)
+        if outlier_z > 0 and model_str[: nm_s - 2].lower() == "z":
+            model_uc0, lam0 = translate.pts_to_uc(model_str, arma_orders=arma_tuple)
+            pre = self._engine(
+                y, self._u, model_uc0, lam0, lags, criterion, irregular,
+                arma_ident=False, outlier=0.0, lambda_lower=lambda_lower,
+            )
+            lam_chosen = round(float(pre["lambda"]), 4)
+            model_str = _fmt_lambda_str(lam_chosen) + model_str[nm_s - 2 :]
+            arma_tuple, irregular = translate.arma_spec(ar_v, ma_v, arma_lags)
+
         model_uc, lam = translate.pts_to_uc(model_str, arma_orders=arma_tuple)
         out = self._engine(
             y,
@@ -206,6 +227,7 @@ class PTS:
             arma_ident=False,
             outlier=outlier_z,
             lambda_lower=lambda_lower,
+            comp_var_smoothed=self.component_variance,
         )
         if out.get("model") == "error":
             raise RuntimeError("muse engine returned an error for this spec.")
@@ -267,6 +289,7 @@ class PTS:
         arma_ident,
         outlier=0.0,
         lambda_lower=-math.inf,
+        comp_var_smoothed=False,
     ):
         periods = lags / np.arange(1, max(1, lags // 2) + 1)
         rhos = np.ones_like(periods)
@@ -294,6 +317,7 @@ class PTS:
             1,
             0,
             float(lambda_lower),
+            compVarSmoothed=bool(comp_var_smoothed),
         )
 
     def _arma_candidate(self):
@@ -698,6 +722,17 @@ class PTS:
         v = np.asarray(out["v"], dtype=float)
         self._comp, self._comp_names = _build_comp(comp, names, v)
 
+        # Component state variances (filtered, or smoothed if
+        # component_variance=True was requested).  Same (m x T) -> (T x m)
+        # reshape as comp; labelled by the component names.  None if absent.
+        cv_raw = out.get("compV", None)
+        if cv_raw is not None and np.asarray(cv_raw, dtype=float).size > 0:
+            self._comp_v = np.asarray(cv_raw, dtype=float).T  # (T, m)
+            self._comp_v_names = list(names)
+        else:
+            self._comp_v = None
+            self._comp_v_names = None
+
         ns = len(y_train)
         error = self._comp[:, 0]
         fit_bc = self._comp[:, 1]
@@ -827,6 +862,15 @@ class PTS:
     @property
     def comp(self):
         return self._comp, self._comp_names
+
+    @property
+    def comp_variance(self):
+        """Component state variances (T x m) and their names, or (None, None).
+
+        Filtered variances by default; smoothed P_{t|T} when the model was
+        constructed with component_variance=True.  Mirrors R's `$compV`.
+        """
+        return self._comp_v, self._comp_v_names
 
     @property
     def orders(self):
