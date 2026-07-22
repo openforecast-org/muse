@@ -99,6 +99,11 @@
 #' observations of \code{data} are withheld from estimation and returned in
 #' \code{$holdout} for later accuracy assessment.
 #' @param verbose logical: print intermediate optimisation output.
+#' @param componentVariance logical (default \code{FALSE}).  When \code{TRUE}
+#'   the fitted object gains a \code{$compV} matrix of two-sided \emph{smoothed}
+#'   state variances \eqn{P_{t|T}} (for component confidence bands), obtained by
+#'   running the full backward smoother.  When \code{FALSE} the cheaper filtered
+#'   variances are returned in \code{$compV} instead.
 #' @param ... advanced / undocumented passthroughs.  Supported keys:
 #' \itemize{
 #'   \item \code{B} - numeric vector of starting values for the optimiser
@@ -164,6 +169,7 @@ pts <- function(data,
                 h          = 0,
                 holdout    = FALSE,
                 verbose    = FALSE,
+                componentVariance = FALSE,
                 ...){
     cl  <- match.call()
     tic <- proc.time()
@@ -404,6 +410,7 @@ pts <- function(data,
                     B         = B,
                     uFuture   = u_held,   # future xreg for the auto-forecast
                     biasadj   = biasadj,
+                    compVarSmoothed = isTRUE(componentVariance),
                     verbose   = verbose)
     # When h > 0 we cache the engine's forecast (length h, original scale).
     # When h == 0 we still populate $forecast with a 1-period NA placeholder
@@ -519,6 +526,7 @@ pts <- function(data,
         fitted     = res$fitted,        # original scale (back-transformed)
         residuals  = res$residuals,     # BC scale (engine innovations)
         comp       = res$comp,          # pts-specific BC-scale additive decomposition
+        compV      = res$compV,         # component state variances (filtered, or smoothed if componentVariance=TRUE)
         states     = statesMat,         # adam-aligned structural state evolution
         ## --- forecast convenience cache (NULL when pts is called with h = 0) ---
         forecast     = cachedFor,

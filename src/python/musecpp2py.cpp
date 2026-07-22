@@ -94,7 +94,8 @@ static py::dict ucomp(std::string command,
                       py::array_t<double> aEndIn,
                       py::array_t<double> PEndIn,
                       double innVarIn,
-                      py::array_t<double> betaAugIn) {
+                      py::array_t<double> betaAugIn,
+                      bool compVarSmoothed) {
     MuseInputs in;
     in.command          = command;
     in.y                = np_to_vec(y);
@@ -124,6 +125,7 @@ static py::dict ucomp(std::string command,
     in.PEndIn           = np_to_mat(PEndIn);
     in.innVarIn         = innVarIn;
     in.betaAugIn        = np_to_vec(betaAugIn);
+    in.compVarSmoothed  = compVarSmoothed;
 
     MuseOutputs out;
     runMuseCommand(in, out);
@@ -161,6 +163,7 @@ static py::dict ucomp(std::string command,
     }
     if (out.hasComponents) {
         d["comp"]      = mat_to_np(out.comp);
+        d["compV"]     = mat_to_np(out.compV);
         d["m"]         = out.m;
         d["compNames"] = out.compNames;
     }
@@ -228,5 +231,6 @@ PYBIND11_MODULE(_musecore, mod) {
             py::arg("aEndIn")    = py::array_t<double>(),
             py::arg("PEndIn")    = py::array_t<double>(),
             py::arg("innVarIn")  = -1.0,
-            py::arg("betaAugIn") = py::array_t<double>());
+            py::arg("betaAugIn") = py::array_t<double>(),
+            py::arg("compVarSmoothed") = false);
 }

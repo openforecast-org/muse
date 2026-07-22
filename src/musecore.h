@@ -54,6 +54,10 @@ struct MuseInputs {
     // R-side guard (set to 1e-10 when y has zeros).  Plumbed straight
     // into SSinputs::lambdaLower.
     double       lambdaLower = -arma::datum::inf;
+    // When true, components() runs the full backward smoother so compV holds
+    // the two-sided SMOOTHED state variances P_{t|T} (for component confidence
+    // bands).  Default false = fast state smoother, filtered variances only.
+    bool         compVarSmoothed = false;
     // Terminal-state cache (forecastOnly): when aEndIn is non-empty, the
     // engine reuses it (and PEndIn / innVarIn / betaAugIn) instead of
     // re-filtering the whole series -- so forecast.pts / predict() are O(h)
@@ -117,6 +121,7 @@ struct MuseOutputs {
     // components / all
     bool                    hasComponents = false;
     arma::mat               comp;
+    arma::mat               compV;   // state variances (filtered, or smoothed if requested)
     int                     m = 0;
     std::string             compNames;
 
@@ -319,27 +324,9 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         out.v     = inputs.v;
         out.covp  = inputs.covp;
         out.coef  = inputs.coef;
-        // Report AR/SAR coefficients in the standard (1 - phi B) convention.
-        // The engine stores them internally in the (1 + phi B) form
-        // (polyStationary negates, armaMatrices builds T = -col), so the
-        // reported coefficient is the negative of the standard one.  Flip the
-        // AR/SAR slice [nparCum(2)+1 .. +ar] for output (MA is already standard
-        // -- armaMatrices uses R = +col).  setEstimatedParams() flips it back
-        // when a fitted object's coefficients are fed to forecastOnly, so the
-        // round-trip is exact and forecasts are unaffected.
-        if (inputs2.ar > 0){
-            vec ncum = cumsum(inputs2.nPar);
-            uword a0 = (uword)ncum(2) + 1;
-            uword a1 = a0 + (uword)inputs2.ar - 1;
-            if (a1 < out.coef.n_elem)
-                out.coef.rows(a0, a1) *= -1.0;
-            // Keep covp consistent: Cov(-AR_i, x) = -Cov(AR_i, x); the AR-AR
-            // block and AR variances are unchanged (negated on both row & col).
-            if (out.covp.n_rows > a1 && out.covp.n_cols > a1){
-                out.covp.rows(a0, a1) *= -1.0;
-                out.covp.cols(a0, a1) *= -1.0;
-            }
-        }
+        // AR/SAR are stored internally in the standard (1 - phi B) convention
+        // (polyStationary now returns +phi) and MA in (1 + theta B), so
+        // inputs.coef is already in the reported convention -- no sign flip.
         // Outlier detection populated by estimOutlier() — empty matrix
         // when in.outlier == 0 or nothing was detected.
         out.typeOutliers = inputs2.typeOutliers;
@@ -365,14 +352,14 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
 
     // -- components (part of "all") --
     if (command == "all"){
-        sysBSM.components();
+        sysBSM.components(in.compVarSmoothed);
         inputs2 = sysBSM.getInputs();
         string compNames = inputs2.compNames;
         if (iniObs > 0){
             inputs = sysBSM.SSmodel::getInputs();
             uvec missing = find_nonfinite(inputs.y.rows(0, iniObs));
             sysBSM.interpolate(iniObs);
-            sysBSM.components();
+            sysBSM.components(in.compVarSmoothed);
             inputs2 = sysBSM.getInputs();
             uvec rowI(1); rowI(0) = 0;
             if (compNames.find("Level")    != string::npos) rowI++;
@@ -384,6 +371,7 @@ inline void runMuseCommand(MuseInputs in, MuseOutputs& out){
         }
         out.hasComponents = true;
         out.comp      = inputs2.comp;
+        out.compV     = inputs2.compV;
         out.m         = static_cast<int>(inputs2.comp.n_rows);
         out.compNames = compNames;
     }
@@ -587,7 +575,7 @@ inline void runArmaScore(arma::vec y, arma::ivec arOrders, arma::ivec maOrders,
             if (pi == 0) continue;
             vec block = sysOut.p.rows(pIn, pIn + pi - 1);
             polyStationary(block);
-            for (int j = 0; j < pi; ++j) coef(pOut++) = -block(j);
+            for (int j = 0; j < pi; ++j) coef(pOut++) = block(j);   // AR (1 - phi B)
             pIn += pi;
         }
         for (uword b = 0; b < maOrders.n_elem; ++b){

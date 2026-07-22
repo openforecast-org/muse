@@ -707,7 +707,31 @@ double llik(vec& p, void* opt_data){
       data->logJac = logJac;
   }
   if (data->cLlik){         // Concentrated Likelihood (MLE)
-      data->innVariance = v2F(0, 0) / nFinite;
+      data->innVariance = v2F(0, 0) / nFinite;   // plain MLE SSR / n
+      // Weakly-informative inverse-gamma prior on the concentrated variance:
+      //   s2 = (SSR + nu0*s0sq) / (n + nu0)      (penalised / MAP estimate).
+      // On a degenerate fit (a flexible model interpolating a short series)
+      // SSR -> 0, so the plain MLE s2 -> 0 and log(s2) -> -Inf, which the diffuse
+      // term -0.5*nDiff*log(s2) turns into a spurious +Inf log-likelihood (the
+      // "+986 positive logLik" singularity).  The prior bounds s2 away from 0
+      // smoothly (no hard cliff): as SSR -> 0, s2 -> nu0*s0sq/(n+nu0) > 0, while
+      // healthy fits (SSR >> nu0*s0sq) are left essentially untouched.  The prior
+      // scale s0sq is data-relative (a small fraction of the transformed-data
+      // variance) so it tracks lambda / data magnitude -- s2 spans many orders of
+      // magnitude across lambda, so a fixed absolute prior would be meaningless.
+      // NOTE: the density below is evaluated explicitly at this s2 (not via the
+      // -n/2 log s2 MLE shortcut), so the reported logLik is the honest penalised
+      // likelihood at the ridged s2.  The analytic gradient's concentrated-MLE
+      // first-order condition (dLL/ds2 = 0) is only mildly violated in the
+      // degenerate corner (ridge ~ 0 for healthy fits), where the model is being
+      // rejected anyway.
+      {
+          uvec finMask = find_finite(data->y);
+          double s0sq = 1e-4 * arma::var(data->y.elem(finMask));  // prior scale
+          double nu0  = 1.0;                                       // prior strength: 1 pseudo-obs
+          if (std::isfinite(s0sq) && s0sq > 0.0)
+              data->innVariance = (v2F(0, 0) + nu0 * s0sq) / (nFinite + nu0);
+      }
       const double s2 = data->innVariance;
       // Objective = the BCnorm log-likelihood (the C++ analogue of adam()'s
       // loss = "likelihood": the concentrated scale s2 is plugged straight into
@@ -727,21 +751,24 @@ double llik(vec& p, void* opt_data){
                           yr.elem(ndIdx),
                           data->y.elem(ndIdx) - data->v.elem(ndIdx),
                           sqrt(s2 * data->F.elem(ndIdx)), lam));
-      // Diffuse observations are consumed estimating the diffuse initial state:
-      // they carry no data-fit term, only the log|Finf| determinant (==
-      // diffuseTerm) plus their BoxCox Jacobian.  The determinant is NOT scaled
-      // by the concentrated variance s2 -- the exact-diffuse likelihood
-      // convention (Durbin-Koopman): only the n - d_t non-diffuse observations
-      // carry the s2 scale.  The previous form added -0.5*nDiff*log(s2), which
-      // is harmless near s2 ~ 1 but, when the optimiser drives s2 to an extreme
-      // corner (a degenerate trend whose observation variance has collapsed),
-      // injected a large spurious +likelihood -- the +986 "positive logLik" on
-      // strongly seasonal series.
+      // Diffuse observations are consumed estimating the diffuse initial state.
+      // They carry the log|Finf| determinant (== diffuseTerm) AND their BoxCox
+      // Jacobian AND the concentrated-variance scale term -0.5*nDiff*log(s2).
+      // The s2 scale is REQUIRED: the KF runs in concentrated (ratio) units so
+      // Finf is scale-free, and each diffuse obs' determinant is
+      // log|Finf,t| = log(s2) + log(Finf*,t); dropping the log(s2) piece leaves
+      // the full-scale BoxCox Jacobian (lambda-1)*sum_{t<=d} log(y_t) dangling
+      // with nothing to balance it -- a monotone-in-lambda term that biases the
+      // BoxCox lambda MLE (worse the more diffuse states there are).  This is the
+      // exact-diffuse concentrated BCnorm marginal likelihood.  NOTE: as s2 -> 0
+      // (a collapsed/degenerate variance) log(s2) -> -Inf; guarded by the s2
+      // floor at its formation above if needed.
       uvec dIdx = finiteIdx.elem(find(maskFin < 0.5));
       if (!dIdx.is_empty()){
           double nDiff = (double)dIdx.n_elem;
           LL += sum(bcnormLogJac(yr.elem(dIdx), lam))
                 - 0.5 * nDiff * std::log(2.0 * datum::pi)
+                - 0.5 * nDiff * std::log(s2)
                 - 0.5 * diffuseTerm;
       }
       llikValue(0, 0) = -2.0 * LL / nFinite - std::log(2.0 * datum::pi);
