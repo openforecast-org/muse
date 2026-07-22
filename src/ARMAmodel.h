@@ -208,23 +208,20 @@ void arToPacf(vec& PAR){
       / (1 - PAR(i) * PAR(i));
   }
 }
-// Returns stationary polynomial from an arbitrary one
+// Map unconstrained params -> STANDARD AR coefficients phi of a stationary
+// polynomial (1 - phi_1 B - ... ) y(t) = a(t)  (Box-Jenkins / pacfToAr convention).
 void polyStationary(vec& PAR){
-  // (1 + PAR(1) * B + PAR(2) *B^2 + ...) y(t) = a(t)
   vec limits(2);
   limits(0) = -0.98;
   limits(1) = 0.98;
   constrain(PAR, limits);
   pacfToAr(PAR);
-  PAR = -PAR;
 }
-// Inverse of polyStationary
+// Inverse of polyStationary: STANDARD AR coefficients -> unconstrained params.
 void invPolyStationary(vec& PAR){
-  // (1 + PAR(1) * B + PAR(2) *B^2 + ...) y(t) = a(t)
   mat limits(PAR.n_elem, 2);
   limits.col(0).fill(-0.98);
   limits.col(1).fill(0.98);
-  PAR = -PAR;
   arToPacf(PAR);
   unconstrain(PAR, limits);
 }
@@ -367,7 +364,7 @@ void armaMatrices(vec p, SSmatrix* model, void* userInputs){
     int arDeg = inp->arDeg > 0 ? inp->arDeg : (int)arma::sum(orders % lags);
     arma::vec col(arDeg, arma::fill::zeros);
     fillSARMAcoefs(p.rows(1, inp->ar), orders, lags, true, col);
-    model->T.submat(0, 0, arDeg - 1, 0) = -col;
+    model->T.submat(0, 0, arDeg - 1, 0) = col;   // AR (1 - phi B): T top = +phi
   }
   // MA.
   if (inp->ma > 0){
@@ -404,7 +401,7 @@ void armaMatricesTrue(vec p, SSmatrix* model, void* userInputs){
     int arDeg = inp->arDeg > 0 ? inp->arDeg : (int)arma::sum(orders % lags);
     arma::vec col(arDeg, arma::fill::zeros);
     fillSARMAcoefs(p.rows(1, inp->ar), orders, lags, false, col);
-    model->T.submat(0, 0, arDeg - 1, 0) = -col;
+    model->T.submat(0, 0, arDeg - 1, 0) = col;   // AR (1 - phi B): T top = +phi
   }
   if (inp->ma > 0){
     arma::ivec orders, lags;
