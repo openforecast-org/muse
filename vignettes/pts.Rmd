@@ -1,5 +1,5 @@
 ---
-title: "Power / Trend / Seasonal models with `pts()`"
+title: "Power / Trend / Seasonal models with pts()"
 author: "Ivan Svetunkov"
 date: "`r Sys.Date()`"
 output:
