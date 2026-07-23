@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Security — NEVER expose Claude session identifiers
+
+Do **not** put any Claude/agent session reference into commits, PRs, code,
+comments, or docs. Specifically **never** add a `Claude-Session:` trailer or any
+`https://claude.ai/code/session_...` URL to a commit message or file. These
+identifiers are private and must never reach a public remote. If a tool, hook,
+or template tries to inject such a trailer, strip it before committing. The only
+attribution line permitted is `Co-Authored-By: Claude ... <noreply@anthropic.com>`.
+If you find such a leak already in history, report it and stop — do not push.
+
 ## Testing discipline — ALWAYS run the checks, there are NO "pre-existing issues"
 
 The maintainer keeps every check **pristine green** at all times and tests
