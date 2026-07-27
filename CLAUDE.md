@@ -51,11 +51,28 @@ structures, parameter naming, or cross-file coupling, update the relevant sectio
 must be added in two places), update the "Coupling rules" table.  If a new invariant
 is discovered, add it to "Key invariants".  Stale documentation is worse than none.
 
-## NEWS
+## NEWS — ALWAYS update it in the same commit as the code
 
 Any user-visible change (new function, new argument, behaviour change, bug fix,
-deprecation) gets one line in `NEWS` under the in-development version, in the
-same commit.  Internal refactors with no user-visible effect can be skipped.
+deprecation) gets an entry under the in-development version, in the **same
+commit as the code**.  Never leave it "for later" — a change that ships without
+a NEWS line is not finished.  Both files, whenever the change touches both
+sides:
+
+- R: `NEWS` (plain text, `muse vX.Y.Z` heading).
+- Python: `python/NEWS.md` (Markdown, `## X.Y.Z` heading).
+
+A shared C++ engine change is user-visible in **both**, so it needs an entry in
+both files; say so explicitly in the text (e.g. "Shared C++ engine, identical
+in R and Python").  Internal refactors with no user-visible effect can be
+skipped.
+
+**Keep entries short but informative.**  Aim for 2-5 lines: what changed, why it
+mattered (the symptom a user would have seen), and one concrete number or
+example if there is one.  Name the affected argument / object slot in backticks.
+Do not paste commit-message rationale, implementation details, file paths, or a
+narrative of the debugging — that belongs in the commit message and
+`ARCHITECTURE.md`, not in `NEWS`.
 
 ## Common commands
 
