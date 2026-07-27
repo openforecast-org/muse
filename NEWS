@@ -1,5 +1,35 @@
+muse v0.1.1
+=======
+
+Changes:
+
+* Fixed Box-Cox lambda estimation bias.  Diffuse observations got their full
+  Box-Cox Jacobian but not the concentrated-variance scale term, leaving a
+  monotone-in-lambda term that pushed lambda to a bound (iid N(1000,50) gave
+  lambda=2 instead of 1; Nile gave lambda=2 plus a spurious global trend).
+  The exact-diffuse concentrated term is restored, and the variance is now
+  bounded by a weakly-informative inverse-gamma ridge so degenerate short-series
+  fits no longer return a positive log-likelihood.
+
+* Fixed the sign of AR/SAR coefficients on the irregular component.  The ARMA
+  seed was built in the standard (1 - phi B) convention but consumed in the
+  engine's internal (1 + phi B) one, stranding the optimiser in the wrong basin
+  (AR(1)=0.7 was reported as roughly -0.7 with a non-collapsed level).  The
+  engine now uses the standard AR (1 - phi B) / MA (1 + theta B) conventions
+  throughout, so coefficients match stats::arima.  Also fixes a crash in the MA
+  seed of two-block SARMA models.
+
+* New `componentVariance` argument to `pts()`.  The fitted object now carries
+  `$compV`, the component state variances on the Box-Cox scale (columns Level /
+  Slope / Seasonal / Irregular), for plotting component uncertainty bands.
+  Filtered variances by default; `componentVariance = TRUE` runs the full
+  backward recursion and returns the two-sided smoothed variances.
+
+
 muse v0.1.0
 =======
+
+Changes:
 
 * Joint maximum-likelihood Box-Cox lambda estimation: corrected the lambda
   gradient.  The optimiser's lambda derivative was a forward difference using
@@ -13,7 +43,7 @@ muse v0.1.0
   gradient is now taken as a central difference at the TOP of the gradient
   routine, from the clean state the objective leaves, before anything is
   perturbed; and the warm-start seed is kept out of the logistic's saturated
-  tails.  Shared C++ engine, so identical in R and Python.
+  tails.
 
 * Joint maximum-likelihood Box-Cox lambda estimation
   (`lambda_estim = "likelihood"`) now finds interior optima reliably.  The

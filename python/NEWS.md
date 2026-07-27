@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.1
+
+* **Fixed Box-Cox lambda estimation bias.** Diffuse observations got their full
+  Box-Cox Jacobian but not the concentrated-variance scale term, leaving a
+  monotone-in-lambda term that pushed lambda to a bound (iid `N(1000, 50)` gave
+  `lambda = 2` instead of 1; Nile gave `lambda = 2` plus a spurious global
+  trend). The exact-diffuse concentrated term is restored, and the variance is
+  bounded by a weakly-informative inverse-gamma ridge so degenerate short-series
+  fits no longer return a positive log-likelihood. Shared C++ engine, identical
+  to R.
+
+* **Fixed the sign of AR/SAR coefficients on the irregular component.** The
+  ARMA seed was built in the standard `(1 - phi B)` convention but consumed in
+  the engine's internal `(1 + phi B)` one, stranding the optimiser in the wrong
+  basin (`AR(1) = 0.7` was reported as roughly `-0.7`). The engine now uses the
+  standard AR `(1 - phi B)` / MA `(1 + theta B)` conventions throughout, so
+  coefficients follow the usual Box-Jenkins convention. Also fixes a crash in
+  the MA seed of two-block SARMA models. Shared C++ engine, identical to R.
+
+* **New `component_variance` argument** to `PTS(...)`, mirroring R's
+  `componentVariance`. The `comp_variance` property returns the component state
+  variances on the Box-Cox scale (Level / Slope / Seasonal / Irregular) for
+  component uncertainty bands: filtered by default, two-sided smoothed when
+  `component_variance=True`.
+
+* **Outlier detection with an auto Box-Cox power** (a `"Z"` power slot) now
+  pins lambda from a preliminary outlier-free fit before injecting the outlier
+  dummies, mirroring R and sidestepping an engine dimensionality bug.
+
 ## 0.1.0
 
 * **Joint ML Box-Cox lambda estimation: corrected lambda gradient.** The

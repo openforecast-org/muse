@@ -7,7 +7,7 @@ build-backend = "scikit_build_core.build"
 # stays `muse` (pip install py-muse; import muse) -- the wheel.packages
 # setting below keeps the importable package as src/muse.
 name = "py-muse"
-version = "0.1.0"
+version = "0.1.1"
 description = "Power / Trend / Seasonal (PTS) multiple-source-of-error state-space models"
 readme = "README.md"
 requires-python = ">=3.11"
