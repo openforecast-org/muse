@@ -208,8 +208,16 @@ class PTS:
         if outlier_z > 0 and model_str[: nm_s - 2].lower() == "z":
             model_uc0, lam0 = translate.pts_to_uc(model_str, arma_orders=arma_tuple)
             pre = self._engine(
-                y, self._u, model_uc0, lam0, lags, criterion, irregular,
-                arma_ident=False, outlier=0.0, lambda_lower=lambda_lower,
+                y,
+                self._u,
+                model_uc0,
+                lam0,
+                lags,
+                criterion,
+                irregular,
+                arma_ident=False,
+                outlier=0.0,
+                lambda_lower=lambda_lower,
             )
             lam_chosen = round(float(pre["lambda"]), 4)
             model_str = _fmt_lambda_str(lam_chosen) + model_str[nm_s - 2 :]
