@@ -12,6 +12,7 @@ description = "Power / Trend / Seasonal (PTS) multiple-source-of-error state-spa
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Ivan Svetunkov", email = "ivan@svetunkov.com" }]
+maintainers = [{ name = "Ivan Svetunkov", email = "ivan@svetunkov.com" }]
 license = { text = "LGPL-2.1" }
 keywords = ["forecasting", "time-series", "state-space", "box-cox", "PTS"]
 classifiers = [
@@ -34,6 +35,12 @@ dependencies = [
 selection = ["smooth"]
 accuracy = ["greybox"]
 test = ["pytest"]
+
+[project.urls]
+Homepage   = "https://openforecast.org/"
+Repository = "https://github.com/openforecast-org/muse"
+Issues     = "https://github.com/openforecast-org/muse/issues"
+ORCID      = "https://orcid.org/0000-0001-7826-0281"
 
 [tool.scikit-build]
 cmake.version = ">=3.16"
