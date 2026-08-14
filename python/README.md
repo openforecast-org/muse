@@ -188,3 +188,7 @@ Responsibility for the code and its correctness rests with the package authors.
 ## License
 
 LGPL-2.1. See [LICENSE](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html).
+
+## About
+
+`muse` is developed and maintained by OpenForecast, a demand forecasting and inventory management consultancy. The package implements the methods we use in our [consulting](https://openforecast.org/consulting/) and teach in our [training courses](https://openforecast.org/training/).
