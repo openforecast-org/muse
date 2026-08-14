@@ -90,4 +90,4 @@ the code and its correctness rests with the package authors.
 
 ## About
 
-`muse` is developed and maintained by OpenForecast, a demand forecasting and inventory management consultancy. The package implements the methods we use in our [consulting](https://openforecast.org/consulting/) and teach in our [training courses](https://openforecast.org/training/).
+`muse` is developed and maintained by [OpenForecast](https://openforecast.org), a demand forecasting and inventory management consultancy. The package implements the methods we use in our [consulting](https://openforecast.org/consulting/) and teach in our [training courses](https://openforecast.org/training/).
