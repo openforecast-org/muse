@@ -240,7 +240,10 @@ test_that("plot(forecast(m)) dispatches to plot.smooth.forecast", {
     pdf(NULL)
     on.exit(dev.off())
     f <- forecast(m, h = 12)
-    expect_silent(plot(f))
+    # expect_no_error rather than expect_silent: greybox::graphmaker() (<= 2.0.9)
+    # subsets its 6-colour palette by a 5-element logical index, which R-devel
+    # (>= r90534) now warns about. That warning is outside muse.
+    expect_no_error(plot(f))
 })
 
 #### forecast.pts: interval / side / cumulative / scenarios ####

@@ -1,3 +1,13 @@
+muse v0.1.2
+=======
+
+Changes:
+
+* Fixed the test suite failing on R-devel (CRAN ERROR on r-devel Linux).
+  `plot(forecast(m))` warns there because R-devel now flags a logical index
+  whose length does not divide the vector, which greybox's `graphmaker()`
+  triggers; the test now checks for errors only.
+
 muse v0.1.1
 =======
 
