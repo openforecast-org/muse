@@ -1,13 +1,20 @@
 ---
 title: "Cran Comments"
 author: "Ivan Svetunkov"
-date: "27 July 2026"
+date: "15 September 2026"
 output: html_document
 ---
 
 ## Submission
 
-This is the CRAN submission of `muse` (version 0.1.1).
+This is an update of `muse` (version 0.1.2) fixing the ERRORs on the
+r-devel Linux check flavours (debian-gcc, fedora-clang, fedora-gcc).
+
+The failing test called `expect_silent(plot(forecast(m)))`.  Recent R-devel
+warns when a logical index length does not divide the vector length, and the
+plotting helper `greybox::graphmaker()` does exactly that when building the
+legend, so the plot emitted a warning.  The test now checks that the plot runs
+without error.
 
 ## Test environments
 
@@ -19,8 +26,6 @@ This is the CRAN submission of `muse` (version 0.1.1).
 `R CMD check --as-cran` produces no ERRORs or WARNINGs.
 
 Remaining NOTEs:
-
-* **New submission** -- this is the first release of the package.
 
 * **Installed size** -- the installed package is larger than 5 MB, almost
   entirely in `libs/` (the compiled shared object).  This is inherent to the
