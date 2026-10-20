@@ -38,3 +38,6 @@ po/*~
 rsconnect/
 .positai
 -UCLM9982840.Rhistory
+
+# Claude Code local settings
+.claude/settings.local.json

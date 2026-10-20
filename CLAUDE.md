@@ -33,6 +33,13 @@ sweep.  Before declaring any change complete, run **all** of:
 
 If any of these is red, the change is **not finished**.
 
+Nothing from Python is ever saved in the package root: the environment is
+`python/.venv` and all Python work, caches and build outputs stay in `python/`.
+Run ruff, mypy and pytest from `python/` with `python/.venv`, never from the root:
+ruff and mypy write `.ruff_cache`/`.mypy_cache` in the current directory
+whatever their config says. `.claude/settings.local.json` points
+`RUFF_CACHE_DIR` and `MYPY_CACHE_DIR` into `python/` as a safety net.
+
 ## Package overview
 
 `muse` ("Multiple Unobserved Sources of Error") is an R package implementing the PTS (Power / Trend / Seasonal) state-space model for time-series analysis and forecasting. It depends on `Rcpp`, `RcppArmadillo`, `greybox`, and `smooth`. License: LGPL-2.1.

@@ -26,3 +26,4 @@ tools/
 ^\.Rhistory$
 ^cran-comments\.md$
 ^CRAN-SUBMISSION$
+^\.pytest_cache$
