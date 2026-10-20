@@ -22,9 +22,9 @@ jobs:
         working-directory: python
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           # Cache the pip download/wheel cache (numpy/scipy/pandas etc.),
@@ -44,7 +44,7 @@ jobs:
       # ccache caches at the object level (keyed on preprocessed source) and
       # survives across runs, turning the rebuild into near-instant cache hits.
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2
+        uses: hendrikmuhs/ccache-action@v1.2.24
         with:
           key: ${{ runner.os }}-py-ccache
 

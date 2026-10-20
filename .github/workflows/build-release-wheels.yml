@@ -48,20 +48,20 @@ jobs:
           - { os: windows-latest, cibw-build: 'cp314-win_amd64',  tag: 'cp314-win' }
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # Cache the pre-built OpenBLAS install tree on Windows.  The download +
       # extract in CIBW_BEFORE_ALL_WINDOWS is ~30-60s; a cache hit makes it a
       # no-op.  Keyed on the OpenBLAS version so a bump invalidates the cache.
       - name: Cache OpenBLAS (Windows)
         if: runner.os == 'Windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: C:\openblas
           key: openblas-windows-0.3.33
 
       - name: Cache cibuildwheel
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/cibuildwheel
@@ -69,7 +69,7 @@ jobs:
           key: cibuildwheel-${{ matrix.tag }}-v1
 
       - name: Build & test wheels
-        uses: pypa/cibuildwheel@v3.1
+        uses: pypa/cibuildwheel@v4.3.1
         with:
           package-dir: python
           output-dir: wheelhouse
@@ -126,7 +126,7 @@ jobs:
           CIBW_TEST_COMMAND: pytest {project}/python/tests/test_functionality.py -v --tb=short
 
       - name: Upload wheels as artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.tag }}
           path: ./wheelhouse/*.whl
@@ -137,10 +137,10 @@ jobs:
     name: Build sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -149,7 +149,7 @@ jobs:
       - name: Build sdist
         run: python -m build --sdist python
       - name: Upload sdist artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: ./python/dist/*.tar.gz
@@ -164,14 +164,14 @@ jobs:
       contents: write   # create / update the draft release
     steps:
       - name: Download all wheel artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
           pattern: 'wheels-*'
 
       - name: Download sdist artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: sdist
           path: dist
@@ -180,7 +180,7 @@ jobs:
         run: ls -R dist/
 
       - name: Create or update draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           # draft: true => no git tag yet; GitHub creates it at
           # target_commitish when the user clicks "Publish release".
